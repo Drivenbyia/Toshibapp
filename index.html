@@ -72,7 +72,7 @@
             </div>
             
             <div class="flex items-center gap-3">
-                <div class="text-[10px] sm:text-xs font-semibold text-gray-500 bg-gray-100 px-2 py-1 rounded hidden sm:block">V17 - CLIMAT FROID</div>
+                <div class="text-[10px] sm:text-xs font-semibold text-gray-500 bg-gray-100 px-2 py-1 rounded hidden sm:block">V18 - FROID PHYSIQUE</div>
                 <button onclick="toggleDashboard(true)" class="flex items-center justify-center p-2 rounded-full bg-gray-100 text-gray-600 hover:bg-toshiba-red hover:text-white transition-colors" title="Mes Chantiers">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
                 </button>
@@ -185,7 +185,7 @@
         // --- STATE ---
         let state = { 
             mode: 'mono', 
-            rooms: [{ id: 1, surface: '', height: 2.5 }],
+            rooms: [{ id: 1, surface: '', height: 2.5, exposure: 'normal' }],
             lastResultData: null 
         };
 
@@ -341,64 +341,52 @@
         }
 
         // --- CORE ALGORITHM ---
-        // Coef climatique été selon zone (besoins froid)
-        // Zones A/C/D (océanique nord, peu chaud) → -15%
-        // Zones B/E/F (tempéré standard) → référence
-        // Zones G/I (continental sud, Pyrénées, Alpes méridionales) → +10%
-        // Zone H (méditerranéen / DOM) → +25%
-        function getCoefClimatFroid(zone) {
-            if (['A','C','D'].includes(zone)) return 0.85;
-            if (['G','I'].includes(zone)) return 1.10;
-            if (zone === 'H') return 1.25;
-            return 1.0; // B, E, F
-        }
-
-        // Coef consigne intérieure été : chaque degré au-dessus de 26°C ≈ −12% besoin froid
-        function getCoefConsigne(consigne) {
-            return 1 + (26 - consigne) * 0.12;
-        }
+        // Apports solaires (W/m² de surface au sol) selon l'exposition de la pièce.
+        // Poste dominant du besoin de froid en été.
+        const APPORTS_SOLAIRES = { faible: 15, normal: 30, fort: 55 };
+        // Apports internes (occupants + équipements), résidentiel (W/m²).
+        const APPORTS_INTERNES = 5;
 
         function updateClimateInfo() {
             const code = document.getElementById('deptSelect').value;
             const alt = document.getElementById('altitude').value;
             const zone = DEPARTMENTS[code].zone;
-            const tBase = tBaseMatrix[alt][zone];
-            const coefClim = getCoefClimatFroid(zone);
+            const tBaseHiver = tBaseMatrix[alt][zone];
+            const tBaseEte = tBaseEteMatrix[alt][zone];
             const consigneEl = document.getElementById('consigneInt');
             const consigne = consigneEl ? parseFloat(consigneEl.value) : 26;
-            const coefCons = getCoefConsigne(consigne);
-            const coefTotal = (coefClim * coefCons).toFixed(2);
-            document.getElementById('climate-diagnostic').innerHTML = `Zone <b>${zone}</b> • T base hiver : <b>${tBase}°C</b> • Coef froid : <b>×${coefTotal}</b> <span class="text-gray-400">(clim ×${coefClim} • consigne ${consigne}°C ×${coefCons.toFixed(2)})</span>`;
+            document.getElementById('climate-diagnostic').innerHTML = `Zone <b>${zone}</b> • T base hiver : <b>${tBaseHiver}°C</b> • T base été : <b>${tBaseEte}°C</b> • Consigne été : <b>${consigne}°C</b>`;
         }
 
-        function getRequiredKw(surface, height) {
+        function getRequiredKw(surface, height, exposure) {
             const selectVal = document.getElementById('isolationCoef').value;
             const coefG = selectVal === 'custom' ? parseFloat(document.getElementById('customCoef').value) : parseFloat(selectVal);
             const code = document.getElementById('deptSelect').value;
             const alt = document.getElementById('altitude').value;
-            const tBase = tBaseMatrix[alt][DEPARTMENTS[code].zone];
+            const zone = DEPARTMENTS[code].zone;
+            const tBaseHiver = tBaseMatrix[alt][zone];
+            const tBaseEte = tBaseEteMatrix[alt][zone];
 
             const volume = surface * height;
-            const deltaTChaud = 20 - tBase;
+
+            // --- CHAUD : méthode déperditions (coefficient volumique G · V · ΔT) ---
+            const deltaTChaud = 20 - tBaseHiver;
             const deperditionsSeches = (volume * coefG * deltaTChaud) / 1000;
-            const COEF_RELANCE = 1.20; 
+            const COEF_RELANCE = 1.20;
             const besoinChaud = deperditionsSeches * COEF_RELANCE;
 
-            let ratioFroidWm3 = 45; 
-            if (coefG <= 0.5) ratioFroidWm3 = 30;      
-            else if (coefG <= 0.8) ratioFroidWm3 = 40; 
-            else if (coefG <= 1.2) ratioFroidWm3 = 45; 
-            else if (coefG <= 1.6) ratioFroidWm3 = 50; 
-            else ratioFroidWm3 = 60;                   
-
-            // V17 : pondération climatique zone + consigne intérieure
-            const zone = DEPARTMENTS[code].zone;
-            const coefClimFroid = getCoefClimatFroid(zone);
+            // --- FROID : modèle physique (transmission + solaire + internes + renouvellement d'air) ---
             const consigneEl = document.getElementById('consigneInt');
             const consigne = consigneEl ? parseFloat(consigneEl.value) : 26;
-            const coefConsigne = getCoefConsigne(consigne);
+            const deltaTEte = Math.max(0, tBaseEte - consigne);
+            const ratioSolaire = APPORTS_SOLAIRES[exposure] ?? APPORTS_SOLAIRES.normal;
 
-            const besoinFroid = (volume * ratioFroidWm3 * coefClimFroid * coefConsigne) / 1000;
+            const qTransmission   = coefG * volume * deltaTEte;           // W — conduction par l'enveloppe
+            const qRenouvellement = 0.34 * (0.6 * volume) * deltaTEte;    // W — ventilation/infiltration (~0,6 vol/h)
+            const qSolaire        = ratioSolaire * surface;              // W — apports solaires
+            const qInternes       = APPORTS_INTERNES * surface;          // W — occupants + équipements
+
+            const besoinFroid = (qTransmission + qRenouvellement + qSolaire + qInternes) / 1000;
 
             return { froid: besoinFroid, chaud: besoinChaud };
         }
@@ -455,6 +443,14 @@
                                 <input type="number" oninput="updateRoom(${room.id}, 'height', this.value)" value="${room.height}" step="0.1" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-toshiba-red outline-none">
                             </div>
                         </div>
+                        <div class="mt-4">
+                            <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Exposition solaire</label>
+                            <select onchange="updateRoom(${room.id}, 'exposure', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-toshiba-red outline-none">
+                                <option value="faible" ${room.exposure === 'faible' ? 'selected' : ''}>Faible – Nord, peu vitré, volets/protections</option>
+                                <option value="normal" ${room.exposure === 'normal' ? 'selected' : ''}>Normal – Vitrage standard, orientation mixte</option>
+                                <option value="fort" ${room.exposure === 'fort' ? 'selected' : ''}>Fort – Grandes baies Sud/Ouest peu protégées</option>
+                            </select>
+                        </div>
                     </div>
                 `);
             });
@@ -463,9 +459,14 @@
             }
         }
 
-        function addRoom() { state.rooms.push({ id: Date.now(), surface: '', height: 2.5 }); renderRooms(); }
+        function addRoom() { state.rooms.push({ id: Date.now(), surface: '', height: 2.5, exposure: 'normal' }); renderRooms(); }
         function removeRoom(id) { state.rooms = state.rooms.filter(r => r.id !== id); renderRooms(); }
-        function updateRoom(id, field, value) { const r = state.rooms.find(x => x.id === id); if (r) r[field] = parseFloat(value) || ''; }
+        function updateRoom(id, field, value) {
+            const r = state.rooms.find(x => x.id === id);
+            if (!r) return;
+            if (field === 'exposure') r[field] = value;
+            else r[field] = parseFloat(value) || '';
+        }
 
         // --- ALGORITHME DE SÉLECTION INTELLIGENTE ---
         // V16: Ne retourne QUE les gammes qui ont exactement la meilleure (plus petite) puissance requise, avec une mini marge pour regrouper les équivalents
@@ -491,7 +492,7 @@
             state.lastResultData = { summaryText: "", equipments: [], roomDetails: [] }; 
 
             if (state.mode === 'mono') {
-                const req = getRequiredKw(state.rooms[0].surface, state.rooms[0].height);
+                const req = getRequiredKw(state.rooms[0].surface, state.rooms[0].height, state.rooms[0].exposure);
                 const size = getUiSizeForKw(req.froid, req.chaud);
                 state.lastResultData.roomDetails.push(`Pièce 1 : ${req.froid.toFixed(1)}kW F / ${req.chaud.toFixed(1)}kW C ➔ Taille ${size || 'HORS LIMITE'}`);
 
@@ -512,7 +513,7 @@
                 }
             } else {
                 let roomsData = state.rooms.map((r, i) => {
-                    let req = getRequiredKw(r.surface, r.height);
+                    let req = getRequiredKw(r.surface, r.height, r.exposure);
                     let size = getUiSizeForKw(req.froid, req.chaud);
                     state.lastResultData.roomDetails.push(`Pièce ${i+1} : ${req.froid.toFixed(1)}kW F / ${req.chaud.toFixed(1)}kW C ➔ Taille ${size || 'HORS LIMITE'}`);
                     return { index: i + 1, req: req, size: size, maxKw: Math.max(req.froid, req.chaud) };
@@ -722,7 +723,11 @@
         };
 
         const DEPARTMENTS = { "01": { name: "Ain", zone: "F" }, "02": { name: "Aisne", zone: "D" }, "03": { name: "Allier", zone: "F" }, "04": { name: "Alpes-de-Haute-Provence", zone: "I" }, "05": { name: "Hautes-Alpes", zone: "I" }, "06": { name: "Alpes-Maritimes", zone: "H" }, "07": { name: "Ardèche", zone: "I" }, "08": { name: "Ardennes", zone: "F" }, "09": { name: "Ariège", zone: "I" }, "10": { name: "Aube", zone: "F" }, "11": { name: "Aude", zone: "H" }, "12": { name: "Aveyron", zone: "G" }, "13": { name: "Bouches-du-Rhône", zone: "H" }, "14": { name: "Calvados", zone: "C" }, "15": { name: "Cantal", zone: "G" }, "16": { name: "Charente", zone: "B" }, "17": { name: "Charente-Maritime", zone: "B" }, "18": { name: "Cher", zone: "E" }, "19": { name: "Corrèze", zone: "G" }, "2A": { name: "Corse-du-Sud", zone: "H" }, "2B": { name: "Haute-Corse", zone: "H" }, "21": { name: "Côte-d'Or", zone: "F" }, "22": { name: "Côtes-d'Armor", zone: "A" }, "23": { name: "Creuse", zone: "G" }, "24": { name: "Dordogne", zone: "B" }, "25": { name: "Doubs", zone: "F" }, "26": { name: "Drôme", zone: "F" }, "27": { name: "Eure", zone: "C" }, "28": { name: "Eure-et-Loir", zone: "E" }, "29": { name: "Finistère", zone: "A" }, "30": { name: "Gard", zone: "H" }, "31": { name: "Haute-Garonne", zone: "I" }, "32": { name: "Gers", zone: "I" }, "33": { name: "Gironde", zone: "B" }, "34": { name: "Hérault", zone: "H" }, "35": { name: "Ille-et-Vilaine", zone: "A" }, "36": { name: "Indre", zone: "E" }, "37": { name: "Indre-et-Loire", zone: "E" }, "38": { name: "Isère", zone: "F" }, "39": { name: "Jura", zone: "F" }, "40": { name: "Landes", zone: "B" }, "41": { name: "Loir-et-Cher", zone: "E" }, "42": { name: "Loire", zone: "F" }, "43": { name: "Haute-Loire", zone: "F" }, "44": { name: "Loire-Atlantique", zone: "A" }, "45": { name: "Loiret", zone: "E" }, "46": { name: "Lot", zone: "B" }, "47": { name: "Lot-et-Garonne", zone: "B" }, "48": { name: "Lozère", zone: "G" }, "49": { name: "Maine-et-Loire", zone: "E" }, "50": { name: "Manche", zone: "C" }, "51": { name: "Marne", zone: "F" }, "52": { name: "Haute-Marne", zone: "F" }, "53": { name: "Mayenne", zone: "E" }, "54": { name: "Meurthe-et-Moselle", zone: "F" }, "55": { name: "Meuse", zone: "F" }, "56": { name: "Morbihan", zone: "A" }, "57": { name: "Moselle", zone: "F" }, "58": { name: "Nièvre", zone: "F" }, "59": { name: "Nord", zone: "D" }, "60": { name: "Oise", zone: "D" }, "61": { name: "Orne", zone: "C" }, "62": { name: "Pas-de-Calais", zone: "D" }, "63": { name: "Puy-de-Dôme", zone: "F" }, "64": { name: "Pyrénées-Atlantiques", zone: "B" }, "65": { name: "Hautes-Pyrénées", zone: "I" }, "66": { name: "Pyrénées-Orientales", zone: "H" }, "67": { name: "Bas-Rhin", zone: "F" }, "68": { name: "Haut-Rhin", zone: "F" }, "69": { name: "Rhône", zone: "F" }, "70": { name: "Haute-Saône", zone: "F" }, "71": { name: "Saône-et-Loire", zone: "F" }, "72": { name: "Sarthe", zone: "E" }, "73": { name: "Savoie", zone: "F" }, "74": { name: "Haute-Savoie", zone: "F" }, "75": { name: "Paris", zone: "D" }, "76": { name: "Seine-Maritime", zone: "C" }, "77": { name: "Seine-et-Marne", zone: "D" }, "78": { name: "Yvelines", zone: "D" }, "79": { name: "Deux-Sèvres", zone: "E" }, "80": { name: "Somme", zone: "D" }, "81": { name: "Tarn", zone: "I" }, "82": { name: "Tarn-et-Garonne", zone: "I" }, "83": { name: "Var", zone: "H" }, "84": { name: "Vaucluse", zone: "H" }, "85": { name: "Vendée", zone: "A" }, "86": { name: "Vienne", zone: "E" }, "87": { name: "Haute-Vienne", zone: "G" }, "88": { name: "Vosges", zone: "F" }, "89": { name: "Yonne", zone: "F" }, "90": { name: "Territoire de Belfort", zone: "F" }, "91": { name: "Essonne", zone: "D" }, "92": { name: "Hauts-de-Seine", zone: "D" }, "93": { name: "Seine-Saint-Denis", zone: "D" }, "94": { name: "Val-de-Marne", zone: "D" }, "95": { name: "Val-d'Oise", zone: "D" }, "971": { name: "Guadeloupe", zone: "H" }, "972": { name: "Martinique", zone: "H" }, "973": { name: "Guyane", zone: "H" }, "974": { name: "La Réunion", zone: "H" }, "976": { name: "Mayotte", zone: "H" } };
-        const tBaseMatrix = { "0 à 200m": { A: -2, B: -4, C: -5, D: -7, E: -8, F: -9, G: -10, H: -12, I: -15 }, "200 à 400m": { A: -4, B: -5, C: -6, D: -8, E: -9, F: -10, G: -11, H: -13, I: -15 }, "400 à 600m": { A: -6, B: -6, C: -7, D: -9, E: -11, F: -11, G: -13, H: -15, I: -19 }, "600 à 800m": { A: -8, B: -7, C: -8, D: -11, E: -13, F: -12, G: -14, H: -17, I: -21 }, "800 à 1000m": { A: -10, B: -8, C: -9, D: -13, E: -15, F: -13, G: -17, H: -19, I: -23 }, "1000 à 1200m": { A: -12, B: -9, C: -10, D: -14, E: -17, F: -13, G: -19, H: -21, I: -24 }, "1200 à 1400m": { A: -14, B: -10, C: -11, D: -15, E: -19, F: -13, G: -21, H: -23, I: -25 }, "1400 à 1600m": { A: -16, B: -10, C: -12, D: -15, E: -21, F: -13, G: -23, H: -24, I: -25 }, "1600 à 1800m": { A: -18, B: -10, C: -13, D: -15, E: -23, F: -13, G: -24, H: -24, I: -25 }, "1800 à 2000m": { A: -20, B: -10, C: -14, D: -15, E: -25, F: -13, G: -25, H: -24, I: -25 }, "2000 à 2200m": { A: -20, B: -10, C: -15, D: -15, E: -27, F: -13, G: -29, H: -24, I: -25 } };
+        // Températures de base HIVER (°C) par zone × altitude. Corrigé V18 : zones H (Méditerranée) et I (SO/piémont) avaient des bases hiver irréalistes.
+        const tBaseMatrix = { "0 à 200m": { A: -2, B: -4, C: -5, D: -7, E: -8, F: -9, G: -10, H: -5, I: -6 }, "200 à 400m": { A: -4, B: -5, C: -6, D: -8, E: -9, F: -10, G: -11, H: -6, I: -7 }, "400 à 600m": { A: -6, B: -6, C: -7, D: -9, E: -11, F: -11, G: -13, H: -7, I: -8 }, "600 à 800m": { A: -8, B: -7, C: -8, D: -11, E: -13, F: -12, G: -14, H: -9, I: -10 }, "800 à 1000m": { A: -10, B: -8, C: -9, D: -13, E: -15, F: -13, G: -17, H: -10, I: -11 }, "1000 à 1200m": { A: -12, B: -9, C: -10, D: -14, E: -17, F: -13, G: -19, H: -11, I: -12 }, "1200 à 1400m": { A: -14, B: -10, C: -11, D: -15, E: -19, F: -13, G: -21, H: -12, I: -13 }, "1400 à 1600m": { A: -16, B: -10, C: -12, D: -15, E: -21, F: -13, G: -23, H: -13, I: -14 }, "1600 à 1800m": { A: -18, B: -10, C: -13, D: -15, E: -23, F: -13, G: -24, H: -15, I: -16 }, "1800 à 2000m": { A: -20, B: -10, C: -14, D: -15, E: -25, F: -13, G: -25, H: -16, I: -17 }, "2000 à 2200m": { A: -20, B: -10, C: -15, D: -15, E: -27, F: -13, G: -29, H: -17, I: -18 } };
+
+        // Températures de base ÉTÉ (°C) par zone × altitude. Nouveau V18 : base du calcul de froid physique (ΔT été réel). Gradient -0,6°C/100m.
+        const tBaseEteMatrix = { "0 à 200m": { A: 28, B: 32, C: 28, D: 30, E: 31, F: 33, G: 30, H: 34, I: 34 }, "200 à 400m": { A: 27, B: 31, C: 27, D: 29, E: 30, F: 32, G: 29, H: 33, I: 33 }, "400 à 600m": { A: 26, B: 30, C: 26, D: 28, E: 29, F: 31, G: 28, H: 32, I: 32 }, "600 à 800m": { A: 24, B: 28, C: 24, D: 26, E: 27, F: 29, G: 26, H: 30, I: 30 }, "800 à 1000m": { A: 23, B: 27, C: 23, D: 25, E: 26, F: 28, G: 25, H: 29, I: 29 }, "1000 à 1200m": { A: 22, B: 26, C: 22, D: 24, E: 25, F: 27, G: 24, H: 28, I: 28 }, "1200 à 1400m": { A: 21, B: 25, C: 21, D: 23, E: 24, F: 26, G: 23, H: 27, I: 27 }, "1400 à 1600m": { A: 20, B: 24, C: 20, D: 22, E: 23, F: 25, G: 22, H: 26, I: 26 }, "1600 à 1800m": { A: 18, B: 22, C: 18, D: 20, E: 21, F: 23, G: 20, H: 24, I: 24 }, "1800 à 2000m": { A: 17, B: 21, C: 17, D: 19, E: 20, F: 22, G: 19, H: 23, I: 23 }, "2000 à 2200m": { A: 16, B: 20, C: 16, D: 18, E: 19, F: 21, G: 18, H: 22, I: 22 } };
 
         // --- PWA ---
         const manifest = {
