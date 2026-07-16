@@ -649,6 +649,30 @@
             </div>`;
         }
 
+        // Fiche "carte d'identité" de la gamme, dépliable sous la carte résultat. Retourne '' si gamme inconnue.
+        function renderGammeGuide(gammeName) {
+            const g = GAMMES_INFO[gammeName];
+            if (!g) return '';
+            const wifiColor = g.wifi === 'De série' ? 'text-green-600' : 'text-amber-600';
+            return `
+            <details class="mt-4 pt-3 border-t border-gray-100 group/guide">
+                <summary class="cursor-pointer text-[11px] font-bold text-gray-500 hover:text-toshiba-red flex items-center gap-1.5 select-none">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    Guide de la gamme
+                    <span class="ml-auto text-[10px] font-extrabold bg-gray-100 text-gray-600 px-2 py-0.5 rounded">${g.tier}</span>
+                    <svg class="w-4 h-4 transition-transform group-open/guide:rotate-180 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                </summary>
+                <div class="mt-3 flex flex-col gap-2 text-[11px]">
+                    <div class="bg-gray-50 rounded-lg p-2.5 text-gray-700"><span class="font-bold text-gray-500 uppercase text-[9px] tracking-wider">Idéal pour</span><br>${g.ideal}</div>
+                    <div class="flex flex-col gap-1">
+                        ${g.plus.map(p => `<div class="flex items-start gap-1.5 text-green-700"><span class="font-bold">✓</span><span>${p}</span></div>`).join('')}
+                        ${g.moins.map(m => `<div class="flex items-start gap-1.5 text-amber-700"><span class="font-bold">!</span><span>${m}</span></div>`).join('')}
+                    </div>
+                    <div class="text-[10px] text-gray-400 font-medium">Wifi : <span class="${wifiColor} font-bold">${g.wifi}</span></div>
+                </div>
+            </details>`;
+        }
+
         function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = false, sizes = []) {
             let footer = '';
             if (isMulti) {
@@ -678,6 +702,7 @@
                         </div>
                     </div>
                 </div>
+                ${renderGammeGuide(mainTitle)}
                 ${footer}
             </div>`;
         }
@@ -685,9 +710,14 @@
         // --- DONNÉES EN DUR ---
         const DB = {
             monosplits: [
-                { gamme: "Super Heating", reference_ensemble: "RAS-25G3AVSG-ND / RAS-B25G3KVSG-ND", puissance_froid_kw: 2.8, puissance_chaud_kw: 3.2 },
-                { gamme: "Super Heating", reference_ensemble: "RAS-35G3AVSG-ND / RAS-B35G3KVSG-ND", puissance_froid_kw: 3.5, puissance_chaud_kw: 4.2 },
-                { gamme: "Super Heating", reference_ensemble: "RAS-50G3AVSG-ND / RAS-B50G3KVSG-ND", puissance_froid_kw: 5.0, puissance_chaud_kw: 6.0 },
+                // --- NAKA (entrée de gamme) ---
+                { gamme: "Naka", reference_ensemble: "RAS-05B2AVG-E / RAS-B05B2KVG-E", puissance_froid_kw: 1.5, puissance_chaud_kw: 2.0 },
+                { gamme: "Naka", reference_ensemble: "RAS-07B2AVG-E / RAS-B07B2KVG-E", puissance_froid_kw: 2.0, puissance_chaud_kw: 2.5 },
+                { gamme: "Naka", reference_ensemble: "RAS-10B2AVG-E / RAS-B10B2KVG-E", puissance_froid_kw: 2.5, puissance_chaud_kw: 3.2 },
+                { gamme: "Naka", reference_ensemble: "RAS-13B2AVG-E / RAS-B13B2KVG-E", puissance_froid_kw: 3.3, puissance_chaud_kw: 3.6 },
+                { gamme: "Naka", reference_ensemble: "RAS-16B2AVG-E / RAS-B16B2KVG-E", puissance_froid_kw: 4.2, puissance_chaud_kw: 5.0 },
+                { gamme: "Naka", reference_ensemble: "RAS-18B2AVG-E / RAS-B18B2KVG-E", puissance_froid_kw: 5.0, puissance_chaud_kw: 5.4 },
+                { gamme: "Naka", reference_ensemble: "RAS-24B2AVG-E / RAS-B24B2KVG-E", puissance_froid_kw: 6.5, puissance_chaud_kw: 7.0 },
                 { gamme: "Daiseikai 10", reference_ensemble: "RAS-10S4AVPG-E / RAS-B10S4KVDG-E", puissance_froid_kw: 2.5, puissance_chaud_kw: 3.2 },
                 { gamme: "Daiseikai 10", reference_ensemble: "RAS-13S4AVPG-E / RAS-B13S4KVDG-E", puissance_froid_kw: 3.5, puissance_chaud_kw: 4.0 },
                 { gamme: "Daiseikai 10", reference_ensemble: "RAS-18S4AVPG-E / RAS-B18S4KVDG-E", puissance_froid_kw: 5.0, puissance_chaud_kw: 6.0 },
@@ -722,6 +752,47 @@
                 { reference: "RAS-4M27G3AVG-E", max_unites_interieures: 4, puissance_nominale_froid_kw: 8.0, puissance_nominale_chaud_kw: 9.0 },
                 { reference: "RAS-5M34G3AVG-E/ET", max_unites_interieures: 5, puissance_nominale_froid_kw: 10.0, puissance_nominale_chaud_kw: 12.0 }
             ]
+        };
+
+        // --- GUIDE DES GAMMES (fiche affichée sous chaque solution) ---
+        // Données factuelles (source Toshiba). Purement informatif, n'influence pas la sélection.
+        const GAMMES_INFO = {
+            "Naka": {
+                tier: "€ · Entrée de gamme", wifi: "Option",
+                plus: ["Meilleur rapport qualité/prix", "Silencieux (dès 19 dB)", "Compatible mono & multisplit"],
+                moins: ["Wifi en option", "Chauffage A+ : moins tenace par grand froid"],
+                ideal: "Froid + chauffage d'appoint, budget maîtrisé"
+            },
+            "Yukai": {
+                tier: "€ · Entrée / milieu", wifi: "Option",
+                plus: ["Filtre Ultra-Fresh de série", "SCOP jusqu'à 4,6", "Fonctionne jusqu'à −15 °C"],
+                moins: ["Wifi en option", "Moins performante que Daiseikai par grand froid"],
+                ideal: "Pièce principale, bon équilibre froid / chaud"
+            },
+            "Shorai Edge": {
+                tier: "€€ · Milieu / haut de gamme", wifi: "De série",
+                plus: ["A+++ froid ET chaud (SCOP 5,1)", "Très silencieux (19 dB)", "Wifi intégré de série", "Design compact noir / blanc"],
+                moins: ["Plus chère que l'entrée de gamme"],
+                ideal: "Chauffage principal en climat doux / tempéré"
+            },
+            "Haori": {
+                tier: "€€€ · Haut de gamme design", wifi: "De série",
+                plus: ["Habillage textile personnalisable (14 coloris)", "A+++ / 19 dB", "Ioniseur plasma + diffusion 3D", "Wifi de série"],
+                moins: ["Prix élevé", "Puissances limitées (2,5–4,6 kW)", "Textile à entretenir"],
+                ideal: "Salon / pièce à vivre où l'esthétique prime"
+            },
+            "Daiseikai 10": {
+                tier: "€€€ · Haut de gamme chauffage", wifi: "De série",
+                plus: ["Meilleur SCOP du marché (5,3)", "SEER jusqu'à 10,7", "Fonctionne jusqu'à −15 °C", "Détection de présence"],
+                moins: ["Prix élevé", "Puissances limitées (2,5–5,0 kW)"],
+                ideal: "Chauffage principal, recherche du meilleur rendement"
+            },
+            "Console Double-Flux": {
+                tier: "€€ · Format console", wifi: "Selon modèle",
+                plus: ["Pose basse en allège (sous fenêtre)", "Double flux d'air haut / bas", "Remplace idéalement un radiateur"],
+                moins: ["Encombrement au sol", "Choix de puissances limité"],
+                ideal: "Remplacement de radiateur, diffusion type chauffage central"
+            }
         };
 
         const DEPARTMENTS = { "01": { name: "Ain", zone: "F" }, "02": { name: "Aisne", zone: "D" }, "03": { name: "Allier", zone: "F" }, "04": { name: "Alpes-de-Haute-Provence", zone: "I" }, "05": { name: "Hautes-Alpes", zone: "I" }, "06": { name: "Alpes-Maritimes", zone: "H" }, "07": { name: "Ardèche", zone: "I" }, "08": { name: "Ardennes", zone: "F" }, "09": { name: "Ariège", zone: "I" }, "10": { name: "Aube", zone: "F" }, "11": { name: "Aude", zone: "H" }, "12": { name: "Aveyron", zone: "G" }, "13": { name: "Bouches-du-Rhône", zone: "H" }, "14": { name: "Calvados", zone: "C" }, "15": { name: "Cantal", zone: "G" }, "16": { name: "Charente", zone: "B" }, "17": { name: "Charente-Maritime", zone: "B" }, "18": { name: "Cher", zone: "E" }, "19": { name: "Corrèze", zone: "G" }, "2A": { name: "Corse-du-Sud", zone: "H" }, "2B": { name: "Haute-Corse", zone: "H" }, "21": { name: "Côte-d'Or", zone: "F" }, "22": { name: "Côtes-d'Armor", zone: "A" }, "23": { name: "Creuse", zone: "G" }, "24": { name: "Dordogne", zone: "B" }, "25": { name: "Doubs", zone: "F" }, "26": { name: "Drôme", zone: "F" }, "27": { name: "Eure", zone: "C" }, "28": { name: "Eure-et-Loir", zone: "E" }, "29": { name: "Finistère", zone: "A" }, "30": { name: "Gard", zone: "H" }, "31": { name: "Haute-Garonne", zone: "I" }, "32": { name: "Gers", zone: "I" }, "33": { name: "Gironde", zone: "B" }, "34": { name: "Hérault", zone: "H" }, "35": { name: "Ille-et-Vilaine", zone: "A" }, "36": { name: "Indre", zone: "E" }, "37": { name: "Indre-et-Loire", zone: "E" }, "38": { name: "Isère", zone: "F" }, "39": { name: "Jura", zone: "F" }, "40": { name: "Landes", zone: "B" }, "41": { name: "Loir-et-Cher", zone: "E" }, "42": { name: "Loire", zone: "F" }, "43": { name: "Haute-Loire", zone: "F" }, "44": { name: "Loire-Atlantique", zone: "A" }, "45": { name: "Loiret", zone: "E" }, "46": { name: "Lot", zone: "B" }, "47": { name: "Lot-et-Garonne", zone: "B" }, "48": { name: "Lozère", zone: "G" }, "49": { name: "Maine-et-Loire", zone: "E" }, "50": { name: "Manche", zone: "C" }, "51": { name: "Marne", zone: "F" }, "52": { name: "Haute-Marne", zone: "F" }, "53": { name: "Mayenne", zone: "E" }, "54": { name: "Meurthe-et-Moselle", zone: "F" }, "55": { name: "Meuse", zone: "F" }, "56": { name: "Morbihan", zone: "A" }, "57": { name: "Moselle", zone: "F" }, "58": { name: "Nièvre", zone: "F" }, "59": { name: "Nord", zone: "D" }, "60": { name: "Oise", zone: "D" }, "61": { name: "Orne", zone: "C" }, "62": { name: "Pas-de-Calais", zone: "D" }, "63": { name: "Puy-de-Dôme", zone: "F" }, "64": { name: "Pyrénées-Atlantiques", zone: "B" }, "65": { name: "Hautes-Pyrénées", zone: "I" }, "66": { name: "Pyrénées-Orientales", zone: "H" }, "67": { name: "Bas-Rhin", zone: "F" }, "68": { name: "Haut-Rhin", zone: "F" }, "69": { name: "Rhône", zone: "F" }, "70": { name: "Haute-Saône", zone: "F" }, "71": { name: "Saône-et-Loire", zone: "F" }, "72": { name: "Sarthe", zone: "E" }, "73": { name: "Savoie", zone: "F" }, "74": { name: "Haute-Savoie", zone: "F" }, "75": { name: "Paris", zone: "D" }, "76": { name: "Seine-Maritime", zone: "C" }, "77": { name: "Seine-et-Marne", zone: "D" }, "78": { name: "Yvelines", zone: "D" }, "79": { name: "Deux-Sèvres", zone: "E" }, "80": { name: "Somme", zone: "D" }, "81": { name: "Tarn", zone: "I" }, "82": { name: "Tarn-et-Garonne", zone: "I" }, "83": { name: "Var", zone: "H" }, "84": { name: "Vaucluse", zone: "H" }, "85": { name: "Vendée", zone: "A" }, "86": { name: "Vienne", zone: "E" }, "87": { name: "Haute-Vienne", zone: "G" }, "88": { name: "Vosges", zone: "F" }, "89": { name: "Yonne", zone: "F" }, "90": { name: "Territoire de Belfort", zone: "F" }, "91": { name: "Essonne", zone: "D" }, "92": { name: "Hauts-de-Seine", zone: "D" }, "93": { name: "Seine-Saint-Denis", zone: "D" }, "94": { name: "Val-de-Marne", zone: "D" }, "95": { name: "Val-d'Oise", zone: "D" }, "971": { name: "Guadeloupe", zone: "H" }, "972": { name: "Martinique", zone: "H" }, "973": { name: "Guyane", zone: "H" }, "974": { name: "La Réunion", zone: "H" }, "976": { name: "Mayotte", zone: "H" } };
