@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Toshiba - Outil de Dimensionnement B2B</title>
+    
+    <!-- Balises PWA -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="mobile-web-app-capable" content="yes">
+    <link rel="manifest" id="dynamic-manifest">
+    
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%23FF0000'/%3E%3Cpath d='M4 7h16v2H4V7zm4 4h8v2H8v-2zm-4 4h16v2H4v-2z' fill='%23ffffff'/%3E%3C/svg%3E">
+    <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%23FF0000'/%3E%3Cpath d='M4 7h16v2H4V7zm4 4h8v2H8v-2zm-4 4h16v2H4v-2z' fill='%23ffffff'/%3E%3C/svg%3E">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        toshiba: {
+                            red: '#FF0000',
+                            dark: '#111111',
+                            gray: '#F3F4F6'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #FF0000; }
+        
+        .fade-in { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { 
+            -webkit-appearance: none; margin: 0; 
+        }
+
+        .select-custom {
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%236B7280'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 0.5rem center;
+            background-size: 1.25em;
+        }
+
+        details > summary { list-style: none; }
+        details > summary::-webkit-details-marker { display: none; }
+    </style>
+</head>
+<body class="bg-toshiba-gray text-gray-800 font-sans antialiased min-h-screen flex flex-col">
+
+    <!-- Header -->
+    <header class="bg-white shadow-sm border-b-4 border-toshiba-red sticky top-0 z-50">
+        <div class="max-w-3xl mx-auto px-4 h-16 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+                <svg class="w-8 h-8 text-toshiba-red" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M2 7h20v2H2V7zm4 4h12v2H6v-2zm-4 4h20v2H2v-2z"/>
+                </svg>
+                <h1 class="text-xl font-bold tracking-tight text-toshiba-dark cursor-pointer" onclick="toggleDashboard(false)">ProSizer <span class="text-toshiba-red">B2B</span></h1>
+            </div>
+            
+            <div class="flex items-center gap-3">
+                <div class="text-[10px] sm:text-xs font-semibold text-gray-500 bg-gray-100 px-2 py-1 rounded hidden sm:block">V17 - CLIMAT FROID</div>
+                <button onclick="toggleDashboard(true)" class="flex items-center justify-center p-2 rounded-full bg-gray-100 text-gray-600 hover:bg-toshiba-red hover:text-white transition-colors" title="Mes Chantiers">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- ==== VUE 1 : SIMULATEUR ==== -->
+    <main id="app-main" class="flex-grow max-w-3xl mx-auto w-full px-4 py-6 flex flex-col gap-6">
+        
+        <!-- Configuration Card -->
+        <section class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 fade-in">
+            <div class="flex flex-col gap-4">
+                <h2 class="text-lg font-semibold text-toshiba-dark flex items-center gap-2">
+                    <span class="w-2 h-6 bg-toshiba-red rounded-full"></span>
+                    1. Paramètres Techniques & Localisation
+                </h2>
+
+                <div class="grid grid-cols-1 gap-4 bg-gray-50 p-4 rounded-xl border border-gray-100">
+                    <div class="flex flex-col gap-2">
+                        <label for="isolationCoef" class="text-xs font-bold uppercase text-gray-500 tracking-wider">Niveau d'Isolation (G)</label>
+                        <div class="flex gap-2">
+                            <select id="isolationCoef" onchange="toggleCustomCoef()" class="select-custom flex-grow p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-toshiba-red outline-none transition-all">
+                                <option value="2.0">Avant 1974 (Aucune isolation) - G: 2.0</option>
+                                <option value="1.2">1974 à 1988 (Isolation basique) - G: 1.2</option>
+                                <option value="1.1">1989 à 2000 (Années 90) - G: 1.1</option>
+                                <option value="0.8" selected>2001 à 2012 (RT 2000/2005) - G: 0.8</option>
+                                <option value="0.35">2013 à 2021 (Maison récente RT 2012) - G: 0.35</option>
+                                <option value="0.25">Après 2022 (Neuf RE 2020) - G: 0.25</option>
+                                <option value="3.0">Véranda (Très déperditif) - G: 3.0</option>
+                                <option value="custom">Saisie personnalisée...</option>
+                            </select>
+                            <input type="number" id="customCoef" step="0.01" min="0.1" value="0.65" class="hidden w-24 p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-toshiba-red outline-none transition-all" placeholder="Ex: 0.65">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div class="flex flex-col gap-2">
+                            <label for="deptSelect" class="text-xs font-bold uppercase text-toshiba-red tracking-wider">Département</label>
+                            <select id="deptSelect" onchange="updateClimateInfo()" class="select-custom p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-toshiba-red outline-none transition-all"></select>
+                        </div>
+                        <div class="flex flex-col gap-2">
+                            <label for="altitude" class="text-xs font-bold uppercase text-toshiba-red tracking-wider">Altitude</label>
+                            <select id="altitude" onchange="updateClimateInfo()" class="select-custom p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-toshiba-red outline-none transition-all">
+                                <option value="0 à 200m" selected>0 à 200m</option>
+                                <option value="200 à 400m">200 à 400m</option>
+                                <option value="400 à 600m">400 à 600m</option>
+                                <option value="600 à 800m">600 à 800m</option>
+                                <option value="800 à 1000m">800 à 1000m</option>
+                                <option value="1000 à 1200m">1000 à 1200m</option>
+                                <option value="1200 à 1400m">1200 à 1400m</option>
+                                <option value="1400 à 1600m">1400 à 1600m</option>
+                                <option value="1600 à 1800m">1600 à 1800m</option>
+                                <option value="1800 à 2000m">1800 à 2000m</option>
+                                <option value="2000 à 2200m">2000 à 2200m</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="flex flex-col gap-2">
+                        <label for="consigneInt" class="text-xs font-bold uppercase text-toshiba-red tracking-wider">Consigne Intérieure Été</label>
+                        <select id="consigneInt" onchange="updateClimateInfo()" class="select-custom p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-toshiba-red outline-none transition-all">
+                            <option value="25">25°C – Confort maximal (+12% froid)</option>
+                            <option value="26" selected>26°C – Standard (référence)</option>
+                            <option value="27">27°C – Optimisé (-12% froid)</option>
+                            <option value="28">28°C – Sobre / Budget (-24% froid)</option>
+                        </select>
+                    </div>
+
+                    <div id="climate-diagnostic" class="bg-white border border-red-100 rounded-lg p-3 text-xs text-center font-medium text-toshiba-red shadow-inner">
+                        Zone détectée : -- | Température de base : --
+                    </div>
+                </div>
+            </div>
+            
+            <div class="flex p-1 bg-gray-100 rounded-lg mt-6">
+                <button id="btn-mono" onclick="setMode('mono')" class="flex-1 py-2 text-sm font-medium rounded-md shadow-sm bg-white text-toshiba-red transition-all">Monosplit</button>
+                <button id="btn-multi" onclick="setMode('multi')" class="flex-1 py-2 text-sm font-medium rounded-md text-gray-500 hover:text-gray-700 transition-all">Multisplit</button>
+            </div>
+        </section>
+
+        <!-- Rooms Section -->
+        <section id="rooms-container" class="flex flex-col gap-4 fade-in"></section>
+
+        <!-- Calculate Button -->
+        <button onclick="calculate()" class="w-full bg-toshiba-red hover:bg-red-700 text-white font-bold py-4 rounded-xl shadow-lg transition-colors flex justify-center items-center gap-2 text-lg active:scale-95 transform transition">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+            Rechercher les solutions
+        </button>
+
+        <!-- Results Section -->
+        <section id="results-container" class="flex flex-col gap-4 pb-10"></section>
+
+    </main>
+
+    <!-- ==== VUE 2 : DASHBOARD CHANTIERS ==== -->
+    <main id="app-dashboard" class="hidden flex-grow max-w-3xl mx-auto w-full px-4 py-6 flex-col gap-6 fade-in">
+        <div class="flex items-center justify-between mb-4 border-b border-gray-200 pb-4">
+            <h2 class="text-2xl font-extrabold text-toshiba-dark flex items-center gap-2">
+                <svg class="w-6 h-6 text-toshiba-red" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
+                Mes Chantiers
+            </h2>
+            <button onclick="toggleDashboard(false)" class="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm font-bold hover:bg-gray-300 transition-colors">Fermer</button>
+        </div>
+        <div id="chantiers-list" class="flex flex-col gap-4 pb-10"></div>
+    </main>
+
+    <!-- ==== SCRIPTS ==== -->
+    <script>
+        // --- STATE ---
+        let state = { 
+            mode: 'mono', 
+            rooms: [{ id: 1, surface: '', height: 2.5 }],
+            lastResultData: null 
+        };
+
+        function initApp() {
+            const deptSelect = document.getElementById('deptSelect');
+            Object.keys(DEPARTMENTS).sort().forEach(code => {
+                const opt = document.createElement('option');
+                opt.value = code;
+                opt.textContent = `${code} - ${DEPARTMENTS[code].name}`;
+                if (code === "69") opt.selected = true;
+                deptSelect.appendChild(opt);
+            });
+            updateClimateInfo();
+            renderRooms();
+        }
+
+        // --- DASHBOARD & LOCALSTORAGE LOGIC ---
+        function toggleDashboard(show) {
+            if (show) {
+                document.getElementById('app-main').classList.add('hidden');
+                document.getElementById('app-main').classList.remove('flex');
+                document.getElementById('app-dashboard').classList.remove('hidden');
+                document.getElementById('app-dashboard').classList.add('flex');
+                renderDashboard();
+            } else {
+                document.getElementById('app-dashboard').classList.add('hidden');
+                document.getElementById('app-dashboard').classList.remove('flex');
+                document.getElementById('app-main').classList.remove('hidden');
+                document.getElementById('app-main').classList.add('flex');
+            }
+        }
+
+        function renderDashboard() {
+            const list = document.getElementById('chantiers-list');
+            const chantiers = JSON.parse(localStorage.getItem('toshiba_chantiers') || '{}');
+            const clients = Object.keys(chantiers);
+
+            if (clients.length === 0) {
+                list.innerHTML = `<div class="p-8 bg-gray-50 text-center text-gray-500 rounded-xl border border-gray-200 border-dashed italic">Aucun chantier enregistré pour le moment.</div>`;
+                return;
+            }
+
+            let html = '';
+            clients.forEach(client => {
+                const data = chantiers[client];
+                let configsHtml = data.configurations.map((cfg, i) => {
+                    const eqs = cfg.equipments || [];
+                    const rds = cfg.roomDetails || [];
+
+                    let detailsHtml = '';
+                    if (eqs.length > 0 || rds.length > 0) {
+                        detailsHtml = `
+                        <details class="mt-3 group bg-white rounded-lg border border-blue-100 overflow-hidden shadow-sm">
+                            <summary class="text-[11px] font-bold text-blue-600 bg-blue-50/50 p-2 cursor-pointer flex items-center justify-between hover:bg-blue-50 transition-colors">
+                                <span class="flex items-center gap-1.5">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                    Détails des Unités & Pièces
+                                </span>
+                                <svg class="w-4 h-4 transition-transform group-open:rotate-180 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                            </summary>
+                            <div class="p-3 text-[10px] text-gray-700 flex flex-col gap-2">
+                                ${eqs.length > 0 ? `<div><div class="font-extrabold text-gray-400 uppercase tracking-wider text-[8px] mb-1">Matériel Proposé :</div>${eqs.map(e => `<div class="font-medium text-toshiba-dark">• ${e}</div>`).join('')}</div>` : ''}
+                                ${rds.length > 0 ? `<div><div class="font-extrabold text-gray-400 uppercase tracking-wider text-[8px] mb-1 mt-1">Bilan par Pièce :</div>${rds.map(r => `<div>• ${r}</div>`).join('')}</div>` : ''}
+                            </div>
+                        </details>`;
+                    }
+
+                    return `
+                    <div class="flex justify-between items-start py-4 border-b border-gray-200 last:border-0 relative">
+                        <div class="w-full pr-8">
+                            <div class="flex items-center gap-2 mb-1">
+                                <span class="font-bold text-sm text-toshiba-dark">${cfg.zone}</span>
+                                <span class="text-[9px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded font-bold uppercase">${cfg.mode}</span>
+                            </div>
+                            <p class="text-xs text-toshiba-red font-bold uppercase tracking-tight">${cfg.resultStr}</p>
+                            ${detailsHtml}
+                            <p class="text-[9px] text-gray-400 mt-2 font-medium">${cfg.date}</p>
+                        </div>
+                        <button onclick="deleteConfig('${client}', ${i})" class="absolute right-0 top-3 text-gray-300 hover:text-red-500 p-2" title="Supprimer cette zone"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
+                    </div>
+                `}).join('');
+
+                html += `
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 fade-in">
+                    <div class="flex justify-between items-center mb-3">
+                        <h3 class="text-lg font-bold text-toshiba-dark flex items-center gap-2">
+                            <svg class="w-5 h-5 text-gray-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"></path></svg>
+                            ${client}
+                        </h3>
+                        <button onclick="deleteChantier('${client}')" class="text-[10px] font-bold text-red-500 hover:text-white border border-red-200 hover:bg-red-500 hover:border-red-500 transition-colors px-2 py-1 rounded">SUPPRIMER TOUT</button>
+                    </div>
+                    <div class="bg-gray-50 rounded-lg px-4 border border-gray-100">
+                        ${configsHtml}
+                    </div>
+                </div>`;
+            });
+            list.innerHTML = html;
+        }
+
+        function deleteChantier(clientName) {
+            if(confirm(`Supprimer définitivement le chantier ${clientName} ?`)) {
+                let chantiers = JSON.parse(localStorage.getItem('toshiba_chantiers') || '{}');
+                delete chantiers[clientName];
+                localStorage.setItem('toshiba_chantiers', JSON.stringify(chantiers));
+                renderDashboard();
+            }
+        }
+
+        function deleteConfig(clientName, index) {
+            let chantiers = JSON.parse(localStorage.getItem('toshiba_chantiers') || '{}');
+            chantiers[clientName].configurations.splice(index, 1);
+            if(chantiers[clientName].configurations.length === 0) delete chantiers[clientName];
+            localStorage.setItem('toshiba_chantiers', JSON.stringify(chantiers));
+            renderDashboard();
+        }
+
+        function populateClientDatalist() {
+            const dl = document.getElementById('client-list');
+            if(!dl) return;
+            const chantiers = JSON.parse(localStorage.getItem('toshiba_chantiers') || '{}');
+            dl.innerHTML = Object.keys(chantiers).map(c => `<option value="${c}">`).join('');
+        }
+
+        function saveChantier() {
+            const client = document.getElementById('save-client').value.trim();
+            const zone = document.getElementById('save-zone').value.trim();
+            const msgBox = document.getElementById('save-msg');
+
+            if(!client || !zone) {
+                msgBox.innerHTML = "Veuillez remplir le Client et la Zone.";
+                msgBox.className = "mt-3 text-xs font-bold text-center text-red-500 block";
+                return;
+            }
+
+            let chantiers = JSON.parse(localStorage.getItem('toshiba_chantiers') || '{}');
+            if(!chantiers[client]) chantiers[client] = { configurations: [] };
+
+            chantiers[client].configurations.push({
+                zone: zone,
+                mode: state.mode,
+                resultStr: state.lastResultData.summaryText,
+                equipments: state.lastResultData.equipments,
+                roomDetails: state.lastResultData.roomDetails,
+                date: new Date().toLocaleString('fr-FR', {day: '2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'})
+            });
+
+            localStorage.setItem('toshiba_chantiers', JSON.stringify(chantiers));
+            
+            document.getElementById('save-zone').value = '';
+            msgBox.innerHTML = "✅ Sauvegardé avec succès dans 'Mes Chantiers' !";
+            msgBox.className = "mt-3 text-xs font-bold text-center text-green-600 block";
+            populateClientDatalist();
+        }
+
+        // --- CORE ALGORITHM ---
+        // Coef climatique été selon zone (besoins froid)
+        // Zones A/C/D (océanique nord, peu chaud) → -15%
+        // Zones B/E/F (tempéré standard) → référence
+        // Zones G/I (continental sud, Pyrénées, Alpes méridionales) → +10%
+        // Zone H (méditerranéen / DOM) → +25%
+        function getCoefClimatFroid(zone) {
+            if (['A','C','D'].includes(zone)) return 0.85;
+            if (['G','I'].includes(zone)) return 1.10;
+            if (zone === 'H') return 1.25;
+            return 1.0; // B, E, F
+        }
+
+        // Coef consigne intérieure été : chaque degré au-dessus de 26°C ≈ −12% besoin froid
+        function getCoefConsigne(consigne) {
+            return 1 + (26 - consigne) * 0.12;
+        }
+
+        function updateClimateInfo() {
+            const code = document.getElementById('deptSelect').value;
+            const alt = document.getElementById('altitude').value;
+            const zone = DEPARTMENTS[code].zone;
+            const tBase = tBaseMatrix[alt][zone];
+            const coefClim = getCoefClimatFroid(zone);
+            const consigneEl = document.getElementById('consigneInt');
+            const consigne = consigneEl ? parseFloat(consigneEl.value) : 26;
+            const coefCons = getCoefConsigne(consigne);
+            const coefTotal = (coefClim * coefCons).toFixed(2);
+            document.getElementById('climate-diagnostic').innerHTML = `Zone <b>${zone}</b> • T base hiver : <b>${tBase}°C</b> • Coef froid : <b>×${coefTotal}</b> <span class="text-gray-400">(clim ×${coefClim} • consigne ${consigne}°C ×${coefCons.toFixed(2)})</span>`;
+        }
+
+        function getRequiredKw(surface, height) {
+            const selectVal = document.getElementById('isolationCoef').value;
+            const coefG = selectVal === 'custom' ? parseFloat(document.getElementById('customCoef').value) : parseFloat(selectVal);
+            const code = document.getElementById('deptSelect').value;
+            const alt = document.getElementById('altitude').value;
+            const tBase = tBaseMatrix[alt][DEPARTMENTS[code].zone];
+
+            const volume = surface * height;
+            const deltaTChaud = 20 - tBase;
+            const deperditionsSeches = (volume * coefG * deltaTChaud) / 1000;
+            const COEF_RELANCE = 1.20; 
+            const besoinChaud = deperditionsSeches * COEF_RELANCE;
+
+            let ratioFroidWm3 = 45; 
+            if (coefG <= 0.5) ratioFroidWm3 = 30;      
+            else if (coefG <= 0.8) ratioFroidWm3 = 40; 
+            else if (coefG <= 1.2) ratioFroidWm3 = 45; 
+            else if (coefG <= 1.6) ratioFroidWm3 = 50; 
+            else ratioFroidWm3 = 60;                   
+
+            // V17 : pondération climatique zone + consigne intérieure
+            const zone = DEPARTMENTS[code].zone;
+            const coefClimFroid = getCoefClimatFroid(zone);
+            const consigneEl = document.getElementById('consigneInt');
+            const consigne = consigneEl ? parseFloat(consigneEl.value) : 26;
+            const coefConsigne = getCoefConsigne(consigne);
+
+            const besoinFroid = (volume * ratioFroidWm3 * coefClimFroid * coefConsigne) / 1000;
+
+            return { froid: besoinFroid, chaud: besoinChaud };
+        }
+
+        function getUiSizeForKw(reqFroid, reqChaud) {
+            const maxReq = Math.max(reqFroid, reqChaud);
+            if (maxReq <= 2.0) return "05";
+            if (maxReq <= 2.5) return "07";
+            if (maxReq <= 3.2) return "10";
+            if (maxReq <= 4.2) return "13";
+            if (maxReq <= 5.5) return "16";
+            if (maxReq <= 6.0) return "18";
+            if (maxReq <= 7.0) return "22";
+            if (maxReq <= 8.0) return "24";
+            return null; 
+        }
+
+        function toggleCustomCoef() {
+            const select = document.getElementById('isolationCoef');
+            const customInput = document.getElementById('customCoef');
+            customInput.classList.toggle('hidden', select.value !== 'custom');
+            if (select.value === 'custom') customInput.focus();
+        }
+
+        function setMode(mode) {
+            state.mode = mode;
+            state.rooms = [state.rooms[0]];
+            const isMono = mode === 'mono';
+            document.getElementById('btn-mono').className = `flex-1 py-2 text-sm font-medium rounded-md transition-all ${isMono ? 'shadow-sm bg-white text-toshiba-red' : 'text-gray-500'}`;
+            document.getElementById('btn-multi').className = `flex-1 py-2 text-sm font-medium rounded-md transition-all ${!isMono ? 'shadow-sm bg-white text-toshiba-red' : 'text-gray-500'}`;
+            document.getElementById('results-container').innerHTML = '';
+            renderRooms();
+        }
+
+        function renderRooms() {
+            const container = document.getElementById('rooms-container');
+            container.innerHTML = '';
+            state.rooms.forEach((room, index) => {
+                const showRemove = state.mode === 'multi' && state.rooms.length > 1;
+                container.insertAdjacentHTML('beforeend', `
+                    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 fade-in relative">
+                        ${showRemove ? `<button onclick="removeRoom(${room.id})" class="absolute top-4 right-4 text-gray-300 hover:text-red-500 transition"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>` : ''}
+                        <h3 class="text-sm font-bold text-gray-700 mb-4 flex items-center gap-2 uppercase tracking-tight">
+                            <span class="bg-gray-100 text-gray-500 rounded-lg w-7 h-7 flex items-center justify-center text-xs border border-gray-200">${index + 1}</span>
+                            ${state.mode === 'multi' ? `Pièce ${index + 1}` : 'Volume de la pièce'}
+                        </h3>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Surface (m²)</label>
+                                <input type="number" oninput="updateRoom(${room.id}, 'surface', this.value)" value="${room.surface}" placeholder="Ex: 30" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-toshiba-red outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Hauteur (m)</label>
+                                <input type="number" oninput="updateRoom(${room.id}, 'height', this.value)" value="${room.height}" step="0.1" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-toshiba-red outline-none">
+                            </div>
+                        </div>
+                    </div>
+                `);
+            });
+            if (state.mode === 'multi' && state.rooms.length < 5) {
+                container.insertAdjacentHTML('beforeend', `<button onclick="addRoom()" class="w-full border-2 border-dashed border-gray-200 rounded-xl p-4 text-gray-400 hover:border-toshiba-red hover:text-toshiba-red transition-all flex items-center justify-center gap-2 font-bold text-sm bg-white">Ajouter une pièce (${state.rooms.length}/5)</button>`);
+            }
+        }
+
+        function addRoom() { state.rooms.push({ id: Date.now(), surface: '', height: 2.5 }); renderRooms(); }
+        function removeRoom(id) { state.rooms = state.rooms.filter(r => r.id !== id); renderRooms(); }
+        function updateRoom(id, field, value) { const r = state.rooms.find(x => x.id === id); if (r) r[field] = parseFloat(value) || ''; }
+
+        // --- ALGORITHME DE SÉLECTION INTELLIGENTE ---
+        // V16: Ne retourne QUE les gammes qui ont exactement la meilleure (plus petite) puissance requise, avec une mini marge pour regrouper les équivalents
+        function findBestMonos(reqF, reqC) {
+            let allSols = DB.monosplits.filter(p => p.puissance_froid_kw >= reqF && p.puissance_chaud_kw >= reqC)
+                                       .sort((a, b) => a.puissance_froid_kw - b.puissance_froid_kw);
+            
+            if (allSols.length === 0) return [];
+            
+            const minFroid = allSols[0].puissance_froid_kw;
+            // Tolérance de +15% max pour inclure les gammes alternatives équivalentes (ex: 4.6kW et 5.0kW)
+            return allSols.filter(p => p.puissance_froid_kw <= minFroid * 1.15);
+        }
+
+        function calculate() {
+            const resultsContainer = document.getElementById('results-container');
+            if (state.rooms.some(r => !r.surface)) {
+                resultsContainer.innerHTML = `<div class="p-4 bg-red-50 text-red-600 rounded-lg border border-red-200 text-sm font-medium">Saisie incomplète : indiquez la surface pour chaque pièce.</div>`;
+                return;
+            }
+
+            let html = `<h2 class="text-xl font-bold text-toshiba-dark flex items-center gap-2 mt-4"><span class="w-2 h-6 bg-toshiba-red rounded-full"></span>Solutions recommandées</h2>`;
+            state.lastResultData = { summaryText: "", equipments: [], roomDetails: [] }; 
+
+            if (state.mode === 'mono') {
+                const req = getRequiredKw(state.rooms[0].surface, state.rooms[0].height);
+                const size = getUiSizeForKw(req.froid, req.chaud);
+                state.lastResultData.roomDetails.push(`Pièce 1 : ${req.froid.toFixed(1)}kW F / ${req.chaud.toFixed(1)}kW C ➔ Taille ${size || 'HORS LIMITE'}`);
+
+                html += renderBesoinsCard([req]);
+                
+                let sols = findBestMonos(req.froid, req.chaud); 
+                
+                if (sols.length === 0) {
+                    html += `<div class="p-4 bg-orange-50 text-orange-800 rounded-lg text-sm italic">Aucun Monosplit du catalogue ne couvre ce niveau de puissance.</div>`;
+                    state.lastResultData.summaryText = "Aucune solution au catalogue";
+                } else {
+                    sols.forEach(sol => {
+                        html += renderCard("Monosplit Recommandé", sol.gamme, sol.reference_ensemble, sol.puissance_froid_kw, sol.puissance_chaud_kw, false);
+                    });
+                    
+                    state.lastResultData.summaryText = `1x Mono ${sols[0].gamme} ${sols.length > 1 ? `(+ ${sols.length - 1} autre${sols.length > 2 ? 's' : ''})` : ''}`;
+                    state.lastResultData.equipments.push(`Taille optimale estimée : ${sols[0].puissance_froid_kw} kW. Gammes compatibles : ${sols.map(s => s.gamme).join(' / ')}`);
+                }
+            } else {
+                let roomsData = state.rooms.map((r, i) => {
+                    let req = getRequiredKw(r.surface, r.height);
+                    let size = getUiSizeForKw(req.froid, req.chaud);
+                    state.lastResultData.roomDetails.push(`Pièce ${i+1} : ${req.froid.toFixed(1)}kW F / ${req.chaud.toFixed(1)}kW C ➔ Taille ${size || 'HORS LIMITE'}`);
+                    return { index: i + 1, req: req, size: size, maxKw: Math.max(req.froid, req.chaud) };
+                });
+
+                html += renderBesoinsCard(roomsData.map(r => r.req), true, roomsData);
+
+                let extractedForMono = roomsData.filter(r => r.size === null);
+                let standardRooms = roomsData.filter(r => r.size !== null);
+
+                const COEF_FOISONNEMENT = 1.25;
+                function findMultiGroup(roomsObj) {
+                    if(roomsObj.length === 0) return null;
+                    if(roomsObj.length === 1) return "MONO"; 
+                    
+                    let totF = roomsObj.reduce((sum, r) => sum + r.req.froid, 0);
+                    let totC = roomsObj.reduce((sum, r) => sum + r.req.chaud, 0);
+
+                    let validGroups = DB.multisplits_groupes_exterieurs.filter(g => 
+                        g.max_unites_interieures >= roomsObj.length &&
+                        (g.puissance_nominale_froid_kw * COEF_FOISONNEMENT) >= totF &&
+                        (g.puissance_nominale_chaud_kw * COEF_FOISONNEMENT) >= totC
+                    ).sort((a,b) => a.puissance_nominale_froid_kw - b.puissance_nominale_froid_kw);
+
+                    return validGroups.length > 0 ? validGroups[0] : null;
+                }
+
+                let bestGroup = findMultiGroup(standardRooms);
+
+                if (!bestGroup && standardRooms.length > 1) {
+                    standardRooms.sort((a, b) => b.maxKw - a.maxKw);
+                    while (!bestGroup && standardRooms.length > 1) {
+                        let biggestRoom = standardRooms.shift();
+                        extractedForMono.push(biggestRoom);
+                        bestGroup = findMultiGroup(standardRooms); 
+                    }
+                }
+
+                let summaryParts = [];
+
+                if (extractedForMono.length > 0) {
+                    html += `
+                    <div class="p-3 bg-blue-50 border-l-4 border-blue-500 text-blue-900 rounded-r-lg text-sm my-4 shadow-sm flex gap-3 items-start fade-in">
+                        <svg class="w-6 h-6 flex-shrink-0 mt-0.5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                        <div>
+                            <strong class="block mb-1 text-blue-700">Expertise CVC : Architecture Hybride</strong>
+                            Délestage requis : Monosplit(s) dédié(s) pour la/les plus grande(s) pièce(s), et un Multisplit pour le reste.
+                        </div>
+                    </div>`;
+
+                    extractedForMono.forEach(room => {
+                        let monoSols = findBestMonos(room.req.froid, room.req.chaud);
+                        if(monoSols.length > 0) {
+                            monoSols.forEach(sol => {
+                                html += renderCard(`Monosplit Dédié (Pièce ${room.index})`, sol.gamme, sol.reference_ensemble, sol.puissance_froid_kw, sol.puissance_chaud_kw, false);
+                            });
+                            summaryParts.push(`1x Mono ${monoSols[0].gamme}`);
+                            state.lastResultData.equipments.push(`Monosplit Dédié pour Pièce ${room.index} (Option suggérée : ${monoSols[0].gamme})`);
+                        } else {
+                            html += `<div class="p-4 bg-orange-50 text-orange-800 rounded-lg text-sm italic mb-4">Pièce ${room.index} : Puissance requise (${room.maxKw.toFixed(1)} kW) hors catalogue.</div>`;
+                            state.lastResultData.equipments.push(`Pièce ${room.index} : Aucune machine assez puissante`);
+                        }
+                    });
+                }
+
+                if (bestGroup === "MONO" && standardRooms.length === 1) {
+                    let monoSols = findBestMonos(standardRooms[0].req.froid, standardRooms[0].req.chaud);
+                    if(monoSols.length > 0) {
+                        monoSols.forEach(sol => {
+                            html += renderCard(`Monosplit Restant (Pièce ${standardRooms[0].index})`, sol.gamme, sol.reference_ensemble, sol.puissance_froid_kw, sol.puissance_chaud_kw, false);
+                        });
+                        summaryParts.push(`1x Mono ${monoSols[0].gamme}`);
+                        state.lastResultData.equipments.push(`Monosplit pour Pièce ${standardRooms[0].index} (Option suggérée : ${monoSols[0].gamme})`);
+                    }
+                } else if (bestGroup && bestGroup !== "MONO") {
+                    let sizesArr = standardRooms.map(r => r.size);
+                    html += renderCard(`Groupe Multisplit (${standardRooms.length} sorties)`, "Groupe Extérieur", bestGroup.reference, bestGroup.puissance_nominale_froid_kw, bestGroup.puissance_nominale_chaud_kw, true, sizesArr);
+                    summaryParts.push(`1x Multi ${bestGroup.reference} (${standardRooms.length} UI)`);
+                    state.lastResultData.equipments.push(`Groupe Extérieur ${bestGroup.reference} (Pour brancher les tailles : ${sizesArr.join(' + ')})`);
+                }
+
+                state.lastResultData.summaryText = summaryParts.join(' | ');
+            }
+
+            if(state.lastResultData.summaryText) {
+                html += `
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 mt-6 fade-in">
+                    <h3 class="text-sm font-bold text-toshiba-dark flex items-center gap-2 mb-4 uppercase tracking-wide">
+                        <svg class="w-5 h-5 text-toshiba-red" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
+                        Enregistrer au Chantier
+                    </h3>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                        <div>
+                            <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Nom du Client / Projet</label>
+                            <input type="text" id="save-client" list="client-list" placeholder="Ex: Dupont" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-toshiba-red outline-none">
+                            <datalist id="client-list"></datalist>
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Désignation de la Zone</label>
+                            <input type="text" id="save-zone" placeholder="Ex: RDC, Étage, Salon..." class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-toshiba-red outline-none">
+                        </div>
+                    </div>
+                    <button onclick="saveChantier()" class="w-full bg-gray-800 hover:bg-black text-white font-bold py-3 rounded-lg shadow transition-colors flex justify-center items-center gap-2 text-sm">
+                        💾 Sauvegarder
+                    </button>
+                    <div id="save-msg" class="mt-2 text-xs font-bold text-center hidden"></div>
+                </div>
+                `;
+            }
+
+            resultsContainer.innerHTML = html;
+            populateClientDatalist();
+            resultsContainer.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function renderBesoinsCard(reqs, isMulti = false, roomsData = []) {
+            let totF = reqs.reduce((a, b) => a + b.froid, 0);
+            let totC = reqs.reduce((a, b) => a + b.chaud, 0);
+            let details = '';
+            if(isMulti) {
+                details = `<div class="mt-3 border-t border-gray-100 pt-2 flex flex-col gap-1">` + 
+                    roomsData.map(r => `<div class="flex justify-between text-[10px] text-gray-500"><span>Pièce ${r.index}</span><span>${r.req.froid.toFixed(1)} kW F / ${r.req.chaud.toFixed(1)} kW C</span></div>`).join('') + `</div>`;
+            }
+            return `<div class="bg-white border border-gray-200 rounded-xl p-4 shadow-sm flex flex-col gap-2 mb-4 mt-2">
+                <span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Bilan Thermique Cumulé</span>
+                <div class="flex gap-3">
+                    <span class="bg-blue-50 text-blue-700 px-3 py-1.5 rounded-md text-sm font-bold border border-blue-100 flex-1 text-center">Froid: ${totF.toFixed(2)} kW</span>
+                    <span class="bg-red-50 text-red-700 px-3 py-1.5 rounded-md text-sm font-bold border border-red-100 flex-1 text-center">Chaud: ${totC.toFixed(2)} kW</span>
+                </div>
+                ${details}
+            </div>`;
+        }
+
+        function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = false, sizes = []) {
+            let footer = '';
+            if (isMulti) {
+                footer = `<div class="mt-4 pt-4 border-t border-gray-100 flex flex-wrap gap-2 items-center">
+                    <span class="text-xs font-bold text-gray-500">Tailles UI à connecter :</span>
+                    ${sizes.map(s => `<span class="text-[11px] font-black bg-gray-800 border border-gray-700 px-2 py-1 rounded text-white shadow-inner">${s}</span>`).join('')}
+                </div>`;
+            }
+
+            return `
+            <div class="bg-white rounded-xl shadow-md border-l-4 border-toshiba-red p-5 fade-in transition hover:shadow-lg mb-4 relative overflow-hidden">
+                <div class="absolute -right-4 -top-4 opacity-5 pointer-events-none"><svg class="w-32 h-32" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zm0 7.5l-6-3v6.5l6 3 6-3V6.5l-6 3z"/></svg></div>
+                <div class="flex justify-between items-start gap-4 relative z-10">
+                    <div class="flex-grow">
+                        <div class="text-[10px] font-black uppercase text-toshiba-red mb-1 tracking-widest">${badgeText}</div>
+                        <h3 class="text-lg font-extrabold text-toshiba-dark leading-tight">${mainTitle}</h3>
+                        <p class="text-xs font-mono text-gray-500 mt-1">${subtitle}</p>
+                    </div>
+                    <div class="flex flex-col gap-2 min-w-[90px]">
+                        <div class="bg-blue-50 px-3 py-1 rounded-lg text-center border border-blue-100">
+                            <div class="text-[8px] font-bold text-blue-500 uppercase tracking-tighter leading-none">Froid Nom.</div>
+                            <div class="text-sm font-black text-blue-700">${froid} kW</div>
+                        </div>
+                        <div class="bg-red-50 px-3 py-1 rounded-lg text-center border border-red-100">
+                            <div class="text-[8px] font-bold text-red-500 uppercase tracking-tighter leading-none">Chaud Nom.</div>
+                            <div class="text-sm font-black text-red-700">${chaud} kW</div>
+                        </div>
+                    </div>
+                </div>
+                ${footer}
+            </div>`;
+        }
+
+        // --- DONNÉES EN DUR ---
+        const DB = {
+            monosplits: [
+                { gamme: "Super Heating", reference_ensemble: "RAS-25G3AVSG-ND / RAS-B25G3KVSG-ND", puissance_froid_kw: 2.8, puissance_chaud_kw: 3.2 },
+                { gamme: "Super Heating", reference_ensemble: "RAS-35G3AVSG-ND / RAS-B35G3KVSG-ND", puissance_froid_kw: 3.5, puissance_chaud_kw: 4.2 },
+                { gamme: "Super Heating", reference_ensemble: "RAS-50G3AVSG-ND / RAS-B50G3KVSG-ND", puissance_froid_kw: 5.0, puissance_chaud_kw: 6.0 },
+                { gamme: "Daiseikai 10", reference_ensemble: "RAS-10S4AVPG-E / RAS-B10S4KVDG-E", puissance_froid_kw: 2.5, puissance_chaud_kw: 3.2 },
+                { gamme: "Daiseikai 10", reference_ensemble: "RAS-13S4AVPG-E / RAS-B13S4KVDG-E", puissance_froid_kw: 3.5, puissance_chaud_kw: 4.0 },
+                { gamme: "Daiseikai 10", reference_ensemble: "RAS-18S4AVPG-E / RAS-B18S4KVDG-E", puissance_froid_kw: 5.0, puissance_chaud_kw: 6.0 },
+                { gamme: "Haori", reference_ensemble: "RAS-10J2AVSG-E1 / RAS-B10N4KVRG-E1", puissance_froid_kw: 2.5, puissance_chaud_kw: 3.2 },
+                { gamme: "Haori", reference_ensemble: "RAS-13J2AVSG-E1 / RAS-B13N4KVRG-E", puissance_froid_kw: 3.5, puissance_chaud_kw: 4.2 },
+                { gamme: "Haori", reference_ensemble: "RAS-16J2AVSG-E1 / RAS-B16N4KVRG-E", puissance_froid_kw: 4.6, puissance_chaud_kw: 5.5 },
+                { gamme: "Console Double-Flux", reference_ensemble: "RAS-10J2AVSG-E1 / RAS-B10J2FVG-E", puissance_froid_kw: 2.5, puissance_chaud_kw: 3.2 },
+                { gamme: "Console Double-Flux", reference_ensemble: "RAS-13J2AVSG-E1 / RAS-B13J2FVG-E", puissance_froid_kw: 3.5, puissance_chaud_kw: 4.2 },
+                // --- NOUVEAUX YUKAI ---
+                { gamme: "Yukai", reference_ensemble: "RAS-05E2AVG-E / RAS-B05E2KVG-E", puissance_froid_kw: 1.5, puissance_chaud_kw: 2.0 },
+                { gamme: "Yukai", reference_ensemble: "RAS-07E2AVG-E / RAS-B07E2KVG-E", puissance_froid_kw: 2.0, puissance_chaud_kw: 2.5 },
+                { gamme: "Yukai", reference_ensemble: "RAS-10E2AVG-E / RAS-B10E2KVG-E", puissance_froid_kw: 2.5, puissance_chaud_kw: 3.2 },
+                { gamme: "Yukai", reference_ensemble: "RAS-13E2AVG-E / RAS-B13E2KVG-E", puissance_froid_kw: 3.3, puissance_chaud_kw: 3.6 },
+                { gamme: "Yukai", reference_ensemble: "RAS-16E2AVG-E / RAS-B16E2KVG-E", puissance_froid_kw: 4.2, puissance_chaud_kw: 5.0 },
+                { gamme: "Yukai", reference_ensemble: "RAS-18E2AVG-E / RAS-B18E2KVG-E", puissance_froid_kw: 5.0, puissance_chaud_kw: 5.4 },
+                { gamme: "Yukai", reference_ensemble: "RAS-24E2AVG-E / RAS-B24E2KVG-E", puissance_froid_kw: 6.5, puissance_chaud_kw: 7.0 },
+                // --- NOUVEAUX SHORAI EDGE ---
+                { gamme: "Shorai Edge", reference_ensemble: "RAS-07J2AVSG-E1 / RAS-B07G3KVSG-E", puissance_froid_kw: 2.0, puissance_chaud_kw: 2.5 },
+                { gamme: "Shorai Edge", reference_ensemble: "RAS-10J2AVSG-E1 / RAS-B10G3KVSG-E", puissance_froid_kw: 2.5, puissance_chaud_kw: 3.2 },
+                { gamme: "Shorai Edge", reference_ensemble: "RAS-13J2AVSG-E1 / RAS-B13G3KVSG-E", puissance_froid_kw: 3.5, puissance_chaud_kw: 4.2 },
+                { gamme: "Shorai Edge", reference_ensemble: "RAS-16J2AVSG-E1 / RAS-B16G3KVSG-E", puissance_froid_kw: 4.6, puissance_chaud_kw: 5.5 },
+                { gamme: "Shorai Edge", reference_ensemble: "RAS-18J2AVSG-E1 / RAS-B18G3KVSG-E", puissance_froid_kw: 5.0, puissance_chaud_kw: 6.0 },
+                { gamme: "Shorai Edge", reference_ensemble: "RAS-22J2AVSG-E1 / RAS-B22G3KVSG-E", puissance_froid_kw: 6.1, puissance_chaud_kw: 7.0 },
+                { gamme: "Shorai Edge", reference_ensemble: "RAS-24J2AVSG-E1 / RAS-B24G3KVSG-E", puissance_froid_kw: 7.0, puissance_chaud_kw: 8.0 }
+            ],
+            multisplits_groupes_exterieurs: [
+                { reference: "RAS-2M10G3AVG-E", max_unites_interieures: 2, puissance_nominale_froid_kw: 3.3, puissance_nominale_chaud_kw: 4.0 },
+                { reference: "RAS-2M14G3AVG-E", max_unites_interieures: 2, puissance_nominale_froid_kw: 4.0, puissance_nominale_chaud_kw: 4.4 },
+                { reference: "RAS-2M18G3AVG-E", max_unites_interieures: 2, puissance_nominale_froid_kw: 5.2, puissance_nominale_chaud_kw: 5.6 },
+                { reference: "RAS-3M18G3AVG-E", max_unites_interieures: 3, puissance_nominale_froid_kw: 5.2, puissance_nominale_chaud_kw: 6.8 },
+                { reference: "RAS-3M26G3AVG-E", max_unites_interieures: 3, puissance_nominale_froid_kw: 7.5, puissance_nominale_chaud_kw: 9.0 },
+                { reference: "RAS-4M27G3AVG-E", max_unites_interieures: 4, puissance_nominale_froid_kw: 8.0, puissance_nominale_chaud_kw: 9.0 },
+                { reference: "RAS-5M34G3AVG-E/ET", max_unites_interieures: 5, puissance_nominale_froid_kw: 10.0, puissance_nominale_chaud_kw: 12.0 }
+            ]
+        };
+
+        const DEPARTMENTS = { "01": { name: "Ain", zone: "F" }, "02": { name: "Aisne", zone: "D" }, "03": { name: "Allier", zone: "F" }, "04": { name: "Alpes-de-Haute-Provence", zone: "I" }, "05": { name: "Hautes-Alpes", zone: "I" }, "06": { name: "Alpes-Maritimes", zone: "H" }, "07": { name: "Ardèche", zone: "I" }, "08": { name: "Ardennes", zone: "F" }, "09": { name: "Ariège", zone: "I" }, "10": { name: "Aube", zone: "F" }, "11": { name: "Aude", zone: "H" }, "12": { name: "Aveyron", zone: "G" }, "13": { name: "Bouches-du-Rhône", zone: "H" }, "14": { name: "Calvados", zone: "C" }, "15": { name: "Cantal", zone: "G" }, "16": { name: "Charente", zone: "B" }, "17": { name: "Charente-Maritime", zone: "B" }, "18": { name: "Cher", zone: "E" }, "19": { name: "Corrèze", zone: "G" }, "2A": { name: "Corse-du-Sud", zone: "H" }, "2B": { name: "Haute-Corse", zone: "H" }, "21": { name: "Côte-d'Or", zone: "F" }, "22": { name: "Côtes-d'Armor", zone: "A" }, "23": { name: "Creuse", zone: "G" }, "24": { name: "Dordogne", zone: "B" }, "25": { name: "Doubs", zone: "F" }, "26": { name: "Drôme", zone: "F" }, "27": { name: "Eure", zone: "C" }, "28": { name: "Eure-et-Loir", zone: "E" }, "29": { name: "Finistère", zone: "A" }, "30": { name: "Gard", zone: "H" }, "31": { name: "Haute-Garonne", zone: "I" }, "32": { name: "Gers", zone: "I" }, "33": { name: "Gironde", zone: "B" }, "34": { name: "Hérault", zone: "H" }, "35": { name: "Ille-et-Vilaine", zone: "A" }, "36": { name: "Indre", zone: "E" }, "37": { name: "Indre-et-Loire", zone: "E" }, "38": { name: "Isère", zone: "F" }, "39": { name: "Jura", zone: "F" }, "40": { name: "Landes", zone: "B" }, "41": { name: "Loir-et-Cher", zone: "E" }, "42": { name: "Loire", zone: "F" }, "43": { name: "Haute-Loire", zone: "F" }, "44": { name: "Loire-Atlantique", zone: "A" }, "45": { name: "Loiret", zone: "E" }, "46": { name: "Lot", zone: "B" }, "47": { name: "Lot-et-Garonne", zone: "B" }, "48": { name: "Lozère", zone: "G" }, "49": { name: "Maine-et-Loire", zone: "E" }, "50": { name: "Manche", zone: "C" }, "51": { name: "Marne", zone: "F" }, "52": { name: "Haute-Marne", zone: "F" }, "53": { name: "Mayenne", zone: "E" }, "54": { name: "Meurthe-et-Moselle", zone: "F" }, "55": { name: "Meuse", zone: "F" }, "56": { name: "Morbihan", zone: "A" }, "57": { name: "Moselle", zone: "F" }, "58": { name: "Nièvre", zone: "F" }, "59": { name: "Nord", zone: "D" }, "60": { name: "Oise", zone: "D" }, "61": { name: "Orne", zone: "C" }, "62": { name: "Pas-de-Calais", zone: "D" }, "63": { name: "Puy-de-Dôme", zone: "F" }, "64": { name: "Pyrénées-Atlantiques", zone: "B" }, "65": { name: "Hautes-Pyrénées", zone: "I" }, "66": { name: "Pyrénées-Orientales", zone: "H" }, "67": { name: "Bas-Rhin", zone: "F" }, "68": { name: "Haut-Rhin", zone: "F" }, "69": { name: "Rhône", zone: "F" }, "70": { name: "Haute-Saône", zone: "F" }, "71": { name: "Saône-et-Loire", zone: "F" }, "72": { name: "Sarthe", zone: "E" }, "73": { name: "Savoie", zone: "F" }, "74": { name: "Haute-Savoie", zone: "F" }, "75": { name: "Paris", zone: "D" }, "76": { name: "Seine-Maritime", zone: "C" }, "77": { name: "Seine-et-Marne", zone: "D" }, "78": { name: "Yvelines", zone: "D" }, "79": { name: "Deux-Sèvres", zone: "E" }, "80": { name: "Somme", zone: "D" }, "81": { name: "Tarn", zone: "I" }, "82": { name: "Tarn-et-Garonne", zone: "I" }, "83": { name: "Var", zone: "H" }, "84": { name: "Vaucluse", zone: "H" }, "85": { name: "Vendée", zone: "A" }, "86": { name: "Vienne", zone: "E" }, "87": { name: "Haute-Vienne", zone: "G" }, "88": { name: "Vosges", zone: "F" }, "89": { name: "Yonne", zone: "F" }, "90": { name: "Territoire de Belfort", zone: "F" }, "91": { name: "Essonne", zone: "D" }, "92": { name: "Hauts-de-Seine", zone: "D" }, "93": { name: "Seine-Saint-Denis", zone: "D" }, "94": { name: "Val-de-Marne", zone: "D" }, "95": { name: "Val-d'Oise", zone: "D" }, "971": { name: "Guadeloupe", zone: "H" }, "972": { name: "Martinique", zone: "H" }, "973": { name: "Guyane", zone: "H" }, "974": { name: "La Réunion", zone: "H" }, "976": { name: "Mayotte", zone: "H" } };
+        const tBaseMatrix = { "0 à 200m": { A: -2, B: -4, C: -5, D: -7, E: -8, F: -9, G: -10, H: -12, I: -15 }, "200 à 400m": { A: -4, B: -5, C: -6, D: -8, E: -9, F: -10, G: -11, H: -13, I: -15 }, "400 à 600m": { A: -6, B: -6, C: -7, D: -9, E: -11, F: -11, G: -13, H: -15, I: -19 }, "600 à 800m": { A: -8, B: -7, C: -8, D: -11, E: -13, F: -12, G: -14, H: -17, I: -21 }, "800 à 1000m": { A: -10, B: -8, C: -9, D: -13, E: -15, F: -13, G: -17, H: -19, I: -23 }, "1000 à 1200m": { A: -12, B: -9, C: -10, D: -14, E: -17, F: -13, G: -19, H: -21, I: -24 }, "1200 à 1400m": { A: -14, B: -10, C: -11, D: -15, E: -19, F: -13, G: -21, H: -23, I: -25 }, "1400 à 1600m": { A: -16, B: -10, C: -12, D: -15, E: -21, F: -13, G: -23, H: -24, I: -25 }, "1600 à 1800m": { A: -18, B: -10, C: -13, D: -15, E: -23, F: -13, G: -24, H: -24, I: -25 }, "1800 à 2000m": { A: -20, B: -10, C: -14, D: -15, E: -25, F: -13, G: -25, H: -24, I: -25 }, "2000 à 2200m": { A: -20, B: -10, C: -15, D: -15, E: -27, F: -13, G: -29, H: -24, I: -25 } };
+
+        // --- PWA ---
+        const manifest = {
+            "name": "Toshiba ProSizer",
+            "short_name": "ProSizer",
+            "description": "Outil de dimensionnement Toshiba",
+            "start_url": window.location.href.split('?')[0].split('#')[0],
+            "display": "standalone",
+            "background_color": "#111111",
+            "theme_color": "#FF0000",
+            "icons": [{
+                "src": "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23FF0000'/><path d='M20 30 h60 v15 h-60 z M20 55 h60 v15 h-60 z' fill='%23fff'/></svg>",
+                "sizes": "192x192", "type": "image/svg+xml", "purpose": "any maskable"
+            }]
+        };
+        const manifestBlob = new Blob([JSON.stringify(manifest)], {type: 'application/manifest+json'});
+        document.getElementById('dynamic-manifest').href = URL.createObjectURL(manifestBlob);
+
+        const currentAppUrl = window.location.href.split('?')[0].split('#')[0];
+        const swCode = `
+            const CACHE_NAME = 'toshiba-prosizer-v1';
+            self.addEventListener('install', (event) => { event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(['${currentAppUrl}']))); });
+            self.addEventListener('fetch', (event) => { event.respondWith(caches.match(event.request).then(res => res || fetch(event.request))); });
+        `;
+        const swBlob = new Blob([swCode], {type: 'application/javascript'});
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => { navigator.serviceWorker.register(URL.createObjectURL(swBlob)).catch(err => console.warn('PWA SW: ', err)); });
+        }
+
+        window.onload = initApp;
+
+    </script>
+</body>
+</html>
+
+
+
+

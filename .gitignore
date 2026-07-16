@@ -1,0 +1,18 @@
+# Dépendances
+node_modules/
+
+# Dossiers de build / déploiement Netlify
+.netlify/
+dist/
+
+# Système
+.DS_Store
+Thumbs.db
+
+# Éditeurs
+.vscode/
+.idea/
+*.swp
+
+# Logs
+*.log
