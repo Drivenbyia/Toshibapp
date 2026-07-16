@@ -1,0 +1,20 @@
+# Configuration de déploiement Netlify
+# https://docs.netlify.com/configure-builds/file-based-configuration/
+
+[build]
+  # Application statique (un seul fichier HTML), aucune étape de build nécessaire.
+  publish = "."
+
+# En-têtes de sécurité et de cache
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "SAMEORIGIN"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+# Le service worker ne doit jamais être mis en cache trop longtemps
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
