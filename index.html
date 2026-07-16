@@ -72,7 +72,7 @@
             </div>
             
             <div class="flex items-center gap-3">
-                <div class="text-[10px] sm:text-xs font-semibold text-gray-500 bg-gray-100 px-2 py-1 rounded hidden sm:block">V17 - CLIMAT FROID</div>
+                <div class="text-[10px] sm:text-xs font-semibold text-gray-500 bg-gray-100 px-2 py-1 rounded hidden sm:block">V18 - FROID PHYSIQUE</div>
                 <button onclick="toggleDashboard(true)" class="flex items-center justify-center p-2 rounded-full bg-gray-100 text-gray-600 hover:bg-toshiba-red hover:text-white transition-colors" title="Mes Chantiers">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
                 </button>
@@ -185,7 +185,7 @@
         // --- STATE ---
         let state = { 
             mode: 'mono', 
-            rooms: [{ id: 1, surface: '', height: 2.5 }],
+            rooms: [{ id: 1, surface: '', height: 2.5, exposure: 'normal' }],
             lastResultData: null 
         };
 
@@ -341,64 +341,54 @@
         }
 
         // --- CORE ALGORITHM ---
-        // Coef climatique été selon zone (besoins froid)
-        // Zones A/C/D (océanique nord, peu chaud) → -15%
-        // Zones B/E/F (tempéré standard) → référence
-        // Zones G/I (continental sud, Pyrénées, Alpes méridionales) → +10%
-        // Zone H (méditerranéen / DOM) → +25%
-        function getCoefClimatFroid(zone) {
-            if (['A','C','D'].includes(zone)) return 0.85;
-            if (['G','I'].includes(zone)) return 1.10;
-            if (zone === 'H') return 1.25;
-            return 1.0; // B, E, F
-        }
-
-        // Coef consigne intérieure été : chaque degré au-dessus de 26°C ≈ −12% besoin froid
-        function getCoefConsigne(consigne) {
-            return 1 + (26 - consigne) * 0.12;
-        }
+        // Apports solaires (W/m² de surface au sol) selon l'exposition de la pièce.
+        // Poste dominant du besoin de froid en été.
+        const APPORTS_SOLAIRES = { faible: 15, normal: 30, fort: 55 };
+        // Apports internes (occupants + équipements), résidentiel (W/m²).
+        const APPORTS_INTERNES = 5;
 
         function updateClimateInfo() {
             const code = document.getElementById('deptSelect').value;
             const alt = document.getElementById('altitude').value;
             const zone = DEPARTMENTS[code].zone;
-            const tBase = tBaseMatrix[alt][zone];
-            const coefClim = getCoefClimatFroid(zone);
+            const tBaseHiver = tBaseMatrix[alt][zone];
+            const tBaseEte = tBaseEteMatrix[alt][zone];
             const consigneEl = document.getElementById('consigneInt');
             const consigne = consigneEl ? parseFloat(consigneEl.value) : 26;
-            const coefCons = getCoefConsigne(consigne);
-            const coefTotal = (coefClim * coefCons).toFixed(2);
-            document.getElementById('climate-diagnostic').innerHTML = `Zone <b>${zone}</b> • T base hiver : <b>${tBase}°C</b> • Coef froid : <b>×${coefTotal}</b> <span class="text-gray-400">(clim ×${coefClim} • consigne ${consigne}°C ×${coefCons.toFixed(2)})</span>`;
+            document.getElementById('climate-diagnostic').innerHTML = `Zone <b>${zone}</b> • T base hiver : <b>${tBaseHiver}°C</b> • T base été : <b>${tBaseEte}°C</b> • Consigne été : <b>${consigne}°C</b>`;
         }
 
-        function getRequiredKw(surface, height) {
+        function getRequiredKw(surface, height, exposure) {
             const selectVal = document.getElementById('isolationCoef').value;
             const coefG = selectVal === 'custom' ? parseFloat(document.getElementById('customCoef').value) : parseFloat(selectVal);
             const code = document.getElementById('deptSelect').value;
             const alt = document.getElementById('altitude').value;
-            const tBase = tBaseMatrix[alt][DEPARTMENTS[code].zone];
+            const zone = DEPARTMENTS[code].zone;
+            const tBaseHiver = tBaseMatrix[alt][zone];
+            const tBaseEte = tBaseEteMatrix[alt][zone];
 
             const volume = surface * height;
-            const deltaTChaud = 20 - tBase;
+
+            // --- CHAUD : méthode déperditions (coefficient volumique G · V · ΔT) ---
+            const deltaTChaud = 20 - tBaseHiver;
             const deperditionsSeches = (volume * coefG * deltaTChaud) / 1000;
-            const COEF_RELANCE = 1.20; 
+            const COEF_RELANCE = 1.20;
             const besoinChaud = deperditionsSeches * COEF_RELANCE;
 
-            let ratioFroidWm3 = 45; 
-            if (coefG <= 0.5) ratioFroidWm3 = 30;      
-            else if (coefG <= 0.8) ratioFroidWm3 = 40; 
-            else if (coefG <= 1.2) ratioFroidWm3 = 45; 
-            else if (coefG <= 1.6) ratioFroidWm3 = 50; 
-            else ratioFroidWm3 = 60;                   
-
-            // V17 : pondération climatique zone + consigne intérieure
-            const zone = DEPARTMENTS[code].zone;
-            const coefClimFroid = getCoefClimatFroid(zone);
+            // --- FROID : modèle physique (enveloppe + solaire + apports internes) ---
+            // Note : le coefficient G inclut déjà transmission ET renouvellement d'air
+            // (comme dans le calcul de chaud), donc pas de terme de ventilation séparé
+            // pour éviter un double comptage.
             const consigneEl = document.getElementById('consigneInt');
             const consigne = consigneEl ? parseFloat(consigneEl.value) : 26;
-            const coefConsigne = getCoefConsigne(consigne);
+            const deltaTEte = Math.max(0, tBaseEte - consigne);
+            const ratioSolaire = APPORTS_SOLAIRES[exposure] ?? APPORTS_SOLAIRES.normal;
 
-            const besoinFroid = (volume * ratioFroidWm3 * coefClimFroid * coefConsigne) / 1000;
+            const qEnveloppe = coefG * volume * deltaTEte;   // W — conduction + air (via G)
+            const qSolaire   = ratioSolaire * surface;       // W — apports solaires
+            const qInternes  = APPORTS_INTERNES * surface;   // W — occupants + équipements
+
+            const besoinFroid = (qEnveloppe + qSolaire + qInternes) / 1000;
 
             return { froid: besoinFroid, chaud: besoinChaud };
         }
@@ -455,6 +445,14 @@
                                 <input type="number" oninput="updateRoom(${room.id}, 'height', this.value)" value="${room.height}" step="0.1" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-toshiba-red outline-none">
                             </div>
                         </div>
+                        <div class="mt-4">
+                            <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Exposition solaire</label>
+                            <select onchange="updateRoom(${room.id}, 'exposure', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-toshiba-red outline-none">
+                                <option value="faible" ${room.exposure === 'faible' ? 'selected' : ''}>Faible – Nord, peu vitré, volets/protections</option>
+                                <option value="normal" ${room.exposure === 'normal' ? 'selected' : ''}>Normal – Vitrage standard, orientation mixte</option>
+                                <option value="fort" ${room.exposure === 'fort' ? 'selected' : ''}>Fort – Grandes baies Sud/Ouest peu protégées</option>
+                            </select>
+                        </div>
                     </div>
                 `);
             });
@@ -463,9 +461,14 @@
             }
         }
 
-        function addRoom() { state.rooms.push({ id: Date.now(), surface: '', height: 2.5 }); renderRooms(); }
+        function addRoom() { state.rooms.push({ id: Date.now(), surface: '', height: 2.5, exposure: 'normal' }); renderRooms(); }
         function removeRoom(id) { state.rooms = state.rooms.filter(r => r.id !== id); renderRooms(); }
-        function updateRoom(id, field, value) { const r = state.rooms.find(x => x.id === id); if (r) r[field] = parseFloat(value) || ''; }
+        function updateRoom(id, field, value) {
+            const r = state.rooms.find(x => x.id === id);
+            if (!r) return;
+            if (field === 'exposure') r[field] = value;
+            else r[field] = parseFloat(value) || '';
+        }
 
         // --- ALGORITHME DE SÉLECTION INTELLIGENTE ---
         // V16: Ne retourne QUE les gammes qui ont exactement la meilleure (plus petite) puissance requise, avec une mini marge pour regrouper les équivalents
@@ -491,7 +494,7 @@
             state.lastResultData = { summaryText: "", equipments: [], roomDetails: [] }; 
 
             if (state.mode === 'mono') {
-                const req = getRequiredKw(state.rooms[0].surface, state.rooms[0].height);
+                const req = getRequiredKw(state.rooms[0].surface, state.rooms[0].height, state.rooms[0].exposure);
                 const size = getUiSizeForKw(req.froid, req.chaud);
                 state.lastResultData.roomDetails.push(`Pièce 1 : ${req.froid.toFixed(1)}kW F / ${req.chaud.toFixed(1)}kW C ➔ Taille ${size || 'HORS LIMITE'}`);
 
@@ -512,7 +515,7 @@
                 }
             } else {
                 let roomsData = state.rooms.map((r, i) => {
-                    let req = getRequiredKw(r.surface, r.height);
+                    let req = getRequiredKw(r.surface, r.height, r.exposure);
                     let size = getUiSizeForKw(req.froid, req.chaud);
                     state.lastResultData.roomDetails.push(`Pièce ${i+1} : ${req.froid.toFixed(1)}kW F / ${req.chaud.toFixed(1)}kW C ➔ Taille ${size || 'HORS LIMITE'}`);
                     return { index: i + 1, req: req, size: size, maxKw: Math.max(req.froid, req.chaud) };
@@ -590,6 +593,7 @@
                 } else if (bestGroup && bestGroup !== "MONO") {
                     let sizesArr = standardRooms.map(r => r.size);
                     html += renderCard(`Groupe Multisplit (${standardRooms.length} sorties)`, "Groupe Extérieur", bestGroup.reference, bestGroup.puissance_nominale_froid_kw, bestGroup.puissance_nominale_chaud_kw, true, sizesArr);
+                    html += renderMultiRoomsGuide(standardRooms);
                     summaryParts.push(`1x Multi ${bestGroup.reference} (${standardRooms.length} UI)`);
                     state.lastResultData.equipments.push(`Groupe Extérieur ${bestGroup.reference} (Pour brancher les tailles : ${sizesArr.join(' + ')})`);
                 }
@@ -646,6 +650,75 @@
             </div>`;
         }
 
+        // Contenu factuel de la fiche gamme (idéal pour / plus / moins / wifi). Réutilisé en mono (dépliant) et en multi (chips par pièce).
+        function gammeGuideContent(gammeName) {
+            const g = GAMMES_INFO[gammeName];
+            if (!g) return '';
+            const wifiColor = g.wifi === 'De série' ? 'text-green-600' : 'text-amber-600';
+            return `
+            <div class="flex flex-col gap-2 text-[11px]">
+                <div class="bg-gray-50 rounded-lg p-2.5 text-gray-700"><span class="font-bold text-gray-500 uppercase text-[9px] tracking-wider">Idéal pour</span><br>${g.ideal}</div>
+                <div class="flex flex-col gap-1">
+                    ${g.plus.map(p => `<div class="flex items-start gap-1.5 text-green-700"><span class="font-bold">✓</span><span>${p}</span></div>`).join('')}
+                    ${g.moins.map(m => `<div class="flex items-start gap-1.5 text-amber-700"><span class="font-bold">!</span><span>${m}</span></div>`).join('')}
+                </div>
+                <div class="text-[10px] text-gray-400 font-medium">Wifi : <span class="${wifiColor} font-bold">${g.wifi}</span></div>
+            </div>`;
+        }
+
+        // Fiche "carte d'identité" de la gamme, dépliable sous la carte résultat. Retourne '' si gamme inconnue.
+        function renderGammeGuide(gammeName) {
+            const g = GAMMES_INFO[gammeName];
+            if (!g) return '';
+            return `
+            <details class="mt-4 pt-3 border-t border-gray-100 group/guide">
+                <summary class="cursor-pointer text-[11px] font-bold text-gray-500 hover:text-toshiba-red flex items-center gap-1.5 select-none">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    Guide de la gamme
+                    <span class="ml-auto text-[10px] font-extrabold bg-gray-100 text-gray-600 px-2 py-0.5 rounded">${g.tier}</span>
+                    <svg class="w-4 h-4 transition-transform group-open/guide:rotate-180 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                </summary>
+                <div class="mt-3">${gammeGuideContent(gammeName)}</div>
+            </details>`;
+        }
+
+        // Guide de sélection des UI en multisplit : pour chaque pièce du groupe, les gammes éligibles
+        // pour son besoin réel (findBestMonos), avec fiche dépliable. Purement informatif — la
+        // sélection du groupe extérieur reste basée sur la puissance totale, indépendamment du choix
+        // de gamme par pièce (les tailles 05/07/10... ont la même puissance nominale quelle que soit la gamme).
+        function renderMultiRoomsGuide(roomsData) {
+            const rows = roomsData.map(r => {
+                const sols = findBestMonos(r.req.froid, r.req.chaud);
+                if (sols.length === 0) {
+                    return `<div class="py-2.5 border-b border-gray-100 last:border-0 text-xs text-orange-700 italic">Pièce ${r.index} : aucune UI du catalogue ne couvre ce besoin.</div>`;
+                }
+                const gammesUniques = [...new Set(sols.map(s => s.gamme))];
+                const chips = gammesUniques.map(g => `
+                    <details class="group/mg">
+                        <summary class="cursor-pointer inline-flex items-center gap-1.5 text-[11px] font-bold bg-gray-100 hover:bg-gray-200 text-gray-700 px-2.5 py-1.5 rounded-full select-none transition-colors">
+                            ${g}
+                            <svg class="w-3 h-3 transition-transform group-open/mg:rotate-180 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                        </summary>
+                        <div class="mt-2 mb-1">${gammeGuideContent(g)}</div>
+                    </details>`).join('');
+                return `
+                <div class="py-3 border-b border-gray-100 last:border-0">
+                    <div class="text-xs font-bold text-gray-700 mb-2">Pièce ${r.index} <span class="font-normal text-gray-400">— ${r.req.froid.toFixed(1)} kW F / ${r.req.chaud.toFixed(1)} kW C</span></div>
+                    <div class="flex flex-wrap gap-2">${chips}</div>
+                </div>`;
+            }).join('');
+
+            return `
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 mb-4 fade-in">
+                <h3 class="text-sm font-bold text-toshiba-dark flex items-center gap-2 mb-1 uppercase tracking-wide">
+                    <svg class="w-5 h-5 text-toshiba-red" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                    Guide de sélection des unités intérieures
+                </h3>
+                <p class="text-[11px] text-gray-400 mb-1">Par pièce, les gammes éligibles pour ce besoin précis. Vous pouvez mixer les gammes sur un même groupe extérieur (ex : Shorai Edge au salon + Yukai en chambre) pour éviter de surdimensionner une petite pièce.</p>
+                ${rows}
+            </div>`;
+        }
+
         function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = false, sizes = []) {
             let footer = '';
             if (isMulti) {
@@ -675,6 +748,7 @@
                         </div>
                     </div>
                 </div>
+                ${renderGammeGuide(mainTitle)}
                 ${footer}
             </div>`;
         }
@@ -682,9 +756,14 @@
         // --- DONNÉES EN DUR ---
         const DB = {
             monosplits: [
-                { gamme: "Super Heating", reference_ensemble: "RAS-25G3AVSG-ND / RAS-B25G3KVSG-ND", puissance_froid_kw: 2.8, puissance_chaud_kw: 3.2 },
-                { gamme: "Super Heating", reference_ensemble: "RAS-35G3AVSG-ND / RAS-B35G3KVSG-ND", puissance_froid_kw: 3.5, puissance_chaud_kw: 4.2 },
-                { gamme: "Super Heating", reference_ensemble: "RAS-50G3AVSG-ND / RAS-B50G3KVSG-ND", puissance_froid_kw: 5.0, puissance_chaud_kw: 6.0 },
+                // --- NAKA (entrée de gamme) ---
+                { gamme: "Naka", reference_ensemble: "RAS-05B2AVG-E / RAS-B05B2KVG-E", puissance_froid_kw: 1.5, puissance_chaud_kw: 2.0 },
+                { gamme: "Naka", reference_ensemble: "RAS-07B2AVG-E / RAS-B07B2KVG-E", puissance_froid_kw: 2.0, puissance_chaud_kw: 2.5 },
+                { gamme: "Naka", reference_ensemble: "RAS-10B2AVG-E / RAS-B10B2KVG-E", puissance_froid_kw: 2.5, puissance_chaud_kw: 3.2 },
+                { gamme: "Naka", reference_ensemble: "RAS-13B2AVG-E / RAS-B13B2KVG-E", puissance_froid_kw: 3.3, puissance_chaud_kw: 3.6 },
+                { gamme: "Naka", reference_ensemble: "RAS-16B2AVG-E / RAS-B16B2KVG-E", puissance_froid_kw: 4.2, puissance_chaud_kw: 5.0 },
+                { gamme: "Naka", reference_ensemble: "RAS-18B2AVG-E / RAS-B18B2KVG-E", puissance_froid_kw: 5.0, puissance_chaud_kw: 5.4 },
+                { gamme: "Naka", reference_ensemble: "RAS-24B2AVG-E / RAS-B24B2KVG-E", puissance_froid_kw: 6.5, puissance_chaud_kw: 7.0 },
                 { gamme: "Daiseikai 10", reference_ensemble: "RAS-10S4AVPG-E / RAS-B10S4KVDG-E", puissance_froid_kw: 2.5, puissance_chaud_kw: 3.2 },
                 { gamme: "Daiseikai 10", reference_ensemble: "RAS-13S4AVPG-E / RAS-B13S4KVDG-E", puissance_froid_kw: 3.5, puissance_chaud_kw: 4.0 },
                 { gamme: "Daiseikai 10", reference_ensemble: "RAS-18S4AVPG-E / RAS-B18S4KVDG-E", puissance_froid_kw: 5.0, puissance_chaud_kw: 6.0 },
@@ -721,8 +800,53 @@
             ]
         };
 
+        // --- GUIDE DES GAMMES (fiche affichée sous chaque solution) ---
+        // Données factuelles (source Toshiba). Purement informatif, n'influence pas la sélection.
+        const GAMMES_INFO = {
+            "Naka": {
+                tier: "€ · Entrée de gamme", wifi: "Option",
+                plus: ["Meilleur rapport qualité/prix", "Silencieux (dès 19 dB)", "Compatible mono & multisplit"],
+                moins: ["Wifi en option", "Chauffage A+ : moins tenace par grand froid"],
+                ideal: "Froid + chauffage d'appoint, budget maîtrisé"
+            },
+            "Yukai": {
+                tier: "€ · Entrée / milieu", wifi: "Option",
+                plus: ["Filtre Ultra-Fresh de série", "SCOP jusqu'à 4,6", "Fonctionne jusqu'à −15 °C"],
+                moins: ["Wifi en option", "Moins performante que Daiseikai par grand froid"],
+                ideal: "Pièce principale, bon équilibre froid / chaud"
+            },
+            "Shorai Edge": {
+                tier: "€€ · Milieu / haut de gamme", wifi: "De série",
+                plus: ["A+++ froid ET chaud (SCOP 5,1)", "Très silencieux (19 dB)", "Wifi intégré de série", "Design compact noir / blanc"],
+                moins: ["Plus chère que l'entrée de gamme"],
+                ideal: "Chauffage principal en climat doux / tempéré"
+            },
+            "Haori": {
+                tier: "€€€ · Haut de gamme design", wifi: "De série",
+                plus: ["Habillage textile personnalisable (14 coloris)", "A+++ / 19 dB", "Ioniseur plasma + diffusion 3D", "Wifi de série"],
+                moins: ["Prix élevé", "Puissances limitées (2,5–4,6 kW)", "Textile à entretenir"],
+                ideal: "Salon / pièce à vivre où l'esthétique prime"
+            },
+            "Daiseikai 10": {
+                tier: "€€€ · Haut de gamme chauffage", wifi: "De série",
+                plus: ["Meilleur SCOP du marché (5,3)", "SEER jusqu'à 10,7", "Fonctionne jusqu'à −15 °C", "Détection de présence"],
+                moins: ["Prix élevé", "Puissances limitées (2,5–5,0 kW)"],
+                ideal: "Chauffage principal, recherche du meilleur rendement"
+            },
+            "Console Double-Flux": {
+                tier: "€€ · Format console", wifi: "Selon modèle",
+                plus: ["Pose basse en allège (sous fenêtre)", "Double flux d'air haut / bas", "Remplace idéalement un radiateur"],
+                moins: ["Encombrement au sol", "Choix de puissances limité"],
+                ideal: "Remplacement de radiateur, diffusion type chauffage central"
+            }
+        };
+
         const DEPARTMENTS = { "01": { name: "Ain", zone: "F" }, "02": { name: "Aisne", zone: "D" }, "03": { name: "Allier", zone: "F" }, "04": { name: "Alpes-de-Haute-Provence", zone: "I" }, "05": { name: "Hautes-Alpes", zone: "I" }, "06": { name: "Alpes-Maritimes", zone: "H" }, "07": { name: "Ardèche", zone: "I" }, "08": { name: "Ardennes", zone: "F" }, "09": { name: "Ariège", zone: "I" }, "10": { name: "Aube", zone: "F" }, "11": { name: "Aude", zone: "H" }, "12": { name: "Aveyron", zone: "G" }, "13": { name: "Bouches-du-Rhône", zone: "H" }, "14": { name: "Calvados", zone: "C" }, "15": { name: "Cantal", zone: "G" }, "16": { name: "Charente", zone: "B" }, "17": { name: "Charente-Maritime", zone: "B" }, "18": { name: "Cher", zone: "E" }, "19": { name: "Corrèze", zone: "G" }, "2A": { name: "Corse-du-Sud", zone: "H" }, "2B": { name: "Haute-Corse", zone: "H" }, "21": { name: "Côte-d'Or", zone: "F" }, "22": { name: "Côtes-d'Armor", zone: "A" }, "23": { name: "Creuse", zone: "G" }, "24": { name: "Dordogne", zone: "B" }, "25": { name: "Doubs", zone: "F" }, "26": { name: "Drôme", zone: "F" }, "27": { name: "Eure", zone: "C" }, "28": { name: "Eure-et-Loir", zone: "E" }, "29": { name: "Finistère", zone: "A" }, "30": { name: "Gard", zone: "H" }, "31": { name: "Haute-Garonne", zone: "I" }, "32": { name: "Gers", zone: "I" }, "33": { name: "Gironde", zone: "B" }, "34": { name: "Hérault", zone: "H" }, "35": { name: "Ille-et-Vilaine", zone: "A" }, "36": { name: "Indre", zone: "E" }, "37": { name: "Indre-et-Loire", zone: "E" }, "38": { name: "Isère", zone: "F" }, "39": { name: "Jura", zone: "F" }, "40": { name: "Landes", zone: "B" }, "41": { name: "Loir-et-Cher", zone: "E" }, "42": { name: "Loire", zone: "F" }, "43": { name: "Haute-Loire", zone: "F" }, "44": { name: "Loire-Atlantique", zone: "A" }, "45": { name: "Loiret", zone: "E" }, "46": { name: "Lot", zone: "B" }, "47": { name: "Lot-et-Garonne", zone: "B" }, "48": { name: "Lozère", zone: "G" }, "49": { name: "Maine-et-Loire", zone: "E" }, "50": { name: "Manche", zone: "C" }, "51": { name: "Marne", zone: "F" }, "52": { name: "Haute-Marne", zone: "F" }, "53": { name: "Mayenne", zone: "E" }, "54": { name: "Meurthe-et-Moselle", zone: "F" }, "55": { name: "Meuse", zone: "F" }, "56": { name: "Morbihan", zone: "A" }, "57": { name: "Moselle", zone: "F" }, "58": { name: "Nièvre", zone: "F" }, "59": { name: "Nord", zone: "D" }, "60": { name: "Oise", zone: "D" }, "61": { name: "Orne", zone: "C" }, "62": { name: "Pas-de-Calais", zone: "D" }, "63": { name: "Puy-de-Dôme", zone: "F" }, "64": { name: "Pyrénées-Atlantiques", zone: "B" }, "65": { name: "Hautes-Pyrénées", zone: "I" }, "66": { name: "Pyrénées-Orientales", zone: "H" }, "67": { name: "Bas-Rhin", zone: "F" }, "68": { name: "Haut-Rhin", zone: "F" }, "69": { name: "Rhône", zone: "F" }, "70": { name: "Haute-Saône", zone: "F" }, "71": { name: "Saône-et-Loire", zone: "F" }, "72": { name: "Sarthe", zone: "E" }, "73": { name: "Savoie", zone: "F" }, "74": { name: "Haute-Savoie", zone: "F" }, "75": { name: "Paris", zone: "D" }, "76": { name: "Seine-Maritime", zone: "C" }, "77": { name: "Seine-et-Marne", zone: "D" }, "78": { name: "Yvelines", zone: "D" }, "79": { name: "Deux-Sèvres", zone: "E" }, "80": { name: "Somme", zone: "D" }, "81": { name: "Tarn", zone: "I" }, "82": { name: "Tarn-et-Garonne", zone: "I" }, "83": { name: "Var", zone: "H" }, "84": { name: "Vaucluse", zone: "H" }, "85": { name: "Vendée", zone: "A" }, "86": { name: "Vienne", zone: "E" }, "87": { name: "Haute-Vienne", zone: "G" }, "88": { name: "Vosges", zone: "F" }, "89": { name: "Yonne", zone: "F" }, "90": { name: "Territoire de Belfort", zone: "F" }, "91": { name: "Essonne", zone: "D" }, "92": { name: "Hauts-de-Seine", zone: "D" }, "93": { name: "Seine-Saint-Denis", zone: "D" }, "94": { name: "Val-de-Marne", zone: "D" }, "95": { name: "Val-d'Oise", zone: "D" }, "971": { name: "Guadeloupe", zone: "H" }, "972": { name: "Martinique", zone: "H" }, "973": { name: "Guyane", zone: "H" }, "974": { name: "La Réunion", zone: "H" }, "976": { name: "Mayotte", zone: "H" } };
-        const tBaseMatrix = { "0 à 200m": { A: -2, B: -4, C: -5, D: -7, E: -8, F: -9, G: -10, H: -12, I: -15 }, "200 à 400m": { A: -4, B: -5, C: -6, D: -8, E: -9, F: -10, G: -11, H: -13, I: -15 }, "400 à 600m": { A: -6, B: -6, C: -7, D: -9, E: -11, F: -11, G: -13, H: -15, I: -19 }, "600 à 800m": { A: -8, B: -7, C: -8, D: -11, E: -13, F: -12, G: -14, H: -17, I: -21 }, "800 à 1000m": { A: -10, B: -8, C: -9, D: -13, E: -15, F: -13, G: -17, H: -19, I: -23 }, "1000 à 1200m": { A: -12, B: -9, C: -10, D: -14, E: -17, F: -13, G: -19, H: -21, I: -24 }, "1200 à 1400m": { A: -14, B: -10, C: -11, D: -15, E: -19, F: -13, G: -21, H: -23, I: -25 }, "1400 à 1600m": { A: -16, B: -10, C: -12, D: -15, E: -21, F: -13, G: -23, H: -24, I: -25 }, "1600 à 1800m": { A: -18, B: -10, C: -13, D: -15, E: -23, F: -13, G: -24, H: -24, I: -25 }, "1800 à 2000m": { A: -20, B: -10, C: -14, D: -15, E: -25, F: -13, G: -25, H: -24, I: -25 }, "2000 à 2200m": { A: -20, B: -10, C: -15, D: -15, E: -27, F: -13, G: -29, H: -24, I: -25 } };
+        // Températures de base HIVER (°C) par zone × altitude. Corrigé V18 : zones H (Méditerranée) et I (SO/piémont) avaient des bases hiver irréalistes.
+        const tBaseMatrix = { "0 à 200m": { A: -2, B: -4, C: -5, D: -7, E: -8, F: -9, G: -10, H: -5, I: -6 }, "200 à 400m": { A: -4, B: -5, C: -6, D: -8, E: -9, F: -10, G: -11, H: -6, I: -7 }, "400 à 600m": { A: -6, B: -6, C: -7, D: -9, E: -11, F: -11, G: -13, H: -7, I: -8 }, "600 à 800m": { A: -8, B: -7, C: -8, D: -11, E: -13, F: -12, G: -14, H: -9, I: -10 }, "800 à 1000m": { A: -10, B: -8, C: -9, D: -13, E: -15, F: -13, G: -17, H: -10, I: -11 }, "1000 à 1200m": { A: -12, B: -9, C: -10, D: -14, E: -17, F: -13, G: -19, H: -11, I: -12 }, "1200 à 1400m": { A: -14, B: -10, C: -11, D: -15, E: -19, F: -13, G: -21, H: -12, I: -13 }, "1400 à 1600m": { A: -16, B: -10, C: -12, D: -15, E: -21, F: -13, G: -23, H: -13, I: -14 }, "1600 à 1800m": { A: -18, B: -10, C: -13, D: -15, E: -23, F: -13, G: -24, H: -15, I: -16 }, "1800 à 2000m": { A: -20, B: -10, C: -14, D: -15, E: -25, F: -13, G: -25, H: -16, I: -17 }, "2000 à 2200m": { A: -20, B: -10, C: -15, D: -15, E: -27, F: -13, G: -29, H: -17, I: -18 } };
+
+        // Températures de base ÉTÉ (°C) par zone × altitude. Nouveau V18 : base du calcul de froid physique (ΔT été réel). Gradient -0,6°C/100m.
+        const tBaseEteMatrix = { "0 à 200m": { A: 28, B: 32, C: 28, D: 30, E: 31, F: 33, G: 30, H: 34, I: 34 }, "200 à 400m": { A: 27, B: 31, C: 27, D: 29, E: 30, F: 32, G: 29, H: 33, I: 33 }, "400 à 600m": { A: 26, B: 30, C: 26, D: 28, E: 29, F: 31, G: 28, H: 32, I: 32 }, "600 à 800m": { A: 24, B: 28, C: 24, D: 26, E: 27, F: 29, G: 26, H: 30, I: 30 }, "800 à 1000m": { A: 23, B: 27, C: 23, D: 25, E: 26, F: 28, G: 25, H: 29, I: 29 }, "1000 à 1200m": { A: 22, B: 26, C: 22, D: 24, E: 25, F: 27, G: 24, H: 28, I: 28 }, "1200 à 1400m": { A: 21, B: 25, C: 21, D: 23, E: 24, F: 26, G: 23, H: 27, I: 27 }, "1400 à 1600m": { A: 20, B: 24, C: 20, D: 22, E: 23, F: 25, G: 22, H: 26, I: 26 }, "1600 à 1800m": { A: 18, B: 22, C: 18, D: 20, E: 21, F: 23, G: 20, H: 24, I: 24 }, "1800 à 2000m": { A: 17, B: 21, C: 17, D: 19, E: 20, F: 22, G: 19, H: 23, I: 23 }, "2000 à 2200m": { A: 16, B: 20, C: 16, D: 18, E: 19, F: 21, G: 18, H: 22, I: 22 } };
 
         // --- PWA ---
         const manifest = {
