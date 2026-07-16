@@ -375,18 +375,20 @@
             const COEF_RELANCE = 1.20;
             const besoinChaud = deperditionsSeches * COEF_RELANCE;
 
-            // --- FROID : modèle physique (transmission + solaire + internes + renouvellement d'air) ---
+            // --- FROID : modèle physique (enveloppe + solaire + apports internes) ---
+            // Note : le coefficient G inclut déjà transmission ET renouvellement d'air
+            // (comme dans le calcul de chaud), donc pas de terme de ventilation séparé
+            // pour éviter un double comptage.
             const consigneEl = document.getElementById('consigneInt');
             const consigne = consigneEl ? parseFloat(consigneEl.value) : 26;
             const deltaTEte = Math.max(0, tBaseEte - consigne);
             const ratioSolaire = APPORTS_SOLAIRES[exposure] ?? APPORTS_SOLAIRES.normal;
 
-            const qTransmission   = coefG * volume * deltaTEte;           // W — conduction par l'enveloppe
-            const qRenouvellement = 0.34 * (0.6 * volume) * deltaTEte;    // W — ventilation/infiltration (~0,6 vol/h)
-            const qSolaire        = ratioSolaire * surface;              // W — apports solaires
-            const qInternes       = APPORTS_INTERNES * surface;          // W — occupants + équipements
+            const qEnveloppe = coefG * volume * deltaTEte;   // W — conduction + air (via G)
+            const qSolaire   = ratioSolaire * surface;       // W — apports solaires
+            const qInternes  = APPORTS_INTERNES * surface;   // W — occupants + équipements
 
-            const besoinFroid = (qTransmission + qRenouvellement + qSolaire + qInternes) / 1000;
+            const besoinFroid = (qEnveloppe + qSolaire + qInternes) / 1000;
 
             return { froid: besoinFroid, chaud: besoinChaud };
         }
