@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Toshiba - Outil de Dimensionnement B2B</title>
+    <title>ProSizer B2B - Outil de Dimensionnement Climatisation</title>
     
     <!-- Balises PWA -->
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -31,6 +31,7 @@
         }
     </script>
     <style>
+        :root { --brand-accent: #FF0000; --brand-accent-dark: #C81E1E; }
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: #f1f1f1; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
@@ -62,18 +63,18 @@
 <body class="bg-toshiba-gray text-gray-800 font-sans antialiased min-h-screen flex flex-col">
 
     <!-- Header -->
-    <header class="bg-white shadow-sm border-b-4 border-toshiba-red sticky top-0 z-50">
+    <header class="bg-white shadow-sm border-b-4 border-[var(--brand-accent)] sticky top-0 z-50">
         <div class="max-w-3xl mx-auto px-4 h-16 flex items-center justify-between">
             <div class="flex items-center gap-2">
-                <svg class="w-8 h-8 text-toshiba-red" viewBox="0 0 24 24" fill="currentColor">
+                <svg class="w-8 h-8 text-[var(--brand-accent)]" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M2 7h20v2H2V7zm4 4h12v2H6v-2zm-4 4h20v2H2v-2z"/>
                 </svg>
-                <h1 class="text-xl font-bold tracking-tight text-toshiba-dark cursor-pointer" onclick="toggleDashboard(false)">ProSizer <span class="text-toshiba-red">B2B</span></h1>
+                <h1 class="text-xl font-bold tracking-tight text-toshiba-dark cursor-pointer" onclick="toggleDashboard(false)">ProSizer <span class="text-[var(--brand-accent)]">B2B</span></h1>
             </div>
             
             <div class="flex items-center gap-3">
                 <div class="text-[10px] sm:text-xs font-semibold text-gray-500 bg-gray-100 px-2 py-1 rounded hidden sm:block">V18 - FROID PHYSIQUE</div>
-                <button onclick="toggleDashboard(true)" class="flex items-center justify-center p-2 rounded-full bg-gray-100 text-gray-600 hover:bg-toshiba-red hover:text-white transition-colors" title="Mes Chantiers">
+                <button onclick="toggleDashboard(true)" class="flex items-center justify-center p-2 rounded-full bg-gray-100 text-gray-600 hover:bg-[var(--brand-accent)] hover:text-white transition-colors" title="Mes Chantiers">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
                 </button>
             </div>
@@ -83,11 +84,23 @@
     <!-- ==== VUE 1 : SIMULATEUR ==== -->
     <main id="app-main" class="flex-grow max-w-3xl mx-auto w-full px-4 py-6 flex flex-col gap-6">
         
+        <!-- Brand Selector -->
+        <section class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 fade-in">
+            <h2 class="text-lg font-semibold text-toshiba-dark flex items-center gap-2 mb-4">
+                <span class="w-2 h-6 bg-[var(--brand-accent)] rounded-full"></span>
+                Marque
+            </h2>
+            <div class="flex p-1 bg-gray-100 rounded-lg">
+                <button id="btn-brand-toshiba" onclick="setBrand('toshiba')" class="flex-1 py-2 text-sm font-bold rounded-md shadow-sm bg-white text-[var(--brand-accent)] transition-all">Toshiba</button>
+                <button id="btn-brand-panasonic" onclick="setBrand('panasonic')" class="flex-1 py-2 text-sm font-bold rounded-md text-gray-500 transition-all">Panasonic</button>
+            </div>
+        </section>
+
         <!-- Configuration Card -->
         <section class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 fade-in">
             <div class="flex flex-col gap-4">
                 <h2 class="text-lg font-semibold text-toshiba-dark flex items-center gap-2">
-                    <span class="w-2 h-6 bg-toshiba-red rounded-full"></span>
+                    <span class="w-2 h-6 bg-[var(--brand-accent)] rounded-full"></span>
                     1. Paramètres Techniques & Localisation
                 </h2>
 
@@ -95,7 +108,7 @@
                     <div class="flex flex-col gap-2">
                         <label for="isolationCoef" class="text-xs font-bold uppercase text-gray-500 tracking-wider">Niveau d'Isolation (G)</label>
                         <div class="flex gap-2">
-                            <select id="isolationCoef" onchange="toggleCustomCoef()" class="select-custom flex-grow p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-toshiba-red outline-none transition-all">
+                            <select id="isolationCoef" onchange="toggleCustomCoef()" class="select-custom flex-grow p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all">
                                 <option value="2.0">Avant 1974 (Aucune isolation) - G: 2.0</option>
                                 <option value="1.2">1974 à 1988 (Isolation basique) - G: 1.2</option>
                                 <option value="1.1">1989 à 2000 (Années 90) - G: 1.1</option>
@@ -105,18 +118,18 @@
                                 <option value="3.0">Véranda (Très déperditif) - G: 3.0</option>
                                 <option value="custom">Saisie personnalisée...</option>
                             </select>
-                            <input type="number" id="customCoef" step="0.01" min="0.1" value="0.65" class="hidden w-24 p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-toshiba-red outline-none transition-all" placeholder="Ex: 0.65">
+                            <input type="number" id="customCoef" step="0.01" min="0.1" value="0.65" class="hidden w-24 p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all" placeholder="Ex: 0.65">
                         </div>
                     </div>
 
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div class="flex flex-col gap-2">
-                            <label for="deptSelect" class="text-xs font-bold uppercase text-toshiba-red tracking-wider">Département</label>
-                            <select id="deptSelect" onchange="updateClimateInfo()" class="select-custom p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-toshiba-red outline-none transition-all"></select>
+                            <label for="deptSelect" class="text-xs font-bold uppercase text-[var(--brand-accent)] tracking-wider">Département</label>
+                            <select id="deptSelect" onchange="updateClimateInfo()" class="select-custom p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all"></select>
                         </div>
                         <div class="flex flex-col gap-2">
-                            <label for="altitude" class="text-xs font-bold uppercase text-toshiba-red tracking-wider">Altitude</label>
-                            <select id="altitude" onchange="updateClimateInfo()" class="select-custom p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-toshiba-red outline-none transition-all">
+                            <label for="altitude" class="text-xs font-bold uppercase text-[var(--brand-accent)] tracking-wider">Altitude</label>
+                            <select id="altitude" onchange="updateClimateInfo()" class="select-custom p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all">
                                 <option value="0 à 200m" selected>0 à 200m</option>
                                 <option value="200 à 400m">200 à 400m</option>
                                 <option value="400 à 600m">400 à 600m</option>
@@ -133,8 +146,8 @@
                     </div>
 
                     <div class="flex flex-col gap-2">
-                        <label for="consigneInt" class="text-xs font-bold uppercase text-toshiba-red tracking-wider">Consigne Intérieure Été</label>
-                        <select id="consigneInt" onchange="updateClimateInfo()" class="select-custom p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-toshiba-red outline-none transition-all">
+                        <label for="consigneInt" class="text-xs font-bold uppercase text-[var(--brand-accent)] tracking-wider">Consigne Intérieure Été</label>
+                        <select id="consigneInt" onchange="updateClimateInfo()" class="select-custom p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all">
                             <option value="25">25°C – Confort maximal (+12% froid)</option>
                             <option value="26" selected>26°C – Standard (référence)</option>
                             <option value="27">27°C – Optimisé (-12% froid)</option>
@@ -142,14 +155,14 @@
                         </select>
                     </div>
 
-                    <div id="climate-diagnostic" class="bg-white border border-red-100 rounded-lg p-3 text-xs text-center font-medium text-toshiba-red shadow-inner">
+                    <div id="climate-diagnostic" class="bg-white border border-[var(--brand-accent)]/20 rounded-lg p-3 text-xs text-center font-medium text-[var(--brand-accent)] shadow-inner">
                         Zone détectée : -- | Température de base : --
                     </div>
                 </div>
             </div>
             
             <div class="flex p-1 bg-gray-100 rounded-lg mt-6">
-                <button id="btn-mono" onclick="setMode('mono')" class="flex-1 py-2 text-sm font-medium rounded-md shadow-sm bg-white text-toshiba-red transition-all">Monosplit</button>
+                <button id="btn-mono" onclick="setMode('mono')" class="flex-1 py-2 text-sm font-medium rounded-md shadow-sm bg-white text-[var(--brand-accent)] transition-all">Monosplit</button>
                 <button id="btn-multi" onclick="setMode('multi')" class="flex-1 py-2 text-sm font-medium rounded-md text-gray-500 hover:text-gray-700 transition-all">Multisplit</button>
             </div>
         </section>
@@ -158,7 +171,7 @@
         <section id="rooms-container" class="flex flex-col gap-4 fade-in"></section>
 
         <!-- Calculate Button -->
-        <button onclick="calculate()" class="w-full bg-toshiba-red hover:bg-red-700 text-white font-bold py-4 rounded-xl shadow-lg transition-colors flex justify-center items-center gap-2 text-lg active:scale-95 transform transition">
+        <button onclick="calculate()" class="w-full bg-[var(--brand-accent)] hover:bg-[var(--brand-accent-dark)] text-white font-bold py-4 rounded-xl shadow-lg transition-colors flex justify-center items-center gap-2 text-lg active:scale-95 transform transition">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
             Rechercher les solutions
         </button>
@@ -172,7 +185,7 @@
     <main id="app-dashboard" class="hidden flex-grow max-w-3xl mx-auto w-full px-4 py-6 flex-col gap-6 fade-in">
         <div class="flex items-center justify-between mb-4 border-b border-gray-200 pb-4">
             <h2 class="text-2xl font-extrabold text-toshiba-dark flex items-center gap-2">
-                <svg class="w-6 h-6 text-toshiba-red" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
+                <svg class="w-6 h-6 text-[var(--brand-accent)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
                 Mes Chantiers
             </h2>
             <button onclick="toggleDashboard(false)" class="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm font-bold hover:bg-gray-300 transition-colors">Fermer</button>
@@ -183,11 +196,27 @@
     <!-- ==== SCRIPTS ==== -->
     <script>
         // --- STATE ---
-        let state = { 
-            mode: 'mono', 
+        let state = {
+            brand: 'toshiba',
+            mode: 'mono',
             rooms: [{ id: 1, surface: '', height: 2.5, exposure: 'normal' }],
-            lastResultData: null 
+            lastResultData: null
         };
+
+        const BRAND_ACCENTS = {
+            toshiba: { accent: '#FF0000', accentDark: '#C81E1E' },
+            panasonic: { accent: '#0046AD', accentDark: '#003174' }
+        };
+
+        function setBrand(brand) {
+            state.brand = brand;
+            const colors = BRAND_ACCENTS[brand];
+            document.documentElement.style.setProperty('--brand-accent', colors.accent);
+            document.documentElement.style.setProperty('--brand-accent-dark', colors.accentDark);
+            document.getElementById('btn-brand-toshiba').className = `flex-1 py-2 text-sm font-bold rounded-md transition-all ${brand === 'toshiba' ? 'shadow-sm bg-white text-[var(--brand-accent)]' : 'text-gray-500'}`;
+            document.getElementById('btn-brand-panasonic').className = `flex-1 py-2 text-sm font-bold rounded-md transition-all ${brand === 'panasonic' ? 'shadow-sm bg-white text-[var(--brand-accent)]' : 'text-gray-500'}`;
+            document.getElementById('results-container').innerHTML = '';
+        }
 
         function initApp() {
             const deptSelect = document.getElementById('deptSelect');
@@ -260,7 +289,7 @@
                                 <span class="font-bold text-sm text-toshiba-dark">${cfg.zone}</span>
                                 <span class="text-[9px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded font-bold uppercase">${cfg.mode}</span>
                             </div>
-                            <p class="text-xs text-toshiba-red font-bold uppercase tracking-tight">${cfg.resultStr}</p>
+                            <p class="text-xs text-[var(--brand-accent)] font-bold uppercase tracking-tight">${cfg.resultStr}</p>
                             ${detailsHtml}
                             <p class="text-[9px] text-gray-400 mt-2 font-medium">${cfg.date}</p>
                         </div>
@@ -393,17 +422,24 @@
             return { froid: besoinFroid, chaud: besoinChaud };
         }
 
+        // Tailles UI (codes commerciaux) par palier de puissance requise, propres à chaque marque.
+        const UI_SIZE_TABLES = {
+            toshiba: [
+                { max: 2.0, code: "05" }, { max: 2.5, code: "07" }, { max: 3.2, code: "10" },
+                { max: 4.2, code: "13" }, { max: 5.5, code: "16" }, { max: 6.0, code: "18" },
+                { max: 7.0, code: "22" }, { max: 8.0, code: "24" }
+            ],
+            panasonic: [
+                { max: 2.0, code: "20" }, { max: 2.5, code: "25" }, { max: 3.5, code: "35" },
+                { max: 4.2, code: "42" }, { max: 5.0, code: "50" }, { max: 7.1, code: "71" }
+            ]
+        };
+
         function getUiSizeForKw(reqFroid, reqChaud) {
             const maxReq = Math.max(reqFroid, reqChaud);
-            if (maxReq <= 2.0) return "05";
-            if (maxReq <= 2.5) return "07";
-            if (maxReq <= 3.2) return "10";
-            if (maxReq <= 4.2) return "13";
-            if (maxReq <= 5.5) return "16";
-            if (maxReq <= 6.0) return "18";
-            if (maxReq <= 7.0) return "22";
-            if (maxReq <= 8.0) return "24";
-            return null; 
+            const table = UI_SIZE_TABLES[state.brand];
+            for (const row of table) { if (maxReq <= row.max) return row.code; }
+            return null;
         }
 
         function toggleCustomCoef() {
@@ -417,8 +453,8 @@
             state.mode = mode;
             state.rooms = [state.rooms[0]];
             const isMono = mode === 'mono';
-            document.getElementById('btn-mono').className = `flex-1 py-2 text-sm font-medium rounded-md transition-all ${isMono ? 'shadow-sm bg-white text-toshiba-red' : 'text-gray-500'}`;
-            document.getElementById('btn-multi').className = `flex-1 py-2 text-sm font-medium rounded-md transition-all ${!isMono ? 'shadow-sm bg-white text-toshiba-red' : 'text-gray-500'}`;
+            document.getElementById('btn-mono').className = `flex-1 py-2 text-sm font-medium rounded-md transition-all ${isMono ? 'shadow-sm bg-white text-[var(--brand-accent)]' : 'text-gray-500'}`;
+            document.getElementById('btn-multi').className = `flex-1 py-2 text-sm font-medium rounded-md transition-all ${!isMono ? 'shadow-sm bg-white text-[var(--brand-accent)]' : 'text-gray-500'}`;
             document.getElementById('results-container').innerHTML = '';
             renderRooms();
         }
@@ -438,16 +474,16 @@
                         <div class="grid grid-cols-2 gap-4">
                             <div>
                                 <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Surface (m²)</label>
-                                <input type="number" oninput="updateRoom(${room.id}, 'surface', this.value)" value="${room.surface}" placeholder="Ex: 30" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-toshiba-red outline-none">
+                                <input type="number" oninput="updateRoom(${room.id}, 'surface', this.value)" value="${room.surface}" placeholder="Ex: 30" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                             </div>
                             <div>
                                 <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Hauteur (m)</label>
-                                <input type="number" oninput="updateRoom(${room.id}, 'height', this.value)" value="${room.height}" step="0.1" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-toshiba-red outline-none">
+                                <input type="number" oninput="updateRoom(${room.id}, 'height', this.value)" value="${room.height}" step="0.1" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                             </div>
                         </div>
                         <div class="mt-4">
                             <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Exposition solaire</label>
-                            <select onchange="updateRoom(${room.id}, 'exposure', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-toshiba-red outline-none">
+                            <select onchange="updateRoom(${room.id}, 'exposure', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                                 <option value="faible" ${room.exposure === 'faible' ? 'selected' : ''}>Faible – Nord, peu vitré, volets/protections</option>
                                 <option value="normal" ${room.exposure === 'normal' ? 'selected' : ''}>Normal – Vitrage standard, orientation mixte</option>
                                 <option value="fort" ${room.exposure === 'fort' ? 'selected' : ''}>Fort – Grandes baies Sud/Ouest peu protégées</option>
@@ -457,7 +493,7 @@
                 `);
             });
             if (state.mode === 'multi' && state.rooms.length < 5) {
-                container.insertAdjacentHTML('beforeend', `<button onclick="addRoom()" class="w-full border-2 border-dashed border-gray-200 rounded-xl p-4 text-gray-400 hover:border-toshiba-red hover:text-toshiba-red transition-all flex items-center justify-center gap-2 font-bold text-sm bg-white">Ajouter une pièce (${state.rooms.length}/5)</button>`);
+                container.insertAdjacentHTML('beforeend', `<button onclick="addRoom()" class="w-full border-2 border-dashed border-gray-200 rounded-xl p-4 text-gray-400 hover:border-[var(--brand-accent)] hover:text-[var(--brand-accent)] transition-all flex items-center justify-center gap-2 font-bold text-sm bg-white">Ajouter une pièce (${state.rooms.length}/5)</button>`);
             }
         }
 
@@ -473,7 +509,7 @@
         // --- ALGORITHME DE SÉLECTION INTELLIGENTE ---
         // V16: Ne retourne QUE les gammes qui ont exactement la meilleure (plus petite) puissance requise, avec une mini marge pour regrouper les équivalents
         function findBestMonos(reqF, reqC) {
-            let allSols = DB.monosplits.filter(p => p.puissance_froid_kw >= reqF && p.puissance_chaud_kw >= reqC)
+            let allSols = CATALOGS[state.brand].monosplits.filter(p => p.puissance_froid_kw >= reqF && p.puissance_chaud_kw >= reqC)
                                        .sort((a, b) => a.puissance_froid_kw - b.puissance_froid_kw);
             
             if (allSols.length === 0) return [];
@@ -490,7 +526,7 @@
                 return;
             }
 
-            let html = `<h2 class="text-xl font-bold text-toshiba-dark flex items-center gap-2 mt-4"><span class="w-2 h-6 bg-toshiba-red rounded-full"></span>Solutions recommandées</h2>`;
+            let html = `<h2 class="text-xl font-bold text-toshiba-dark flex items-center gap-2 mt-4"><span class="w-2 h-6 bg-[var(--brand-accent)] rounded-full"></span>Solutions recommandées</h2>`;
             state.lastResultData = { summaryText: "", equipments: [], roomDetails: [] }; 
 
             if (state.mode === 'mono') {
@@ -534,7 +570,7 @@
                     let totF = roomsObj.reduce((sum, r) => sum + r.req.froid, 0);
                     let totC = roomsObj.reduce((sum, r) => sum + r.req.chaud, 0);
 
-                    let validGroups = DB.multisplits_groupes_exterieurs.filter(g => 
+                    let validGroups = CATALOGS[state.brand].multisplits_groupes_exterieurs.filter(g =>
                         g.max_unites_interieures >= roomsObj.length &&
                         (g.puissance_nominale_froid_kw * COEF_FOISONNEMENT) >= totF &&
                         (g.puissance_nominale_chaud_kw * COEF_FOISONNEMENT) >= totC
@@ -593,7 +629,7 @@
                 } else if (bestGroup && bestGroup !== "MONO") {
                     let sizesArr = standardRooms.map(r => r.size);
                     html += renderCard(`Groupe Multisplit (${standardRooms.length} sorties)`, "Groupe Extérieur", bestGroup.reference, bestGroup.puissance_nominale_froid_kw, bestGroup.puissance_nominale_chaud_kw, true, sizesArr);
-                    html += renderMultiRoomsGuide(standardRooms);
+                    html += renderMultiRoomsGuide(standardRooms, bestGroup.gammes_compatibles);
                     summaryParts.push(`1x Multi ${bestGroup.reference} (${standardRooms.length} UI)`);
                     state.lastResultData.equipments.push(`Groupe Extérieur ${bestGroup.reference} (Pour brancher les tailles : ${sizesArr.join(' + ')})`);
                 }
@@ -605,18 +641,18 @@
                 html += `
                 <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 mt-6 fade-in">
                     <h3 class="text-sm font-bold text-toshiba-dark flex items-center gap-2 mb-4 uppercase tracking-wide">
-                        <svg class="w-5 h-5 text-toshiba-red" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
+                        <svg class="w-5 h-5 text-[var(--brand-accent)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
                         Enregistrer au Chantier
                     </h3>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                         <div>
                             <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Nom du Client / Projet</label>
-                            <input type="text" id="save-client" list="client-list" placeholder="Ex: Dupont" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-toshiba-red outline-none">
+                            <input type="text" id="save-client" list="client-list" placeholder="Ex: Dupont" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                             <datalist id="client-list"></datalist>
                         </div>
                         <div>
                             <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Désignation de la Zone</label>
-                            <input type="text" id="save-zone" placeholder="Ex: RDC, Étage, Salon..." class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-toshiba-red outline-none">
+                            <input type="text" id="save-zone" placeholder="Ex: RDC, Étage, Salon..." class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                         </div>
                     </div>
                     <button onclick="saveChantier()" class="w-full bg-gray-800 hover:bg-black text-white font-bold py-3 rounded-lg shadow transition-colors flex justify-center items-center gap-2 text-sm">
@@ -652,7 +688,7 @@
 
         // Contenu factuel de la fiche gamme (idéal pour / plus / moins / wifi). Réutilisé en mono (dépliant) et en multi (chips par pièce).
         function gammeGuideContent(gammeName) {
-            const g = GAMMES_INFO[gammeName];
+            const g = GAMMES_INFO[state.brand][gammeName];
             if (!g) return '';
             const wifiColor = g.wifi === 'De série' ? 'text-green-600' : 'text-amber-600';
             return `
@@ -668,11 +704,11 @@
 
         // Fiche "carte d'identité" de la gamme, dépliable sous la carte résultat. Retourne '' si gamme inconnue.
         function renderGammeGuide(gammeName) {
-            const g = GAMMES_INFO[gammeName];
+            const g = GAMMES_INFO[state.brand][gammeName];
             if (!g) return '';
             return `
             <details class="mt-4 pt-3 border-t border-gray-100 group/guide">
-                <summary class="cursor-pointer text-[11px] font-bold text-gray-500 hover:text-toshiba-red flex items-center gap-1.5 select-none">
+                <summary class="cursor-pointer text-[11px] font-bold text-gray-500 hover:text-[var(--brand-accent)] flex items-center gap-1.5 select-none">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                     Guide de la gamme
                     <span class="ml-auto text-[10px] font-extrabold bg-gray-100 text-gray-600 px-2 py-0.5 rounded">${g.tier}</span>
@@ -686,9 +722,10 @@
         // pour son besoin réel (findBestMonos), avec fiche dépliable. Purement informatif — la
         // sélection du groupe extérieur reste basée sur la puissance totale, indépendamment du choix
         // de gamme par pièce (les tailles 05/07/10... ont la même puissance nominale quelle que soit la gamme).
-        function renderMultiRoomsGuide(roomsData) {
+        function renderMultiRoomsGuide(roomsData, allowedGammes) {
             const rows = roomsData.map(r => {
-                const sols = findBestMonos(r.req.froid, r.req.chaud);
+                let sols = findBestMonos(r.req.froid, r.req.chaud);
+                if (allowedGammes) sols = sols.filter(s => allowedGammes.includes(s.gamme));
                 if (sols.length === 0) {
                     return `<div class="py-2.5 border-b border-gray-100 last:border-0 text-xs text-orange-700 italic">Pièce ${r.index} : aucune UI du catalogue ne couvre ce besoin.</div>`;
                 }
@@ -711,10 +748,10 @@
             return `
             <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 mb-4 fade-in">
                 <h3 class="text-sm font-bold text-toshiba-dark flex items-center gap-2 mb-1 uppercase tracking-wide">
-                    <svg class="w-5 h-5 text-toshiba-red" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                    <svg class="w-5 h-5 text-[var(--brand-accent)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
                     Guide de sélection des unités intérieures
                 </h3>
-                <p class="text-[11px] text-gray-400 mb-1">Par pièce, les gammes éligibles pour ce besoin précis. Vous pouvez mixer les gammes sur un même groupe extérieur (ex : Shorai Edge au salon + Yukai en chambre) pour éviter de surdimensionner une petite pièce.</p>
+                <p class="text-[11px] text-gray-400 mb-1">Par pièce, les gammes éligibles pour ce besoin précis${allowedGammes ? ` (compatibles avec ${allowedGammes.join(' / ')})` : ''}. Vous pouvez mixer les gammes sur un même groupe extérieur pour éviter de surdimensionner une petite pièce.</p>
                 ${rows}
             </div>`;
         }
@@ -729,11 +766,11 @@
             }
 
             return `
-            <div class="bg-white rounded-xl shadow-md border-l-4 border-toshiba-red p-5 fade-in transition hover:shadow-lg mb-4 relative overflow-hidden">
+            <div class="bg-white rounded-xl shadow-md border-l-4 border-[var(--brand-accent)] p-5 fade-in transition hover:shadow-lg mb-4 relative overflow-hidden">
                 <div class="absolute -right-4 -top-4 opacity-5 pointer-events-none"><svg class="w-32 h-32" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zm0 7.5l-6-3v6.5l6 3 6-3V6.5l-6 3z"/></svg></div>
                 <div class="flex justify-between items-start gap-4 relative z-10">
                     <div class="flex-grow">
-                        <div class="text-[10px] font-black uppercase text-toshiba-red mb-1 tracking-widest">${badgeText}</div>
+                        <div class="text-[10px] font-black uppercase text-[var(--brand-accent)] mb-1 tracking-widest">${badgeText}</div>
                         <h3 class="text-lg font-extrabold text-toshiba-dark leading-tight">${mainTitle}</h3>
                         <p class="text-xs font-mono text-gray-500 mt-1">${subtitle}</p>
                     </div>
@@ -754,7 +791,8 @@
         }
 
         // --- DONNÉES EN DUR ---
-        const DB = {
+        const CATALOGS = {
+          toshiba: {
             monosplits: [
                 // --- NAKA (entrée de gamme) ---
                 { gamme: "Naka", reference_ensemble: "RAS-05B2AVG-E / RAS-B05B2KVG-E", puissance_froid_kw: 1.5, puissance_chaud_kw: 2.0 },
@@ -798,11 +836,45 @@
                 { reference: "RAS-4M27G3AVG-E", max_unites_interieures: 4, puissance_nominale_froid_kw: 8.0, puissance_nominale_chaud_kw: 9.0 },
                 { reference: "RAS-5M34G3AVG-E/ET", max_unites_interieures: 5, puissance_nominale_froid_kw: 10.0, puissance_nominale_chaud_kw: 12.0 }
             ]
+          },
+          panasonic: {
+            monosplits: [
+                // --- TZ ULTRA COMPACT ---
+                { gamme: "TZ Ultra Compact", reference_ensemble: "CU-TZ20CKE / CS-TZ20CKEW", puissance_froid_kw: 2.00, puissance_chaud_kw: 2.70 },
+                { gamme: "TZ Ultra Compact", reference_ensemble: "CU-TZ25CKE / CS-TZ25CKEW", puissance_froid_kw: 2.50, puissance_chaud_kw: 3.30 },
+                { gamme: "TZ Ultra Compact", reference_ensemble: "CU-TZ35CKE / CS-TZ35CKEW", puissance_froid_kw: 3.50, puissance_chaud_kw: 4.00 },
+                { gamme: "TZ Ultra Compact", reference_ensemble: "CU-TZ42CKE / CS-TZ42CKEW", puissance_froid_kw: 4.20, puissance_chaud_kw: 5.00 },
+                { gamme: "TZ Ultra Compact", reference_ensemble: "CU-TZ50CKE / CS-TZ50CKEW", puissance_froid_kw: 5.00, puissance_chaud_kw: 5.80 },
+                { gamme: "TZ Ultra Compact", reference_ensemble: "CU-TZ71CKE / CS-TZ71CKEW", puissance_froid_kw: 7.10, puissance_chaud_kw: 8.20 },
+                // --- ETHEREA ---
+                { gamme: "Etherea", reference_ensemble: "CU-Z20CKE / CS-Z20CKEW", puissance_froid_kw: 2.05, puissance_chaud_kw: 2.80 },
+                { gamme: "Etherea", reference_ensemble: "CU-Z25CKE / CS-Z25CKEW", puissance_froid_kw: 2.50, puissance_chaud_kw: 3.40 },
+                { gamme: "Etherea", reference_ensemble: "CU-Z35CKE / CS-Z35CKEW", puissance_froid_kw: 3.50, puissance_chaud_kw: 4.00 },
+                { gamme: "Etherea", reference_ensemble: "CU-Z42CKE / CS-Z42CKEW", puissance_froid_kw: 4.20, puissance_chaud_kw: 5.30 },
+                { gamme: "Etherea", reference_ensemble: "CU-Z50CKE / CS-Z50CKEW", puissance_froid_kw: 5.00, puissance_chaud_kw: 5.80 }
+            ],
+            multisplits_groupes_exterieurs: [
+                // --- MULTI TZ (compatible uniquement avec unités intérieures TZ Ultra Compact) ---
+                { reference: "CU-2TZ41TBE", max_unites_interieures: 2, puissance_nominale_froid_kw: 4.10, puissance_nominale_chaud_kw: 4.40, gammes_compatibles: ["TZ Ultra Compact"] },
+                { reference: "CU-2TZ50TBE", max_unites_interieures: 2, puissance_nominale_froid_kw: 5.00, puissance_nominale_chaud_kw: 5.70, gammes_compatibles: ["TZ Ultra Compact"] },
+                { reference: "CU-3TZ52TBE", max_unites_interieures: 3, puissance_nominale_froid_kw: 5.20, puissance_nominale_chaud_kw: 6.80, gammes_compatibles: ["TZ Ultra Compact"] },
+                // --- MULTI Z DELUXE (compatible avec TZ Ultra Compact et Etherea) ---
+                { reference: "CU-2Z35CBE", max_unites_interieures: 2, puissance_nominale_froid_kw: 3.50, puissance_nominale_chaud_kw: 4.20, gammes_compatibles: ["TZ Ultra Compact", "Etherea"] },
+                { reference: "CU-2Z41CBE", max_unites_interieures: 2, puissance_nominale_froid_kw: 4.10, puissance_nominale_chaud_kw: 4.60, gammes_compatibles: ["TZ Ultra Compact", "Etherea"] },
+                { reference: "CU-2Z50CBE", max_unites_interieures: 2, puissance_nominale_froid_kw: 5.00, puissance_nominale_chaud_kw: 5.60, gammes_compatibles: ["TZ Ultra Compact", "Etherea"] },
+                { reference: "CU-3Z52CBE", max_unites_interieures: 3, puissance_nominale_froid_kw: 5.20, puissance_nominale_chaud_kw: 6.80, gammes_compatibles: ["TZ Ultra Compact", "Etherea"] },
+                { reference: "CU-3Z68CBE", max_unites_interieures: 3, puissance_nominale_froid_kw: 6.80, puissance_nominale_chaud_kw: 8.50, gammes_compatibles: ["TZ Ultra Compact", "Etherea"] },
+                { reference: "CU-4Z68CBE", max_unites_interieures: 4, puissance_nominale_froid_kw: 6.80, puissance_nominale_chaud_kw: 8.50, gammes_compatibles: ["TZ Ultra Compact", "Etherea"] },
+                { reference: "CU-4Z80CBE", max_unites_interieures: 4, puissance_nominale_froid_kw: 8.00, puissance_nominale_chaud_kw: 9.40, gammes_compatibles: ["TZ Ultra Compact", "Etherea"] },
+                { reference: "CU-5Z90CBE", max_unites_interieures: 5, puissance_nominale_froid_kw: 9.00, puissance_nominale_chaud_kw: 10.40, gammes_compatibles: ["TZ Ultra Compact", "Etherea"] }
+            ]
+          }
         };
 
         // --- GUIDE DES GAMMES (fiche affichée sous chaque solution) ---
-        // Données factuelles (source Toshiba). Purement informatif, n'influence pas la sélection.
+        // Données factuelles (source constructeur). Purement informatif, n'influence pas la sélection.
         const GAMMES_INFO = {
+          toshiba: {
             "Naka": {
                 tier: "€ · Entrée de gamme", wifi: "Option",
                 plus: ["Meilleur rapport qualité/prix", "Silencieux (dès 19 dB)", "Compatible mono & multisplit"],
@@ -839,6 +911,21 @@
                 moins: ["Encombrement au sol", "Choix de puissances limité"],
                 ideal: "Remplacement de radiateur, diffusion type chauffage central"
             }
+          },
+          panasonic: {
+            "TZ Ultra Compact": {
+                tier: "€€ · Milieu de gamme compacte", wifi: "De série",
+                plus: ["Wifi intégré de série (appli Comfort Cloud)", "Très silencieux dès 20 dB(A)", "nanoe™ X (purification de l'air)", "Chauffage garanti jusqu'à −15 °C", "Compatible mono & Multi TZ", "Design compact (largeur 765 mm)"],
+                moins: ["SCOP 4,1 à 4,6 (classe A+/A++) : un cran sous Etherea", "Coloris blanc uniquement"],
+                ideal: "Pièce principale ou secondaire, bon rapport performance/prix"
+            },
+            "Etherea": {
+                tier: "€€€ · Haut de gamme design", wifi: "De série",
+                plus: ["SEER jusqu'à 9,50 / SCOP jusqu'à 5,20 (classe A+++)", "Ultra silencieuse dès 19 dB(A)", "Mode ECO IA : jusqu'à 20 % d'économies en froid", "nanoe™ X Mark 3 + nettoyage interne à la demande", "3 coloris (graphite, gris argenté, blanc mat)", "Chauffage garanti jusqu'à −20 °C"],
+                moins: ["Prix plus élevé", "Coloris graphite/gris argenté non disponibles sur toutes les puissances"],
+                ideal: "Salon / pièce à vivre, recherche du meilleur rendement énergétique et du design"
+            }
+          }
         };
 
         const DEPARTMENTS = { "01": { name: "Ain", zone: "F" }, "02": { name: "Aisne", zone: "D" }, "03": { name: "Allier", zone: "F" }, "04": { name: "Alpes-de-Haute-Provence", zone: "I" }, "05": { name: "Hautes-Alpes", zone: "I" }, "06": { name: "Alpes-Maritimes", zone: "H" }, "07": { name: "Ardèche", zone: "I" }, "08": { name: "Ardennes", zone: "F" }, "09": { name: "Ariège", zone: "I" }, "10": { name: "Aube", zone: "F" }, "11": { name: "Aude", zone: "H" }, "12": { name: "Aveyron", zone: "G" }, "13": { name: "Bouches-du-Rhône", zone: "H" }, "14": { name: "Calvados", zone: "C" }, "15": { name: "Cantal", zone: "G" }, "16": { name: "Charente", zone: "B" }, "17": { name: "Charente-Maritime", zone: "B" }, "18": { name: "Cher", zone: "E" }, "19": { name: "Corrèze", zone: "G" }, "2A": { name: "Corse-du-Sud", zone: "H" }, "2B": { name: "Haute-Corse", zone: "H" }, "21": { name: "Côte-d'Or", zone: "F" }, "22": { name: "Côtes-d'Armor", zone: "A" }, "23": { name: "Creuse", zone: "G" }, "24": { name: "Dordogne", zone: "B" }, "25": { name: "Doubs", zone: "F" }, "26": { name: "Drôme", zone: "F" }, "27": { name: "Eure", zone: "C" }, "28": { name: "Eure-et-Loir", zone: "E" }, "29": { name: "Finistère", zone: "A" }, "30": { name: "Gard", zone: "H" }, "31": { name: "Haute-Garonne", zone: "I" }, "32": { name: "Gers", zone: "I" }, "33": { name: "Gironde", zone: "B" }, "34": { name: "Hérault", zone: "H" }, "35": { name: "Ille-et-Vilaine", zone: "A" }, "36": { name: "Indre", zone: "E" }, "37": { name: "Indre-et-Loire", zone: "E" }, "38": { name: "Isère", zone: "F" }, "39": { name: "Jura", zone: "F" }, "40": { name: "Landes", zone: "B" }, "41": { name: "Loir-et-Cher", zone: "E" }, "42": { name: "Loire", zone: "F" }, "43": { name: "Haute-Loire", zone: "F" }, "44": { name: "Loire-Atlantique", zone: "A" }, "45": { name: "Loiret", zone: "E" }, "46": { name: "Lot", zone: "B" }, "47": { name: "Lot-et-Garonne", zone: "B" }, "48": { name: "Lozère", zone: "G" }, "49": { name: "Maine-et-Loire", zone: "E" }, "50": { name: "Manche", zone: "C" }, "51": { name: "Marne", zone: "F" }, "52": { name: "Haute-Marne", zone: "F" }, "53": { name: "Mayenne", zone: "E" }, "54": { name: "Meurthe-et-Moselle", zone: "F" }, "55": { name: "Meuse", zone: "F" }, "56": { name: "Morbihan", zone: "A" }, "57": { name: "Moselle", zone: "F" }, "58": { name: "Nièvre", zone: "F" }, "59": { name: "Nord", zone: "D" }, "60": { name: "Oise", zone: "D" }, "61": { name: "Orne", zone: "C" }, "62": { name: "Pas-de-Calais", zone: "D" }, "63": { name: "Puy-de-Dôme", zone: "F" }, "64": { name: "Pyrénées-Atlantiques", zone: "B" }, "65": { name: "Hautes-Pyrénées", zone: "I" }, "66": { name: "Pyrénées-Orientales", zone: "H" }, "67": { name: "Bas-Rhin", zone: "F" }, "68": { name: "Haut-Rhin", zone: "F" }, "69": { name: "Rhône", zone: "F" }, "70": { name: "Haute-Saône", zone: "F" }, "71": { name: "Saône-et-Loire", zone: "F" }, "72": { name: "Sarthe", zone: "E" }, "73": { name: "Savoie", zone: "F" }, "74": { name: "Haute-Savoie", zone: "F" }, "75": { name: "Paris", zone: "D" }, "76": { name: "Seine-Maritime", zone: "C" }, "77": { name: "Seine-et-Marne", zone: "D" }, "78": { name: "Yvelines", zone: "D" }, "79": { name: "Deux-Sèvres", zone: "E" }, "80": { name: "Somme", zone: "D" }, "81": { name: "Tarn", zone: "I" }, "82": { name: "Tarn-et-Garonne", zone: "I" }, "83": { name: "Var", zone: "H" }, "84": { name: "Vaucluse", zone: "H" }, "85": { name: "Vendée", zone: "A" }, "86": { name: "Vienne", zone: "E" }, "87": { name: "Haute-Vienne", zone: "G" }, "88": { name: "Vosges", zone: "F" }, "89": { name: "Yonne", zone: "F" }, "90": { name: "Territoire de Belfort", zone: "F" }, "91": { name: "Essonne", zone: "D" }, "92": { name: "Hauts-de-Seine", zone: "D" }, "93": { name: "Seine-Saint-Denis", zone: "D" }, "94": { name: "Val-de-Marne", zone: "D" }, "95": { name: "Val-d'Oise", zone: "D" }, "971": { name: "Guadeloupe", zone: "H" }, "972": { name: "Martinique", zone: "H" }, "973": { name: "Guyane", zone: "H" }, "974": { name: "La Réunion", zone: "H" }, "976": { name: "Mayotte", zone: "H" } };
@@ -850,9 +937,9 @@
 
         // --- PWA ---
         const manifest = {
-            "name": "Toshiba ProSizer",
+            "name": "ProSizer B2B",
             "short_name": "ProSizer",
-            "description": "Outil de dimensionnement Toshiba",
+            "description": "Outil de dimensionnement Toshiba / Panasonic",
             "start_url": window.location.href.split('?')[0].split('#')[0],
             "display": "standalone",
             "background_color": "#111111",
