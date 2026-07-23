@@ -199,7 +199,7 @@
         let state = {
             brand: 'toshiba',
             mode: 'mono',
-            rooms: [{ id: 1, surface: '', height: 2.5, exposure: 'normal' }],
+            rooms: [{ id: 1, surface: '', height: 2.5, emplacement: 'plain_pied', orientation: 'mixte', vitrage: 'moyen', protection: 'stores_int', occupants: '' }],
             lastResultData: null
         };
 
@@ -370,11 +370,34 @@
         }
 
         // --- CORE ALGORITHM ---
-        // Apports solaires (W/m² de surface au sol) selon l'exposition de la pièce.
-        // Poste dominant du besoin de froid en été.
-        const APPORTS_SOLAIRES = { faible: 15, normal: 30, fort: 55 };
-        // Apports internes (occupants + équipements), résidentiel (W/m²).
+        // Apports internes de base (éclairage LED + équipements), résidentiel (W/m² au sol).
         const APPORTS_INTERNES = 5;
+
+        // Surcharge toiture en été (W/m² de surface au sol) si la pièce est sous la toiture.
+        // Rendue seulement quand la pièce est directement sous les combles / la couverture :
+        // c'est le poste le plus sous-estimé d'un modèle purement volumique (ΔTe toiture 25-45 K).
+        const CHARGE_TOITURE = { bonne: 15, moyenne: 28, faible: 45 };
+
+        // Rayonnement solaire de pointe transmis par un vitrage clair (W/m² de vitrage),
+        // latitude ~45° (Sud-Ouest), par orientation dominante des baies. Méthode type Carrier.
+        const RAYONNEMENT_VITRAGE = { nord: 45, est: 585, sud: 290, ouest: 585, mixte: 350 };
+        // Ratio surface vitrée / surface au sol selon la quantité de vitrage déclarée.
+        const RATIO_VITRAGE = { peu: 0.10, moyen: 0.18, beaucoup: 0.28 };
+        // Coefficient de réduction des protections solaires (Fc, DIN 4108-2 / EN 14501).
+        const FC_PROTECTION = { aucune: 1.0, stores_int: 0.55, volets_ext: 0.15 };
+        const G_VITRAGE = 0.75;            // facteur solaire d'un double vitrage standard (valeur d'usage)
+        const COEF_INERTIE_SOLAIRE = 0.8;  // amortissement / déphasage moyen (bâti mixte)
+        const OCCUPANT_W = 100;            // apport total (sensible + latent) par occupant, résidentiel au repos
+
+        // Zones climatiques chaudes (Sud-Ouest atlantique + Méditerranée + piémont pyrénéen).
+        // La puissance catalogue est donnée à 35°C ext. ; en canicule (40-42°C) elle chute ~10%.
+        const ZONES_CHAUDES = ['B', 'H', 'I'];
+        const ABATTEMENT_CANICULE = 1.11;  // besoin froid effectif majoré ~10% pour la sélection catalogue
+
+        function getFacteurCanicule() {
+            const dept = DEPARTMENTS[document.getElementById('deptSelect').value];
+            return dept && ZONES_CHAUDES.includes(dept.zone) ? ABATTEMENT_CANICULE : 1.0;
+        }
 
         function updateClimateInfo() {
             const code = document.getElementById('deptSelect').value;
@@ -387,7 +410,7 @@
             document.getElementById('climate-diagnostic').innerHTML = `Zone <b>${zone}</b> • T base hiver : <b>${tBaseHiver}°C</b> • T base été : <b>${tBaseEte}°C</b> • Consigne été : <b>${consigne}°C</b>`;
         }
 
-        function getRequiredKw(surface, height, exposure) {
+        function getRequiredKw(surface, height, room) {
             const selectVal = document.getElementById('isolationCoef').value;
             const coefG = selectVal === 'custom' ? parseFloat(document.getElementById('customCoef').value) : parseFloat(selectVal);
             const code = document.getElementById('deptSelect').value;
@@ -404,20 +427,42 @@
             const COEF_RELANCE = 1.20;
             const besoinChaud = deperditionsSeches * COEF_RELANCE;
 
-            // --- FROID : modèle physique (enveloppe + solaire + apports internes) ---
-            // Note : le coefficient G inclut déjà transmission ET renouvellement d'air
-            // (comme dans le calcul de chaud), donc pas de terme de ventilation séparé
-            // pour éviter un double comptage.
+            // --- FROID : bilan poste par poste (enveloppe + toiture + solaire + internes + occupants) ---
+            // Le coefficient G (hivernal) capte la transmission des parois et le renouvellement d'air
+            // mais ignore le rayonnement solaire estival ; on ajoute donc explicitement la surcharge
+            // toiture et les apports solaires par les vitrages, postes dominants du froid en été.
             const consigneEl = document.getElementById('consigneInt');
             const consigne = consigneEl ? parseFloat(consigneEl.value) : 26;
             const deltaTEte = Math.max(0, tBaseEte - consigne);
-            const ratioSolaire = APPORTS_SOLAIRES[exposure] ?? APPORTS_SOLAIRES.normal;
 
-            const qEnveloppe = coefG * volume * deltaTEte;   // W — conduction + air (via G)
-            const qSolaire   = ratioSolaire * surface;       // W — apports solaires
-            const qInternes  = APPORTS_INTERNES * surface;   // W — occupants + équipements
+            // Bande d'isolation dérivée du G (pour la surcharge toiture).
+            const bandeIso = coefG <= 0.35 ? 'bonne' : (coefG <= 0.8 ? 'moyenne' : 'faible');
 
-            const besoinFroid = (qEnveloppe + qSolaire + qInternes) / 1000;
+            // 1. Enveloppe : transmission des parois + air neuf (via G).
+            const qEnveloppe = coefG * volume * deltaTEte;   // W
+
+            // 2. Toiture : surcharge solaire si la pièce est sous la couverture.
+            //    plain_pied = combles perdus isolés (apport modéré) → demi-surcharge.
+            const chargeToit = CHARGE_TOITURE[bandeIso];
+            const qToiture = room.emplacement === 'sous_toiture' ? chargeToit * surface
+                           : room.emplacement === 'plain_pied'   ? chargeToit * 0.5 * surface
+                           : 0;                              // W
+
+            // 3. Solaire : rayonnement × facteur g × protection × inertie × surface vitrée estimée.
+            const rayon     = RAYONNEMENT_VITRAGE[room.orientation] ?? RAYONNEMENT_VITRAGE.mixte;
+            const ratioVit  = RATIO_VITRAGE[room.vitrage] ?? RATIO_VITRAGE.moyen;
+            const fc        = FC_PROTECTION[room.protection] ?? FC_PROTECTION.stores_int;
+            const sVitree   = surface * ratioVit;
+            const qSolaire  = rayon * G_VITRAGE * fc * COEF_INERTIE_SOLAIRE * sVitree; // W
+
+            // 4. Apports internes de base : éclairage + équipements.
+            const qInternesBase = APPORTS_INTERNES * surface; // W
+
+            // 5. Occupants (sensible + latent). Si non saisi, on estime ≈ 1 pers. / 15 m².
+            const nbOcc = parseFloat(room.occupants) || occupantsParDefaut(surface) || 0;
+            const qOccupants = nbOcc * OCCUPANT_W;            // W
+
+            const besoinFroid = (qEnveloppe + qToiture + qSolaire + qInternesBase + qOccupants) / 1000;
 
             return { froid: besoinFroid, chaud: besoinChaud };
         }
@@ -482,12 +527,46 @@
                             </div>
                         </div>
                         <div class="mt-4">
-                            <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Exposition solaire</label>
-                            <select onchange="updateRoom(${room.id}, 'exposure', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
-                                <option value="faible" ${room.exposure === 'faible' ? 'selected' : ''}>Faible – Nord, peu vitré, volets/protections</option>
-                                <option value="normal" ${room.exposure === 'normal' ? 'selected' : ''}>Normal – Vitrage standard, orientation mixte</option>
-                                <option value="fort" ${room.exposure === 'fort' ? 'selected' : ''}>Fort – Grandes baies Sud/Ouest peu protégées</option>
+                            <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Emplacement de la pièce</label>
+                            <select onchange="updateRoom(${room.id}, 'emplacement', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
+                                <option value="sous_toiture" ${room.emplacement === 'sous_toiture' ? 'selected' : ''}>Sous toiture / combles aménagés (fort apport)</option>
+                                <option value="plain_pied" ${room.emplacement === 'plain_pied' ? 'selected' : ''}>Plain-pied, combles perdus isolés (apport modéré)</option>
+                                <option value="etage_protege" ${room.emplacement === 'etage_protege' ? 'selected' : ''}>Étage protégé / RDC sous un autre niveau (nul)</option>
                             </select>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4 mt-4">
+                            <div>
+                                <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Orientation des baies</label>
+                                <select onchange="updateRoom(${room.id}, 'orientation', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
+                                    <option value="nord" ${room.orientation === 'nord' ? 'selected' : ''}>Nord</option>
+                                    <option value="est" ${room.orientation === 'est' ? 'selected' : ''}>Est</option>
+                                    <option value="sud" ${room.orientation === 'sud' ? 'selected' : ''}>Sud</option>
+                                    <option value="ouest" ${room.orientation === 'ouest' ? 'selected' : ''}>Ouest</option>
+                                    <option value="mixte" ${room.orientation === 'mixte' ? 'selected' : ''}>Mixte / plusieurs</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Quantité de vitrage</label>
+                                <select onchange="updateRoom(${room.id}, 'vitrage', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
+                                    <option value="peu" ${room.vitrage === 'peu' ? 'selected' : ''}>Peu vitré</option>
+                                    <option value="moyen" ${room.vitrage === 'moyen' ? 'selected' : ''}>Moyen</option>
+                                    <option value="beaucoup" ${room.vitrage === 'beaucoup' ? 'selected' : ''}>Très vitré</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4 mt-4">
+                            <div>
+                                <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Protection solaire</label>
+                                <select onchange="updateRoom(${room.id}, 'protection', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
+                                    <option value="aucune" ${room.protection === 'aucune' ? 'selected' : ''}>Aucune</option>
+                                    <option value="stores_int" ${room.protection === 'stores_int' ? 'selected' : ''}>Stores / rideaux intérieurs</option>
+                                    <option value="volets_ext" ${room.protection === 'volets_ext' ? 'selected' : ''}>Volets / stores extérieurs</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Occupants</label>
+                                <input type="number" min="0" oninput="updateRoom(${room.id}, 'occupants', this.value)" value="${room.occupants}" placeholder="Auto: ${occupantsParDefaut(room.surface) || '–'}" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
+                            </div>
                         </div>
                     </div>
                 `);
@@ -497,14 +576,18 @@
             }
         }
 
-        function addRoom() { state.rooms.push({ id: Date.now(), surface: '', height: 2.5, exposure: 'normal' }); renderRooms(); }
+        function addRoom() { state.rooms.push({ id: Date.now(), surface: '', height: 2.5, emplacement: 'plain_pied', orientation: 'mixte', vitrage: 'moyen', protection: 'stores_int', occupants: '' }); renderRooms(); }
         function removeRoom(id) { state.rooms = state.rooms.filter(r => r.id !== id); renderRooms(); }
         function updateRoom(id, field, value) {
             const r = state.rooms.find(x => x.id === id);
             if (!r) return;
-            if (field === 'exposure') r[field] = value;
+            const champsTexte = ['emplacement', 'orientation', 'vitrage', 'protection'];
+            if (champsTexte.includes(field)) r[field] = value;
             else r[field] = parseFloat(value) || '';
         }
+
+        // Nombre d'occupants par défaut (≈ 1 pers. / 15 m²) tant que rien n'est saisi.
+        function occupantsParDefaut(surface) { return surface ? Math.max(1, Math.round(surface / 15)) : ''; }
 
         // --- ALGORITHME DE SÉLECTION INTELLIGENTE ---
         // V16: Ne retourne QUE les gammes qui ont exactement la meilleure (plus petite) puissance requise, avec une mini marge pour regrouper les équivalents
@@ -527,16 +610,23 @@
             }
 
             let html = `<h2 class="text-xl font-bold text-toshiba-dark flex items-center gap-2 mt-4"><span class="w-2 h-6 bg-[var(--brand-accent)] rounded-full"></span>Solutions recommandées</h2>`;
-            state.lastResultData = { summaryText: "", equipments: [], roomDetails: [] }; 
+            state.lastResultData = { summaryText: "", equipments: [], roomDetails: [] };
+
+            // Marge canicule : en zone chaude, la puissance froid réelle chute au-delà de 35°C ext.
+            const facteurCanicule = getFacteurCanicule();
+            const caniculeNote = facteurCanicule > 1
+                ? `<div class="p-2.5 bg-orange-50 border border-orange-200 text-orange-800 rounded-lg text-[11px] font-medium text-center mb-4 -mt-2">☀️ Zone chaude : marge canicule de +${Math.round((facteurCanicule-1)*100)}% appliquée à la sélection (pointes 40-42°C).</div>`
+                : '';
 
             if (state.mode === 'mono') {
-                const req = getRequiredKw(state.rooms[0].surface, state.rooms[0].height, state.rooms[0].exposure);
-                const size = getUiSizeForKw(req.froid, req.chaud);
+                const req = getRequiredKw(state.rooms[0].surface, state.rooms[0].height, state.rooms[0]);
+                const froidMatch = req.froid * facteurCanicule;
+                const size = getUiSizeForKw(froidMatch, req.chaud);
                 state.lastResultData.roomDetails.push(`Pièce 1 : ${req.froid.toFixed(1)}kW F / ${req.chaud.toFixed(1)}kW C ➔ Taille ${size || 'HORS LIMITE'}`);
 
-                html += renderBesoinsCard([req]);
-                
-                let sols = findBestMonos(req.froid, req.chaud); 
+                html += renderBesoinsCard([req]) + caniculeNote;
+
+                let sols = findBestMonos(froidMatch, req.chaud);
                 
                 if (sols.length === 0) {
                     html += `<div class="p-4 bg-orange-50 text-orange-800 rounded-lg text-sm italic">Aucun Monosplit du catalogue ne couvre ce niveau de puissance.</div>`;
@@ -551,13 +641,14 @@
                 }
             } else {
                 let roomsData = state.rooms.map((r, i) => {
-                    let req = getRequiredKw(r.surface, r.height, r.exposure);
-                    let size = getUiSizeForKw(req.froid, req.chaud);
+                    let req = getRequiredKw(r.surface, r.height, r);
+                    let froidMatch = req.froid * facteurCanicule;
+                    let size = getUiSizeForKw(froidMatch, req.chaud);
                     state.lastResultData.roomDetails.push(`Pièce ${i+1} : ${req.froid.toFixed(1)}kW F / ${req.chaud.toFixed(1)}kW C ➔ Taille ${size || 'HORS LIMITE'}`);
-                    return { index: i + 1, req: req, size: size, maxKw: Math.max(req.froid, req.chaud) };
+                    return { index: i + 1, req: req, froidMatch: froidMatch, size: size, maxKw: Math.max(froidMatch, req.chaud) };
                 });
 
-                html += renderBesoinsCard(roomsData.map(r => r.req), true, roomsData);
+                html += renderBesoinsCard(roomsData.map(r => r.req), true, roomsData) + caniculeNote;
 
                 let extractedForMono = roomsData.filter(r => r.size === null);
                 let standardRooms = roomsData.filter(r => r.size !== null);
@@ -567,7 +658,7 @@
                     if(roomsObj.length === 0) return null;
                     if(roomsObj.length === 1) return "MONO"; 
                     
-                    let totF = roomsObj.reduce((sum, r) => sum + r.req.froid, 0);
+                    let totF = roomsObj.reduce((sum, r) => sum + r.froidMatch, 0);
                     let totC = roomsObj.reduce((sum, r) => sum + r.req.chaud, 0);
 
                     let validGroups = CATALOGS[state.brand].multisplits_groupes_exterieurs.filter(g =>
