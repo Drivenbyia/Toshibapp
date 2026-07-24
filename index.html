@@ -200,7 +200,10 @@
             brand: 'toshiba',
             mode: 'mono',
             rooms: [{ id: 1, surface: '', height: 2.5, emplacement: 'plain_pied', orientation: 'mixte', vitrage: 'moyen', protection: 'stores_int', occupants: '' }],
-            lastResultData: null
+            lastResultData: null,
+            currentCalc: null,
+            // Solution choisie par l'utilisateur parmi les options proposées (mono / dédiés multi / gammes UI du groupe)
+            selection: { mono: 0, dedicated: {}, group: {} }
         };
 
         const BRAND_ACCENTS = {
@@ -215,6 +218,7 @@
             document.documentElement.style.setProperty('--brand-accent-dark', colors.accentDark);
             document.getElementById('btn-brand-toshiba').className = `flex-1 py-2 text-sm font-bold rounded-md transition-all ${brand === 'toshiba' ? 'shadow-sm bg-white text-[var(--brand-accent)]' : 'text-gray-500'}`;
             document.getElementById('btn-brand-panasonic').className = `flex-1 py-2 text-sm font-bold rounded-md transition-all ${brand === 'panasonic' ? 'shadow-sm bg-white text-[var(--brand-accent)]' : 'text-gray-500'}`;
+            state.currentCalc = null;
             document.getElementById('results-container').innerHTML = '';
         }
 
@@ -500,6 +504,7 @@
             const isMono = mode === 'mono';
             document.getElementById('btn-mono').className = `flex-1 py-2 text-sm font-medium rounded-md transition-all ${isMono ? 'shadow-sm bg-white text-[var(--brand-accent)]' : 'text-gray-500'}`;
             document.getElementById('btn-multi').className = `flex-1 py-2 text-sm font-medium rounded-md transition-all ${!isMono ? 'shadow-sm bg-white text-[var(--brand-accent)]' : 'text-gray-500'}`;
+            state.currentCalc = null;
             document.getElementById('results-container').innerHTML = '';
             renderRooms();
         }
@@ -609,55 +614,45 @@
                 return;
             }
 
-            let html = `<h2 class="text-xl font-bold text-toshiba-dark flex items-center gap-2 mt-4"><span class="w-2 h-6 bg-[var(--brand-accent)] rounded-full"></span>Solutions recommandées</h2>`;
-            state.lastResultData = { summaryText: "", equipments: [], roomDetails: [] };
-
             // Marge canicule : en zone chaude, la puissance froid réelle chute au-delà de 35°C ext.
             const facteurCanicule = getFacteurCanicule();
             const caniculeNote = facteurCanicule > 1
                 ? `<div class="p-2.5 bg-orange-50 border border-orange-200 text-orange-800 rounded-lg text-[11px] font-medium text-center mb-4 -mt-2">☀️ Zone chaude : marge canicule de +${Math.round((facteurCanicule-1)*100)}% appliquée à la sélection (pointes 40-42°C).</div>`
                 : '';
 
+            // Reset des choix utilisateur à chaque nouveau calcul.
+            state.selection = { mono: 0, dedicated: {}, group: {} };
+
             if (state.mode === 'mono') {
                 const req = getRequiredKw(state.rooms[0].surface, state.rooms[0].height, state.rooms[0]);
                 const froidMatch = req.froid * facteurCanicule;
                 const size = getUiSizeForKw(froidMatch, req.chaud);
-                state.lastResultData.roomDetails.push(`Pièce 1 : ${req.froid.toFixed(1)}kW F / ${req.chaud.toFixed(1)}kW C ➔ Taille ${size || 'HORS LIMITE'}`);
 
-                html += renderBesoinsCard([req]) + caniculeNote;
-
-                let sols = findBestMonos(froidMatch, req.chaud);
-                
-                if (sols.length === 0) {
-                    html += `<div class="p-4 bg-orange-50 text-orange-800 rounded-lg text-sm italic">Aucun Monosplit du catalogue ne couvre ce niveau de puissance.</div>`;
-                    state.lastResultData.summaryText = "Aucune solution au catalogue";
-                } else {
-                    sols.forEach(sol => {
-                        html += renderCard("Monosplit Recommandé", sol.gamme, sol.reference_ensemble, sol.puissance_froid_kw, sol.puissance_chaud_kw, false);
-                    });
-                    
-                    state.lastResultData.summaryText = `1x Mono ${sols[0].gamme} ${sols.length > 1 ? `(+ ${sols.length - 1} autre${sols.length > 2 ? 's' : ''})` : ''}`;
-                    state.lastResultData.equipments.push(`Taille optimale estimée : ${sols[0].puissance_froid_kw} kW. Gammes compatibles : ${sols.map(s => s.gamme).join(' / ')}`);
-                }
+                state.currentCalc = {
+                    mode: 'mono',
+                    besoinsHtml: renderBesoinsCard([req]),
+                    caniculeNote: caniculeNote,
+                    roomDetails: [`Pièce 1 : ${req.froid.toFixed(1)}kW F / ${req.chaud.toFixed(1)}kW C ➔ Taille ${size || 'HORS LIMITE'}`],
+                    mono: { options: findBestMonos(froidMatch, req.chaud) }
+                };
             } else {
                 let roomsData = state.rooms.map((r, i) => {
                     let req = getRequiredKw(r.surface, r.height, r);
                     let froidMatch = req.froid * facteurCanicule;
                     let size = getUiSizeForKw(froidMatch, req.chaud);
-                    state.lastResultData.roomDetails.push(`Pièce ${i+1} : ${req.froid.toFixed(1)}kW F / ${req.chaud.toFixed(1)}kW C ➔ Taille ${size || 'HORS LIMITE'}`);
                     return { index: i + 1, req: req, froidMatch: froidMatch, size: size, maxKw: Math.max(froidMatch, req.chaud) };
                 });
-
-                html += renderBesoinsCard(roomsData.map(r => r.req), true, roomsData) + caniculeNote;
+                const roomDetails = roomsData.map(r => `Pièce ${r.index} : ${r.req.froid.toFixed(1)}kW F / ${r.req.chaud.toFixed(1)}kW C ➔ Taille ${r.size || 'HORS LIMITE'}`);
 
                 let extractedForMono = roomsData.filter(r => r.size === null);
                 let standardRooms = roomsData.filter(r => r.size !== null);
+                const hybridNote = extractedForMono.length > 0;
 
                 const COEF_FOISONNEMENT = 1.25;
                 function findMultiGroup(roomsObj) {
                     if(roomsObj.length === 0) return null;
-                    if(roomsObj.length === 1) return "MONO"; 
-                    
+                    if(roomsObj.length === 1) return "MONO";
+
                     let totF = roomsObj.reduce((sum, r) => sum + r.froidMatch, 0);
                     let totC = roomsObj.reduce((sum, r) => sum + r.req.chaud, 0);
 
@@ -677,13 +672,73 @@
                     while (!bestGroup && standardRooms.length > 1) {
                         let biggestRoom = standardRooms.shift();
                         extractedForMono.push(biggestRoom);
-                        bestGroup = findMultiGroup(standardRooms); 
+                        bestGroup = findMultiGroup(standardRooms);
                     }
                 }
 
-                let summaryParts = [];
+                // Cartes "monosplit dédié" (pièces trop grosses / délestées du groupe).
+                let dedicated = extractedForMono.map(room => ({
+                    room: room,
+                    label: `Monosplit Dédié (Pièce ${room.index})`,
+                    options: findBestMonos(room.req.froid, room.req.chaud)
+                }));
 
-                if (extractedForMono.length > 0) {
+                let group = null;
+                if (bestGroup === "MONO" && standardRooms.length === 1) {
+                    // Une seule pièce restante après délestage : traitée comme un mono dédié de plus.
+                    dedicated.push({
+                        room: standardRooms[0],
+                        label: `Monosplit Restant (Pièce ${standardRooms[0].index})`,
+                        options: findBestMonos(standardRooms[0].req.froid, standardRooms[0].req.chaud)
+                    });
+                } else if (bestGroup && bestGroup !== "MONO") {
+                    group = bestGroup;
+                }
+
+                state.currentCalc = {
+                    mode: 'multi',
+                    besoinsHtml: renderBesoinsCard(roomsData.map(r => r.req), true, roomsData),
+                    caniculeNote: caniculeNote,
+                    roomDetails: roomDetails,
+                    multi: { dedicated: dedicated, group: group, standardRooms: standardRooms, hybridNote: hybridNote }
+                };
+            }
+
+            renderResults();
+            resultsContainer.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // Reconstruit l'affichage des résultats à partir de state.currentCalc + state.selection,
+        // sans relancer le calcul (utilisé quand l'utilisateur choisit une solution parmi les options).
+        function renderResults() {
+            const resultsContainer = document.getElementById('results-container');
+            const calc = state.currentCalc;
+            if (!calc) { resultsContainer.innerHTML = ''; return; }
+
+            let html = `<h2 class="text-xl font-bold text-toshiba-dark flex items-center gap-2 mt-4"><span class="w-2 h-6 bg-[var(--brand-accent)] rounded-full"></span>Solutions recommandées</h2>`;
+            html += calc.besoinsHtml + calc.caniculeNote;
+
+            let summaryParts = [];
+            let equipments = [];
+
+            if (calc.mode === 'mono') {
+                const options = calc.mono.options;
+                if (options.length === 0) {
+                    html += `<div class="p-4 bg-orange-50 text-orange-800 rounded-lg text-sm italic">Aucun Monosplit du catalogue ne couvre ce niveau de puissance.</div>`;
+                } else {
+                    const selIdx = Math.min(state.selection.mono || 0, options.length - 1);
+                    options.forEach((sol, idx) => {
+                        const selectOpts = options.length > 1 ? { selected: idx === selIdx, onclick: `selectMono(${idx})` } : null;
+                        html += renderCard("Monosplit Recommandé", sol.gamme, sol.reference_ensemble, sol.puissance_froid_kw, sol.puissance_chaud_kw, false, [], selectOpts);
+                    });
+                    const chosen = options[selIdx];
+                    summaryParts.push(`1x Mono ${chosen.gamme}`);
+                    equipments.push(`Modèle sélectionné : ${chosen.gamme} (${chosen.reference_ensemble})${options.length > 1 ? ` — ${options.length - 1} autre${options.length > 2 ? 's' : ''} option${options.length > 2 ? 's' : ''} disponible${options.length > 2 ? 's' : ''}` : ''}`);
+                }
+            } else {
+                const m = calc.multi;
+
+                if (m.hybridNote) {
                     html += `
                     <div class="p-3 bg-blue-50 border-l-4 border-blue-500 text-blue-900 rounded-r-lg text-sm my-4 shadow-sm flex gap-3 items-start fade-in">
                         <svg class="w-6 h-6 flex-shrink-0 mt-0.5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
@@ -692,43 +747,45 @@
                             Délestage requis : Monosplit(s) dédié(s) pour la/les plus grande(s) pièce(s), et un Multisplit pour le reste.
                         </div>
                     </div>`;
-
-                    extractedForMono.forEach(room => {
-                        let monoSols = findBestMonos(room.req.froid, room.req.chaud);
-                        if(monoSols.length > 0) {
-                            monoSols.forEach(sol => {
-                                html += renderCard(`Monosplit Dédié (Pièce ${room.index})`, sol.gamme, sol.reference_ensemble, sol.puissance_froid_kw, sol.puissance_chaud_kw, false);
-                            });
-                            summaryParts.push(`1x Mono ${monoSols[0].gamme}`);
-                            state.lastResultData.equipments.push(`Monosplit Dédié pour Pièce ${room.index} (Option suggérée : ${monoSols[0].gamme})`);
-                        } else {
-                            html += `<div class="p-4 bg-orange-50 text-orange-800 rounded-lg text-sm italic mb-4">Pièce ${room.index} : Puissance requise (${room.maxKw.toFixed(1)} kW) hors catalogue.</div>`;
-                            state.lastResultData.equipments.push(`Pièce ${room.index} : Aucune machine assez puissante`);
-                        }
-                    });
                 }
 
-                if (bestGroup === "MONO" && standardRooms.length === 1) {
-                    let monoSols = findBestMonos(standardRooms[0].req.froid, standardRooms[0].req.chaud);
-                    if(monoSols.length > 0) {
-                        monoSols.forEach(sol => {
-                            html += renderCard(`Monosplit Restant (Pièce ${standardRooms[0].index})`, sol.gamme, sol.reference_ensemble, sol.puissance_froid_kw, sol.puissance_chaud_kw, false);
+                m.dedicated.forEach(dedItem => {
+                    const room = dedItem.room;
+                    const options = dedItem.options;
+                    if (options.length > 0) {
+                        const selIdx = Math.min(state.selection.dedicated[room.index] || 0, options.length - 1);
+                        options.forEach((sol, idx) => {
+                            const selectOpts = options.length > 1 ? { selected: idx === selIdx, onclick: `selectDedicated(${room.index}, ${idx})` } : null;
+                            html += renderCard(dedItem.label, sol.gamme, sol.reference_ensemble, sol.puissance_froid_kw, sol.puissance_chaud_kw, false, [], selectOpts);
                         });
-                        summaryParts.push(`1x Mono ${monoSols[0].gamme}`);
-                        state.lastResultData.equipments.push(`Monosplit pour Pièce ${standardRooms[0].index} (Option suggérée : ${monoSols[0].gamme})`);
+                        const chosen = options[selIdx];
+                        summaryParts.push(`1x Mono ${chosen.gamme}`);
+                        equipments.push(`${dedItem.label} — Modèle sélectionné : ${chosen.gamme} (${chosen.reference_ensemble})`);
+                    } else {
+                        html += `<div class="p-4 bg-orange-50 text-orange-800 rounded-lg text-sm italic mb-4">Pièce ${room.index} : Puissance requise (${room.maxKw.toFixed(1)} kW) hors catalogue.</div>`;
+                        equipments.push(`Pièce ${room.index} : Aucune machine assez puissante`);
                     }
-                } else if (bestGroup && bestGroup !== "MONO") {
-                    let sizesArr = standardRooms.map(r => r.size);
-                    html += renderCard(`Groupe Multisplit (${standardRooms.length} sorties)`, "Groupe Extérieur", bestGroup.reference, bestGroup.puissance_nominale_froid_kw, bestGroup.puissance_nominale_chaud_kw, true, sizesArr);
-                    html += renderMultiRoomsGuide(standardRooms, bestGroup.gammes_compatibles);
-                    summaryParts.push(`1x Multi ${bestGroup.reference} (${standardRooms.length} UI)`);
-                    state.lastResultData.equipments.push(`Groupe Extérieur ${bestGroup.reference} (Pour brancher les tailles : ${sizesArr.join(' + ')})`);
-                }
+                });
 
-                state.lastResultData.summaryText = summaryParts.join(' | ');
+                if (m.group) {
+                    const bestGroup = m.group;
+                    const sizesArr = m.standardRooms.map(r => r.size);
+                    html += renderCard(`Groupe Multisplit (${m.standardRooms.length} sorties)`, "Groupe Extérieur", bestGroup.reference, bestGroup.puissance_nominale_froid_kw, bestGroup.puissance_nominale_chaud_kw, true, sizesArr);
+                    html += renderMultiRoomsGuide(m.standardRooms, bestGroup.gammes_compatibles);
+                    summaryParts.push(`1x Multi ${bestGroup.reference} (${m.standardRooms.length} UI)`);
+
+                    const uiChoices = m.standardRooms.map(r => `Pièce ${r.index} (taille ${r.size}) : ${state.selection.group[r.index] || '—'}`).join(' / ');
+                    equipments.push(`Groupe Extérieur ${bestGroup.reference} — Unités sélectionnées : ${uiChoices}`);
+                }
             }
 
-            if(state.lastResultData.summaryText) {
+            state.lastResultData = {
+                summaryText: summaryParts.join(' | '),
+                equipments: equipments,
+                roomDetails: calc.roomDetails
+            };
+
+            if (state.lastResultData.summaryText) {
                 html += `
                 <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 mt-6 fade-in">
                     <h3 class="text-sm font-bold text-toshiba-dark flex items-center gap-2 mb-4 uppercase tracking-wide">
@@ -756,7 +813,30 @@
 
             resultsContainer.innerHTML = html;
             populateClientDatalist();
-            resultsContainer.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // Ré-applique le choix de l'utilisateur et redessine les résultats, en conservant ce qui est
+        // déjà saisi dans les champs Client / Zone (le rendu régénère tout le bloc résultats).
+        function withSaveInputsPreserved(mutateFn) {
+            const clientEl = document.getElementById('save-client');
+            const zoneEl = document.getElementById('save-zone');
+            const clientVal = clientEl ? clientEl.value : '';
+            const zoneVal = zoneEl ? zoneEl.value : '';
+            mutateFn();
+            const newClientEl = document.getElementById('save-client');
+            const newZoneEl = document.getElementById('save-zone');
+            if (newClientEl) newClientEl.value = clientVal;
+            if (newZoneEl) newZoneEl.value = zoneVal;
+        }
+
+        function selectMono(idx) {
+            withSaveInputsPreserved(() => { state.selection.mono = idx; renderResults(); });
+        }
+        function selectDedicated(roomIndex, idx) {
+            withSaveInputsPreserved(() => { state.selection.dedicated[roomIndex] = idx; renderResults(); });
+        }
+        function selectGroupGamme(roomIndex, gamme) {
+            withSaveInputsPreserved(() => { state.selection.group[roomIndex] = gamme; renderResults(); });
         }
 
         function renderBesoinsCard(reqs, isMulti = false, roomsData = []) {
@@ -821,18 +901,28 @@
                     return `<div class="py-2.5 border-b border-gray-100 last:border-0 text-xs text-orange-700 italic">Pièce ${r.index} : aucune UI du catalogue ne couvre ce besoin.</div>`;
                 }
                 const gammesUniques = [...new Set(sols.map(s => s.gamme))];
-                const chips = gammesUniques.map(g => `
-                    <details class="group/mg">
-                        <summary class="cursor-pointer inline-flex items-center gap-1.5 text-[11px] font-bold bg-gray-100 hover:bg-gray-200 text-gray-700 px-2.5 py-1.5 rounded-full select-none transition-colors">
-                            ${g}
-                            <svg class="w-3 h-3 transition-transform group-open/mg:rotate-180 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
-                        </summary>
-                        <div class="mt-2 mb-1">${gammeGuideContent(g)}</div>
-                    </details>`).join('');
+                if (!state.selection.group[r.index] || !gammesUniques.includes(state.selection.group[r.index])) {
+                    state.selection.group[r.index] = gammesUniques[0];
+                }
+                const selectedGamme = state.selection.group[r.index];
+                const chips = gammesUniques.map(g => {
+                    const isSel = g === selectedGamme;
+                    const gEsc = g.replace(/'/g, "\\'");
+                    return `
+                    <div>
+                        <button type="button" onclick="selectGroupGamme(${r.index}, '${gEsc}')" class="cursor-pointer inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1.5 rounded-full select-none transition-colors border-2 ${isSel ? 'bg-[var(--brand-accent)] border-[var(--brand-accent)] text-white' : 'bg-gray-100 border-transparent hover:bg-gray-200 text-gray-700'}">
+                            ${isSel ? '✓ ' : ''}${g}
+                        </button>
+                        <details class="group/mg mt-1" onclick="event.stopPropagation()">
+                            <summary class="cursor-pointer text-[10px] text-gray-400 hover:text-gray-600 select-none">Détails</summary>
+                            <div class="mt-2 mb-1">${gammeGuideContent(g)}</div>
+                        </details>
+                    </div>`;
+                }).join('');
                 return `
                 <div class="py-3 border-b border-gray-100 last:border-0">
                     <div class="text-xs font-bold text-gray-700 mb-2">Pièce ${r.index} <span class="font-normal text-gray-400">— ${r.req.froid.toFixed(1)} kW F / ${r.req.chaud.toFixed(1)} kW C</span></div>
-                    <div class="flex flex-wrap gap-2">${chips}</div>
+                    <div class="flex flex-wrap gap-3">${chips}</div>
                 </div>`;
             }).join('');
 
@@ -842,12 +932,14 @@
                     <svg class="w-5 h-5 text-[var(--brand-accent)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
                     Guide de sélection des unités intérieures
                 </h3>
-                <p class="text-[11px] text-gray-400 mb-1">Par pièce, les gammes éligibles pour ce besoin précis${allowedGammes ? ` (compatibles avec ${allowedGammes.join(' / ')})` : ''}. Vous pouvez mixer les gammes sur un même groupe extérieur pour éviter de surdimensionner une petite pièce.</p>
+                <p class="text-[11px] text-gray-400 mb-1">Sélectionnez la gamme souhaitée pour chaque pièce${allowedGammes ? ` (compatibles avec ${allowedGammes.join(' / ')})` : ''}. Vous pouvez mixer les gammes sur un même groupe extérieur pour éviter de surdimensionner une petite pièce.</p>
                 ${rows}
             </div>`;
         }
 
-        function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = false, sizes = []) {
+        // selectOpts = null (carte simple, non sélectionnable) ou { selected: bool, onclick: string }
+        // quand plusieurs solutions équivalentes sont proposées et que l'utilisateur doit en choisir une.
+        function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = false, sizes = [], selectOpts = null) {
             let footer = '';
             if (isMulti) {
                 footer = `<div class="mt-4 pt-4 border-t border-gray-100 flex flex-wrap gap-2 items-center">
@@ -856,8 +948,29 @@
                 </div>`;
             }
 
+            let wrapperClasses = 'bg-white rounded-xl shadow-md border-l-4 border-[var(--brand-accent)] p-5 fade-in transition hover:shadow-lg mb-4 relative overflow-hidden';
+            let clickAttr = '';
+            let selectFooter = '';
+            let gammeGuideBlock = renderGammeGuide(mainTitle);
+
+            if (selectOpts) {
+                clickAttr = ` onclick="${selectOpts.onclick}" role="button" tabindex="0"`;
+                wrapperClasses += selectOpts.selected
+                    ? ' cursor-pointer ring-2 ring-[var(--brand-accent)] ring-offset-2'
+                    : ' cursor-pointer opacity-60 hover:opacity-100 saturate-50 hover:saturate-100';
+                selectFooter = `
+                <div class="mt-4 pt-3 border-t border-gray-100 flex items-center justify-center">
+                    ${selectOpts.selected
+                        ? `<span class="inline-flex items-center gap-1.5 text-xs font-bold text-white bg-[var(--brand-accent)] px-3 py-1.5 rounded-full"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg> Solution sélectionnée</span>`
+                        : `<span class="inline-flex items-center gap-1.5 text-xs font-bold text-gray-500 border border-gray-300 px-3 py-1.5 rounded-full">Choisir cette solution</span>`
+                    }
+                </div>`;
+                // Empêche l'ouverture du guide de gamme de déclencher aussi la sélection de la carte.
+                gammeGuideBlock = `<div onclick="event.stopPropagation()">${gammeGuideBlock}</div>`;
+            }
+
             return `
-            <div class="bg-white rounded-xl shadow-md border-l-4 border-[var(--brand-accent)] p-5 fade-in transition hover:shadow-lg mb-4 relative overflow-hidden">
+            <div class="${wrapperClasses}"${clickAttr}>
                 <div class="absolute -right-4 -top-4 opacity-5 pointer-events-none"><svg class="w-32 h-32" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zm0 7.5l-6-3v6.5l6 3 6-3V6.5l-6 3z"/></svg></div>
                 <div class="flex justify-between items-start gap-4 relative z-10">
                     <div class="flex-grow">
@@ -876,8 +989,9 @@
                         </div>
                     </div>
                 </div>
-                ${renderGammeGuide(mainTitle)}
+                ${gammeGuideBlock}
                 ${footer}
+                ${selectFooter}
             </div>`;
         }
 
