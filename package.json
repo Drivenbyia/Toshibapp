@@ -1,0 +1,8 @@
+{
+  "name": "prosizer-b2b",
+  "private": true,
+  "description": "Outil de dimensionnement B2B Toshiba / Panasonic — PWA statique, aucune étape de build pour le déploiement.",
+  "scripts": {
+    "test": "node --test \"tests/**/*.test.mjs\""
+  }
+}
