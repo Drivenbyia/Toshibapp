@@ -3,10 +3,18 @@
 Outil de dimensionnement B2B pour la sélection de climatisations Toshiba et Panasonic
 (froid/chaud), sous forme de **PWA** (Progressive Web App) installable sur mobile et desktop.
 
-L'application (structure, logique et styles) est entièrement contenue dans un seul fichier
-`index.html` : pas d'étape de build, pas de dépendances à installer pour la faire tourner.
-Elle s'appuie sur quelques fichiers statiques versionnés à côté (`manifest.json`, `sw.js`,
-`assets/tailwind.css`, `icons/`) nécessaires au fonctionnement PWA réel (voir plus bas).
+L'application est un site 100% statique : pas d'étape de build, pas de dépendances à installer
+pour la faire tourner. `index.html` ne contient que le balisage ; la logique est répartie en
+modules ES natifs du navigateur (aucun bundler) sous `js/` :
+
+- `js/data.js` — catalogues matériel, base TVA, référentiel climatique (aucune fonction).
+- `js/calcul.js` — fonctions de calcul **pures** (bilan thermique, sélection catalogue) :
+  aucun accès au DOM, testables indépendamment de l'interface (voir `tests/`).
+- `js/app.js` — état, rendu DOM, gestionnaires d'événements ; seul module qui touche au DOM
+  ou à `localStorage`.
+
+S'y ajoutent quelques fichiers statiques (`manifest.json`, `sw.js`, `assets/tailwind.css`,
+`icons/`) nécessaires au fonctionnement PWA réel (voir plus bas).
 
 ## Fonctionnalités
 
@@ -57,6 +65,16 @@ Cette commande nécessite Node.js et un accès réseau (téléchargement ponctue
 Tailwind), mais reste sans effet sur le déploiement : le fichier généré est commité, et
 Netlify continue de servir le site tel quel, sans étape de build.
 
+### Tests
+
+Le cœur de calcul (`js/calcul.js`) est couvert par des tests de non-régression, exécutés par
+le runner natif de Node (aucune dépendance) :
+
+```bash
+npm test
+# équivalent à : node --test "tests/**/*.test.mjs"
+```
+
 ## Déploiement (Netlify)
 
 Le dépôt est prêt pour un déploiement continu :
@@ -70,6 +88,7 @@ Chaque `git push` sur la branche par défaut redéploie automatiquement le site.
 
 ## Technologies
 
-- HTML / JavaScript vanilla
+- HTML / JavaScript vanilla (modules ES natifs, aucun bundler)
 - [Tailwind CSS](https://tailwindcss.com/) (CSS pré-compilé, versionné dans `assets/`)
 - API Web (Service Worker, Web App Manifest, localStorage)
+- [Node.js test runner](https://nodejs.org/api/test.html) (`node --test`) pour les tests
