@@ -439,6 +439,50 @@
             return dept && ZONES_CHAUDES.includes(dept.zone) ? ABATTEMENT_CANICULE : 1.0;
         }
 
+        // Déclassement de la puissance chaud par grand froid — PAC air/air.
+        // La puissance_chaud_kw du catalogue est donnée au point normalisé +7°C ext. / 20°C int. ;
+        // elle chute nettement en dessous, avec en plus des cycles de dégivrage entre -5 et +5°C.
+        // Sans cette correction, le besoin (calculé à Tbase hiver, ex. -9°C à Lyon) était comparé
+        // tel quel à une puissance publiée à +7°C : l'app pouvait retenir une machine dont la
+        // capacité réelle par grand froid ne couvrait plus le besoin (déficit non affiché).
+        //
+        // IMPORTANT : les paliers ci-dessous sont une approximation générique (ordre de grandeur
+        // usuel pour une PAC air/air standard, non "grand froid"), PAS des données constructeur
+        // Toshiba/Panasonic spécifiques par gamme. Ils comblent un manque total de garde-fou en
+        // attendant les courbes de puissance réelles par référence — à substituer dès qu'elles
+        // sont disponibles (voir AUDIT.md §3.1).
+        const DECLASSEMENT_CHAUD_PALIERS = [
+            { temp: 7,   ratio: 1.00 },
+            { temp: 0,   ratio: 0.90 },
+            { temp: -7,  ratio: 0.72 },
+            { temp: -15, ratio: 0.58 },
+            { temp: -20, ratio: 0.50 }
+        ];
+        function ratioDeclassementChaud(tBaseHiver) {
+            const p = DECLASSEMENT_CHAUD_PALIERS;
+            if (tBaseHiver >= p[0].temp) return p[0].ratio;
+            if (tBaseHiver <= p[p.length - 1].temp) return p[p.length - 1].ratio;
+            for (let i = 0; i < p.length - 1; i++) {
+                const a = p[i], b = p[i + 1];
+                if (tBaseHiver <= a.temp && tBaseHiver >= b.temp) {
+                    const t = (tBaseHiver - a.temp) / (b.temp - a.temp);
+                    return a.ratio + t * (b.ratio - a.ratio);
+                }
+            }
+            return 1;
+        }
+        // Multiplicateur à appliquer au besoin chaud réel pour obtenir la puissance nominale
+        // (+7°C) requise en catalogue — symétrique de getFacteurCanicule() côté froid.
+        function getFacteurDeclassementChaud() {
+            const code = document.getElementById('deptSelect').value;
+            const alt = document.getElementById('altitude').value;
+            const dept = DEPARTMENTS[code];
+            if (!dept) return 1.0;
+            const tBaseHiver = tBaseMatrix[alt][dept.zone];
+            const ratio = ratioDeclassementChaud(tBaseHiver);
+            return ratio > 0 ? 1 / ratio : 1;
+        }
+
         // Coefficient G courant, avec repli sur la valeur par défaut (0.8) si la saisie
         // personnalisée est vide ou invalide (évite la propagation de NaN dans tout le calcul).
         const COEF_G_DEFAUT = 0.8;
@@ -704,27 +748,36 @@
                 ? `<div class="p-2.5 bg-orange-50 border border-orange-200 text-orange-800 rounded-lg text-[11px] font-medium text-center mb-4 -mt-2">☀️ Zone chaude : marge canicule de +${Math.round((facteurCanicule-1)*100)}% appliquée à la sélection (pointes 40-42°C).</div>`
                 : '';
 
+            // Déclassement chaud : la puissance catalogue (+7°C) chute par grand froid, voir
+            // getFacteurDeclassementChaud(). Estimation générique, cf. commentaire à sa définition.
+            const facteurDeclassementChaud = getFacteurDeclassementChaud();
+            const declassementNote = facteurDeclassementChaud > 1.05
+                ? `<div class="p-2.5 bg-sky-50 border border-sky-200 text-sky-900 rounded-lg text-[11px] font-medium text-center mb-4 -mt-2">🥶 Grand froid : la puissance chaud requise en catalogue est majorée de +${Math.round((facteurDeclassementChaud-1)*100)}% pour compenser la perte de capacité de la PAC à température de base (estimation générique, à affiner avec les courbes constructeur).</div>`
+                : '';
+
             // Reset des choix utilisateur à chaque nouveau calcul.
             state.selection = { mono: 0, dedicated: {}, group: {} };
 
             if (state.mode === 'mono') {
                 const req = getRequiredKw(state.rooms[0].surface, state.rooms[0].height, state.rooms[0]);
                 const froidMatch = req.froid * facteurCanicule;
-                const size = getUiSizeForKw(froidMatch, req.chaud);
+                const chaudMatch = req.chaud * facteurDeclassementChaud;
+                const size = getUiSizeForKw(froidMatch, chaudMatch);
 
                 state.currentCalc = {
                     mode: 'mono',
                     besoinsHtml: renderBesoinsCard([req]),
-                    caniculeNote: caniculeNote,
+                    caniculeNote: caniculeNote + declassementNote,
                     roomDetails: [`Pièce 1 : ${req.froid.toFixed(1)}kW F / ${req.chaud.toFixed(1)}kW C ➔ Taille ${size || 'HORS LIMITE'}`],
-                    mono: { options: findBestMonos(froidMatch, req.chaud) }
+                    mono: { options: findBestMonos(froidMatch, chaudMatch) }
                 };
             } else {
                 let roomsData = state.rooms.map((r, i) => {
                     let req = getRequiredKw(r.surface, r.height, r);
                     let froidMatch = req.froid * facteurCanicule;
-                    let size = getUiSizeForKw(froidMatch, req.chaud);
-                    return { index: i + 1, req: req, froidMatch: froidMatch, size: size, maxKw: Math.max(froidMatch, req.chaud) };
+                    let chaudMatch = req.chaud * facteurDeclassementChaud;
+                    let size = getUiSizeForKw(froidMatch, chaudMatch);
+                    return { index: i + 1, req: req, froidMatch: froidMatch, chaudMatch: chaudMatch, size: size, maxKw: Math.max(froidMatch, chaudMatch) };
                 });
                 const roomDetails = roomsData.map(r => `Pièce ${r.index} : ${r.req.froid.toFixed(1)}kW F / ${r.req.chaud.toFixed(1)}kW C ➔ Taille ${r.size || 'HORS LIMITE'}`);
 
@@ -732,18 +785,24 @@
                 let standardRooms = roomsData.filter(r => r.size !== null);
                 const hybridNote = extractedForMono.length > 0;
 
-                const COEF_FOISONNEMENT = 1.25;
+                // Foisonnement dissocié froid / chaud : la pointe froid est quasi simultanée sur
+                // toutes les pièces (même après-midi de canicule) et ne justifie qu'une faible marge,
+                // sans quoi elle annule une bonne partie de la marge canicule déjà appliquée plus haut.
+                // Le chauffage, lui, est davantage désynchronisé dans le temps (occupation, apports
+                // solaires/internes variables pièce à pièce) et garde un foisonnement plus large.
+                const COEF_FOISONNEMENT_FROID = 1.05;
+                const COEF_FOISONNEMENT_CHAUD = 1.25;
                 function findMultiGroup(roomsObj) {
                     if(roomsObj.length === 0) return null;
                     if(roomsObj.length === 1) return "MONO";
 
                     let totF = roomsObj.reduce((sum, r) => sum + r.froidMatch, 0);
-                    let totC = roomsObj.reduce((sum, r) => sum + r.req.chaud, 0);
+                    let totC = roomsObj.reduce((sum, r) => sum + r.chaudMatch, 0);
 
                     let validGroups = CATALOGS[state.brand].multisplits_groupes_exterieurs.filter(g =>
                         g.max_unites_interieures >= roomsObj.length &&
-                        (g.puissance_nominale_froid_kw * COEF_FOISONNEMENT) >= totF &&
-                        (g.puissance_nominale_chaud_kw * COEF_FOISONNEMENT) >= totC
+                        (g.puissance_nominale_froid_kw * COEF_FOISONNEMENT_FROID) >= totF &&
+                        (g.puissance_nominale_chaud_kw * COEF_FOISONNEMENT_CHAUD) >= totC
                     ).sort((a,b) => a.puissance_nominale_froid_kw - b.puissance_nominale_froid_kw);
 
                     return validGroups.length > 0 ? validGroups[0] : null;
@@ -764,7 +823,7 @@
                 let dedicated = extractedForMono.map(room => ({
                     room: room,
                     label: `Monosplit Dédié (Pièce ${room.index})`,
-                    options: findBestMonos(room.froidMatch, room.req.chaud)
+                    options: findBestMonos(room.froidMatch, room.chaudMatch)
                 }));
 
                 let group = null;
@@ -773,7 +832,7 @@
                     dedicated.push({
                         room: standardRooms[0],
                         label: `Monosplit Restant (Pièce ${standardRooms[0].index})`,
-                        options: findBestMonos(standardRooms[0].froidMatch, standardRooms[0].req.chaud)
+                        options: findBestMonos(standardRooms[0].froidMatch, standardRooms[0].chaudMatch)
                     });
                 } else if (bestGroup && bestGroup !== "MONO") {
                     group = bestGroup;
@@ -782,7 +841,7 @@
                 state.currentCalc = {
                     mode: 'multi',
                     besoinsHtml: renderBesoinsCard(roomsData.map(r => r.req), true, roomsData),
-                    caniculeNote: caniculeNote,
+                    caniculeNote: caniculeNote + declassementNote,
                     roomDetails: roomDetails,
                     multi: { dedicated: dedicated, group: group, standardRooms: standardRooms, hybridNote: hybridNote }
                 };
@@ -987,7 +1046,7 @@
         // de gamme par pièce (les tailles 05/07/10... ont la même puissance nominale quelle que soit la gamme).
         function renderMultiRoomsGuide(roomsData, allowedGammes) {
             const rows = roomsData.map(r => {
-                let sols = findBestMonos(r.froidMatch, r.req.chaud);
+                let sols = findBestMonos(r.froidMatch, r.chaudMatch);
                 if (allowedGammes) sols = sols.filter(s => allowedGammes.includes(s.gamme));
                 if (sols.length === 0) {
                     return `<div class="py-2.5 border-b border-gray-100 last:border-0 text-xs text-orange-700 italic">Pièce ${r.index} : aucune UI du catalogue ne couvre ce besoin.</div>`;
@@ -1282,7 +1341,7 @@
         // Éligibilité TVA de la gamme choisie pour une pièce d'un groupe multisplit (recalcule les options
         // compatibles avec cette pièce pour retrouver la référence exacte de l'UI sélectionnée).
         function getRoomSelectedTvaInfo(room, gammeName, allowedGammes) {
-            let sols = findBestMonos(room.froidMatch, room.req.chaud);
+            let sols = findBestMonos(room.froidMatch, room.chaudMatch);
             if (allowedGammes) sols = sols.filter(s => allowedGammes.includes(s.gamme));
             const sol = sols.find(s => s.gamme === gammeName);
             return sol ? getTvaInfo(gammeName, sol.reference_ensemble, 'multiUi') : null;
