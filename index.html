@@ -729,11 +729,13 @@
                     const selIdx = Math.min(state.selection.mono || 0, options.length - 1);
                     options.forEach((sol, idx) => {
                         const selectOpts = options.length > 1 ? { selected: idx === selIdx, onclick: `selectMono(${idx})` } : null;
-                        html += renderCard("Monosplit Recommandé", sol.gamme, sol.reference_ensemble, sol.puissance_froid_kw, sol.puissance_chaud_kw, false, [], selectOpts);
+                        const tvaInfo = getTvaInfo(sol.gamme, sol.reference_ensemble, 'mono');
+                        html += renderCard("Monosplit Recommandé", sol.gamme, sol.reference_ensemble, sol.puissance_froid_kw, sol.puissance_chaud_kw, false, [], selectOpts, tvaInfo);
                     });
                     const chosen = options[selIdx];
+                    const chosenTva = getTvaInfo(chosen.gamme, chosen.reference_ensemble, 'mono');
                     summaryParts.push(`1x Mono ${chosen.gamme}`);
-                    equipments.push(`Modèle sélectionné : ${chosen.gamme} (${chosen.reference_ensemble})${options.length > 1 ? ` — ${options.length - 1} autre${options.length > 2 ? 's' : ''} option${options.length > 2 ? 's' : ''} disponible${options.length > 2 ? 's' : ''}` : ''}`);
+                    equipments.push(`Modèle sélectionné : ${chosen.gamme} (${chosen.reference_ensemble})${options.length > 1 ? ` — ${options.length - 1} autre${options.length > 2 ? 's' : ''} option${options.length > 2 ? 's' : ''} disponible${options.length > 2 ? 's' : ''}` : ''}${tvaSuffixText(chosenTva)}`);
                 }
             } else {
                 const m = calc.multi;
@@ -756,11 +758,13 @@
                         const selIdx = Math.min(state.selection.dedicated[room.index] || 0, options.length - 1);
                         options.forEach((sol, idx) => {
                             const selectOpts = options.length > 1 ? { selected: idx === selIdx, onclick: `selectDedicated(${room.index}, ${idx})` } : null;
-                            html += renderCard(dedItem.label, sol.gamme, sol.reference_ensemble, sol.puissance_froid_kw, sol.puissance_chaud_kw, false, [], selectOpts);
+                            const tvaInfo = getTvaInfo(sol.gamme, sol.reference_ensemble, 'mono');
+                            html += renderCard(dedItem.label, sol.gamme, sol.reference_ensemble, sol.puissance_froid_kw, sol.puissance_chaud_kw, false, [], selectOpts, tvaInfo);
                         });
                         const chosen = options[selIdx];
+                        const chosenTva = getTvaInfo(chosen.gamme, chosen.reference_ensemble, 'mono');
                         summaryParts.push(`1x Mono ${chosen.gamme}`);
-                        equipments.push(`${dedItem.label} — Modèle sélectionné : ${chosen.gamme} (${chosen.reference_ensemble})`);
+                        equipments.push(`${dedItem.label} — Modèle sélectionné : ${chosen.gamme} (${chosen.reference_ensemble})${tvaSuffixText(chosenTva)}`);
                     } else {
                         html += `<div class="p-4 bg-orange-50 text-orange-800 rounded-lg text-sm italic mb-4">Pièce ${room.index} : Puissance requise (${room.maxKw.toFixed(1)} kW) hors catalogue.</div>`;
                         equipments.push(`Pièce ${room.index} : Aucune machine assez puissante`);
@@ -774,7 +778,11 @@
                     html += renderMultiRoomsGuide(m.standardRooms, bestGroup.gammes_compatibles);
                     summaryParts.push(`1x Multi ${bestGroup.reference} (${m.standardRooms.length} UI)`);
 
-                    const uiChoices = m.standardRooms.map(r => `Pièce ${r.index} (taille ${r.size}) : ${state.selection.group[r.index] || '—'}`).join(' / ');
+                    const uiChoices = m.standardRooms.map(r => {
+                        const selGamme = state.selection.group[r.index];
+                        const info = selGamme ? getRoomSelectedTvaInfo(r, selGamme, bestGroup.gammes_compatibles) : null;
+                        return `Pièce ${r.index} (taille ${r.size}) : ${selGamme || '—'}${tvaSuffixText(info)}`;
+                    }).join(' / ');
                     equipments.push(`Groupe Extérieur ${bestGroup.reference} — Unités sélectionnées : ${uiChoices}`);
                 }
             }
@@ -908,11 +916,14 @@
                 const chips = gammesUniques.map(g => {
                     const isSel = g === selectedGamme;
                     const gEsc = g.replace(/'/g, "\\'");
+                    const solForG = sols.find(s => s.gamme === g);
+                    const tvaInfo = getTvaInfo(g, solForG.reference_ensemble, 'multiUi');
                     return `
                     <div>
                         <button type="button" onclick="selectGroupGamme(${r.index}, '${gEsc}')" class="cursor-pointer inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1.5 rounded-full select-none transition-colors border-2 ${isSel ? 'bg-[var(--brand-accent)] border-[var(--brand-accent)] text-white' : 'bg-gray-100 border-transparent hover:bg-gray-200 text-gray-700'}">
                             ${isSel ? '✓ ' : ''}${g}
                         </button>
+                        ${renderTvaBadge(tvaInfo)}
                         <details class="group/mg mt-1" onclick="event.stopPropagation()">
                             <summary class="cursor-pointer text-[10px] text-gray-400 hover:text-gray-600 select-none">Détails</summary>
                             <div class="mt-2 mb-1">${gammeGuideContent(g)}</div>
@@ -932,14 +943,14 @@
                     <svg class="w-5 h-5 text-[var(--brand-accent)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
                     Guide de sélection des unités intérieures
                 </h3>
-                <p class="text-[11px] text-gray-400 mb-1">Sélectionnez la gamme souhaitée pour chaque pièce${allowedGammes ? ` (compatibles avec ${allowedGammes.join(' / ')})` : ''}. Vous pouvez mixer les gammes sur un même groupe extérieur pour éviter de surdimensionner une petite pièce.</p>
+                <p class="text-[11px] text-gray-400 mb-1">Sélectionnez la gamme souhaitée pour chaque pièce${allowedGammes ? ` (compatibles avec ${allowedGammes.join(' / ')})` : ''}. Vous pouvez mixer les gammes sur un même groupe extérieur pour éviter de surdimensionner une petite pièce. La TVA à 5,5% dépend de la gamme retenue et peut nécessiter un module Wifi (voir pastille sous chaque gamme).</p>
                 ${rows}
             </div>`;
         }
 
         // selectOpts = null (carte simple, non sélectionnable) ou { selected: bool, onclick: string }
         // quand plusieurs solutions équivalentes sont proposées et que l'utilisateur doit en choisir une.
-        function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = false, sizes = [], selectOpts = null) {
+        function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = false, sizes = [], selectOpts = null, tvaInfo = null) {
             let footer = '';
             if (isMulti) {
                 footer = `<div class="mt-4 pt-4 border-t border-gray-100 flex flex-wrap gap-2 items-center">
@@ -977,6 +988,7 @@
                         <div class="text-[10px] font-black uppercase text-[var(--brand-accent)] mb-1 tracking-widest">${badgeText}</div>
                         <h3 class="text-lg font-extrabold text-toshiba-dark leading-tight">${mainTitle}</h3>
                         <p class="text-xs font-mono text-gray-500 mt-1">${subtitle}</p>
+                        ${renderTvaBadge(tvaInfo)}
                     </div>
                     <div class="flex flex-col gap-2 min-w-[90px]">
                         <div class="bg-blue-50 px-3 py-1 rounded-lg text-center border border-blue-100">
@@ -1132,6 +1144,82 @@
             }
           }
         };
+
+        // --- TVA 5,5% (rénovation énergétique) — Pompes à chaleur Air/Air ---
+        // Base légale : Article 92, Loi n°2026-103 du 19/02/2026 de finances pour 2026 (codifié à l'art. 278-0 bis A du CGI)
+        // + Arrêté du 13/07/2026 (exigences SEER/SCOP classe A++ en mono-split ≤12kW / A+ en multi-split, et pilotage à distance Wifi).
+        // Données extraites du fichier interne Toshiba « AA_TVA_5,5_éligibilité v2 » (mail Toshiba du 17/07/2026).
+        // Uniquement disponible pour la marque Toshiba : aucune donnée d'éligibilité officielle communiquée pour Panasonic.
+        const TVA_RULES = {
+          toshiba: {
+            // Gamme utilisée en monosplit (une UE dédiée à une seule UI) : exigence SEER/SCOP classe A++.
+            mono: {
+                "Naka":                 { eligible: false },
+                "Yukai":                { eligible: true, wifiRequired: true, taillesNonEligibles: ["18", "24"] },
+                "Shorai Edge":          { eligible: true, wifiRequired: false },
+                "Haori":                { eligible: true, wifiRequired: false },
+                "Daiseikai 10":         { eligible: true, wifiRequired: false },
+                "Console Double-Flux":  { eligible: true, wifiRequired: false }
+            },
+            // Gamme utilisée comme unité intérieure sur un groupe extérieur multisplit : exigence SEER/SCOP classe A+ (moins stricte),
+            // d'où l'éligibilité de gammes/tailles refusées en monosplit dès lors qu'un module Wifi assure le pilotage à distance.
+            multiUi: {
+                "Naka":                 { eligible: true, wifiRequired: true },
+                "Yukai":                { eligible: true, wifiRequired: true },
+                "Shorai Edge":          { eligible: true, wifiRequired: false },
+                "Haori":                { eligible: true, wifiRequired: false },
+                "Daiseikai 10":         { eligible: true, wifiRequired: false },
+                "Console Double-Flux":  { eligible: true, wifiRequired: true }
+            }
+          }
+        };
+
+        // Extrait le code taille Toshiba (ex: "18" dans "RAS-18E2AVG-E") depuis une référence d'unité extérieure.
+        function extractTailleCode(reference) {
+            const m = reference.match(/RAS-(\d{2})/);
+            return m ? m[1] : null;
+        }
+
+        // Détermine l'éligibilité TVA 5,5% d'une gamme/référence, pour la marque courante.
+        // context : 'mono' (monosplit dédié) ou 'multiUi' (unité intérieure choisie sur un groupe multisplit).
+        // Retourne null si la marque ou la gamme n'est pas couverte par la base TVA (pas d'affichage dans ce cas).
+        function getTvaInfo(gammeName, referenceEnsemble, context) {
+            const rules = TVA_RULES[state.brand] && TVA_RULES[state.brand][context];
+            const rule = rules && rules[gammeName];
+            if (!rule) return null;
+            let eligible = rule.eligible;
+            if (eligible && rule.taillesNonEligibles) {
+                const taille = extractTailleCode(referenceEnsemble);
+                if (taille && rule.taillesNonEligibles.includes(taille)) eligible = false;
+            }
+            return { eligible, wifiRequired: !!(eligible && rule.wifiRequired) };
+        }
+
+        // Éligibilité TVA de la gamme choisie pour une pièce d'un groupe multisplit (recalcule les options
+        // compatibles avec cette pièce pour retrouver la référence exacte de l'UI sélectionnée).
+        function getRoomSelectedTvaInfo(room, gammeName, allowedGammes) {
+            let sols = findBestMonos(room.req.froid, room.req.chaud);
+            if (allowedGammes) sols = sols.filter(s => allowedGammes.includes(s.gamme));
+            const sol = sols.find(s => s.gamme === gammeName);
+            return sol ? getTvaInfo(gammeName, sol.reference_ensemble, 'multiUi') : null;
+        }
+
+        // Pastilles HTML "TVA 5,5% / TVA 20%" + mention Wifi si un module est nécessaire pour en bénéficier.
+        function renderTvaBadge(tvaInfo) {
+            if (!tvaInfo) return '';
+            const badge = tvaInfo.eligible
+                ? `<span class="inline-flex items-center gap-1 text-[10px] font-black px-2 py-1 rounded-full bg-green-100 text-green-700 border border-green-300">TVA 5,5%</span>`
+                : `<span class="inline-flex items-center gap-1 text-[10px] font-black px-2 py-1 rounded-full bg-red-100 text-red-700 border border-red-300">TVA 20%</span>`;
+            const wifi = tvaInfo.wifiRequired
+                ? `<span class="inline-flex items-center gap-1 text-[9px] font-bold px-2 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200">📶 Module Wifi requis</span>`
+                : '';
+            return `<div class="flex flex-wrap gap-1.5 mt-2">${badge}${wifi}</div>`;
+        }
+
+        function tvaSuffixText(tvaInfo) {
+            if (!tvaInfo) return '';
+            return ` — TVA ${tvaInfo.eligible ? '5,5%' : '20%'}${tvaInfo.wifiRequired ? ' (Module Wifi requis)' : ''}`;
+        }
 
         const DEPARTMENTS = { "01": { name: "Ain", zone: "F" }, "02": { name: "Aisne", zone: "D" }, "03": { name: "Allier", zone: "F" }, "04": { name: "Alpes-de-Haute-Provence", zone: "I" }, "05": { name: "Hautes-Alpes", zone: "I" }, "06": { name: "Alpes-Maritimes", zone: "H" }, "07": { name: "Ardèche", zone: "I" }, "08": { name: "Ardennes", zone: "F" }, "09": { name: "Ariège", zone: "I" }, "10": { name: "Aube", zone: "F" }, "11": { name: "Aude", zone: "H" }, "12": { name: "Aveyron", zone: "G" }, "13": { name: "Bouches-du-Rhône", zone: "H" }, "14": { name: "Calvados", zone: "C" }, "15": { name: "Cantal", zone: "G" }, "16": { name: "Charente", zone: "B" }, "17": { name: "Charente-Maritime", zone: "B" }, "18": { name: "Cher", zone: "E" }, "19": { name: "Corrèze", zone: "G" }, "2A": { name: "Corse-du-Sud", zone: "H" }, "2B": { name: "Haute-Corse", zone: "H" }, "21": { name: "Côte-d'Or", zone: "F" }, "22": { name: "Côtes-d'Armor", zone: "A" }, "23": { name: "Creuse", zone: "G" }, "24": { name: "Dordogne", zone: "B" }, "25": { name: "Doubs", zone: "F" }, "26": { name: "Drôme", zone: "F" }, "27": { name: "Eure", zone: "C" }, "28": { name: "Eure-et-Loir", zone: "E" }, "29": { name: "Finistère", zone: "A" }, "30": { name: "Gard", zone: "H" }, "31": { name: "Haute-Garonne", zone: "I" }, "32": { name: "Gers", zone: "I" }, "33": { name: "Gironde", zone: "B" }, "34": { name: "Hérault", zone: "H" }, "35": { name: "Ille-et-Vilaine", zone: "A" }, "36": { name: "Indre", zone: "E" }, "37": { name: "Indre-et-Loire", zone: "E" }, "38": { name: "Isère", zone: "F" }, "39": { name: "Jura", zone: "F" }, "40": { name: "Landes", zone: "B" }, "41": { name: "Loir-et-Cher", zone: "E" }, "42": { name: "Loire", zone: "F" }, "43": { name: "Haute-Loire", zone: "F" }, "44": { name: "Loire-Atlantique", zone: "A" }, "45": { name: "Loiret", zone: "E" }, "46": { name: "Lot", zone: "B" }, "47": { name: "Lot-et-Garonne", zone: "B" }, "48": { name: "Lozère", zone: "G" }, "49": { name: "Maine-et-Loire", zone: "E" }, "50": { name: "Manche", zone: "C" }, "51": { name: "Marne", zone: "F" }, "52": { name: "Haute-Marne", zone: "F" }, "53": { name: "Mayenne", zone: "E" }, "54": { name: "Meurthe-et-Moselle", zone: "F" }, "55": { name: "Meuse", zone: "F" }, "56": { name: "Morbihan", zone: "A" }, "57": { name: "Moselle", zone: "F" }, "58": { name: "Nièvre", zone: "F" }, "59": { name: "Nord", zone: "D" }, "60": { name: "Oise", zone: "D" }, "61": { name: "Orne", zone: "C" }, "62": { name: "Pas-de-Calais", zone: "D" }, "63": { name: "Puy-de-Dôme", zone: "F" }, "64": { name: "Pyrénées-Atlantiques", zone: "B" }, "65": { name: "Hautes-Pyrénées", zone: "I" }, "66": { name: "Pyrénées-Orientales", zone: "H" }, "67": { name: "Bas-Rhin", zone: "F" }, "68": { name: "Haut-Rhin", zone: "F" }, "69": { name: "Rhône", zone: "F" }, "70": { name: "Haute-Saône", zone: "F" }, "71": { name: "Saône-et-Loire", zone: "F" }, "72": { name: "Sarthe", zone: "E" }, "73": { name: "Savoie", zone: "F" }, "74": { name: "Haute-Savoie", zone: "F" }, "75": { name: "Paris", zone: "D" }, "76": { name: "Seine-Maritime", zone: "C" }, "77": { name: "Seine-et-Marne", zone: "D" }, "78": { name: "Yvelines", zone: "D" }, "79": { name: "Deux-Sèvres", zone: "E" }, "80": { name: "Somme", zone: "D" }, "81": { name: "Tarn", zone: "I" }, "82": { name: "Tarn-et-Garonne", zone: "I" }, "83": { name: "Var", zone: "H" }, "84": { name: "Vaucluse", zone: "H" }, "85": { name: "Vendée", zone: "A" }, "86": { name: "Vienne", zone: "E" }, "87": { name: "Haute-Vienne", zone: "G" }, "88": { name: "Vosges", zone: "F" }, "89": { name: "Yonne", zone: "F" }, "90": { name: "Territoire de Belfort", zone: "F" }, "91": { name: "Essonne", zone: "D" }, "92": { name: "Hauts-de-Seine", zone: "D" }, "93": { name: "Seine-Saint-Denis", zone: "D" }, "94": { name: "Val-de-Marne", zone: "D" }, "95": { name: "Val-d'Oise", zone: "D" }, "971": { name: "Guadeloupe", zone: "H" }, "972": { name: "Martinique", zone: "H" }, "973": { name: "Guyane", zone: "H" }, "974": { name: "La Réunion", zone: "H" }, "976": { name: "Mayotte", zone: "H" } };
         // Températures de base HIVER (°C) par zone × altitude. Corrigé V18 : zones H (Méditerranée) et I (SO/piémont) avaient des bases hiver irréalistes.
