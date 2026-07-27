@@ -175,9 +175,18 @@
                     <div id="climate-diagnostic" class="bg-white border border-[var(--brand-accent)]/20 rounded-lg p-3 text-xs text-center font-medium text-[var(--brand-accent)] shadow-inner">
                         Zone détectée : -- | Température de base : --
                     </div>
+
+                    <div class="flex flex-col gap-2">
+                        <label class="text-xs font-bold uppercase text-gray-500 tracking-wider">Usage souhaité</label>
+                        <div class="flex p-1 bg-white border border-gray-200 rounded-lg">
+                            <button id="btn-usage-reversible" onclick="setUsage('reversible')" class="flex-1 py-2 text-sm font-medium rounded-md shadow-sm bg-gray-100 text-[var(--brand-accent)] transition-all">Réversible (froid + chaud)</button>
+                            <button id="btn-usage-froid_seul" onclick="setUsage('froid_seul')" class="flex-1 py-2 text-sm font-medium rounded-md text-gray-500 hover:text-gray-700 transition-all">Froid seul</button>
+                        </div>
+                        <p id="usage-note" class="hidden text-[11px] text-gray-400 leading-snug">❄️ Le besoin chauffage n'est pas pris en compte pour la sélection du matériel (affiché à titre indicatif). Les machines proposées restent des PAC réversibles standard. L'éligibilité TVA 5,5% affichée suppose un usage chauffage (base légale rénovation énergétique) : à vérifier si l'installation est motivée uniquement par le rafraîchissement.</p>
+                    </div>
                 </div>
             </div>
-            
+
             <div class="flex p-1 bg-gray-100 rounded-lg mt-6">
                 <button id="btn-mono" onclick="setMode('mono')" class="flex-1 py-2 text-sm font-medium rounded-md shadow-sm bg-white text-[var(--brand-accent)] transition-all">Monosplit</button>
                 <button id="btn-multi" onclick="setMode('multi')" class="flex-1 py-2 text-sm font-medium rounded-md text-gray-500 hover:text-gray-700 transition-all">Multisplit</button>
