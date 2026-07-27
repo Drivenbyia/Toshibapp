@@ -3,8 +3,10 @@
 Outil de dimensionnement B2B pour la sélection de climatisations Toshiba et Panasonic
 (froid/chaud), sous forme de **PWA** (Progressive Web App) installable sur mobile et desktop.
 
-L'application est entièrement contenue dans un seul fichier `index.html` :
-pas d'étape de build, pas de dépendances à installer.
+L'application (structure, logique et styles) est entièrement contenue dans un seul fichier
+`index.html` : pas d'étape de build, pas de dépendances à installer pour la faire tourner.
+Elle s'appuie sur quelques fichiers statiques versionnés à côté (`manifest.json`, `sw.js`,
+`assets/tailwind.css`, `icons/`) nécessaires au fonctionnement PWA réel (voir plus bas).
 
 ## Fonctionnalités
 
@@ -23,13 +25,13 @@ pas d'étape de build, pas de dépendances à installer.
   vers des monosplits dédiés.
 - **Mes Chantiers** : sauvegarde locale (localStorage) des configurations par client
   et par zone.
-- **PWA hors-ligne** : manifest et service worker générés dynamiquement,
-  application installable et utilisable sans connexion.
+- **PWA hors-ligne** : manifest (`manifest.json`) et service worker (`sw.js`) réels,
+  servis en fichiers statiques (same-origin) — application installable et utilisable
+  sans connexion après un premier chargement en ligne.
 
 ## Développement local
 
-Aucun outil requis. Ouvrez simplement `index.html` dans un navigateur, ou servez
-le dossier :
+Aucun outil requis pour faire tourner l'app au quotidien. Servez le dossier :
 
 ```bash
 python3 -m http.server 8000
@@ -37,7 +39,23 @@ python3 -m http.server 8000
 ```
 
 > Note : le service worker (mode hors-ligne) nécessite un contexte sécurisé
-> (`https://` ou `http://localhost`).
+> (`https://` ou `http://localhost`) — ouvrir `index.html` directement en `file://`
+> ne l'active pas.
+
+### Régénérer le CSS Tailwind
+
+`assets/tailwind.css` est un CSS Tailwind pré-compilé (pas le CDN `cdn.tailwindcss.com`,
+qui casse le mode hors-ligne et n'est pas destiné à la production). Il n'a besoin d'être
+régénéré que si vous ajoutez de nouvelles classes Tailwind dans `index.html` :
+
+```bash
+npx tailwindcss@3 -i build/input.css -o assets/tailwind.css \
+  --config build/tailwind.config.js --minify
+```
+
+Cette commande nécessite Node.js et un accès réseau (téléchargement ponctuel de l'outil
+Tailwind), mais reste sans effet sur le déploiement : le fichier généré est commité, et
+Netlify continue de servir le site tel quel, sans étape de build.
 
 ## Déploiement (Netlify)
 
@@ -53,5 +71,5 @@ Chaque `git push` sur la branche par défaut redéploie automatiquement le site.
 ## Technologies
 
 - HTML / JavaScript vanilla
-- [Tailwind CSS](https://tailwindcss.com/) (via CDN)
+- [Tailwind CSS](https://tailwindcss.com/) (CSS pré-compilé, versionné dans `assets/`)
 - API Web (Service Worker, Web App Manifest, localStorage)

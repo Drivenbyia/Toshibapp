@@ -2,50 +2,38 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>ProSizer B2B - Outil de Dimensionnement Climatisation</title>
-    
+    <meta name="theme-color" content="#FF0000">
+
     <!-- Balises PWA -->
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="mobile-web-app-capable" content="yes">
-    <link rel="manifest" id="dynamic-manifest">
-    
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%23FF0000'/%3E%3Cpath d='M4 7h16v2H4V7zm4 4h8v2H8v-2zm-4 4h16v2H4v-2z' fill='%23ffffff'/%3E%3C/svg%3E">
-    <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%23FF0000'/%3E%3Cpath d='M4 7h16v2H4V7zm4 4h8v2H8v-2zm-4 4h16v2H4v-2z' fill='%23ffffff'/%3E%3C/svg%3E">
+    <link rel="manifest" href="manifest.json">
 
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        toshiba: {
-                            red: '#FF0000',
-                            dark: '#111111',
-                            gray: '#F3F4F6'
-                        }
-                    }
-                }
-            }
-        }
-    </script>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%23FF0000'/%3E%3Cpath d='M4 7h16v2H4V7zm4 4h8v2H8v-2zm-4 4h16v2H4v-2z' fill='%23ffffff'/%3E%3C/svg%3E">
+    <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png">
+    <link rel="apple-touch-icon" href="icons/icon-192.png">
+
+    <link rel="stylesheet" href="assets/tailwind.css">
     <style>
         :root { --brand-accent: #FF0000; --brand-accent-dark: #C81E1E; }
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: #f1f1f1; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         ::-webkit-scrollbar-thumb:hover { background: #FF0000; }
-        
+
         .fade-in { animation: fadeIn 0.3s ease-in-out; }
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(10px); }
             to { opacity: 1; transform: translateY(0); }
         }
-        
-        input[type=number]::-webkit-inner-spin-button, 
-        input[type=number]::-webkit-outer-spin-button { 
-            -webkit-appearance: none; margin: 0; 
+
+        input[type=number]::-webkit-inner-spin-button,
+        input[type=number]::-webkit-outer-spin-button {
+            -webkit-appearance: none; margin: 0;
         }
 
         .select-custom {
@@ -58,6 +46,10 @@
 
         details > summary { list-style: none; }
         details > summary::-webkit-details-marker { display: none; }
+
+        /* Zone sûre iOS (notch / Dynamic Island) : le header sticky ne doit pas passer sous la barre d'état. */
+        header { padding-top: env(safe-area-inset-top); }
+        body { padding-bottom: env(safe-area-inset-bottom); }
     </style>
 </head>
 <body class="bg-toshiba-gray text-gray-800 font-sans antialiased min-h-screen flex flex-col">
@@ -1321,31 +1313,13 @@
         const tBaseEteMatrix = { "0 à 200m": { A: 28, B: 32, C: 28, D: 30, E: 31, F: 33, G: 30, H: 34, I: 34 }, "200 à 400m": { A: 27, B: 31, C: 27, D: 29, E: 30, F: 32, G: 29, H: 33, I: 33 }, "400 à 600m": { A: 26, B: 30, C: 26, D: 28, E: 29, F: 31, G: 28, H: 32, I: 32 }, "600 à 800m": { A: 24, B: 28, C: 24, D: 26, E: 27, F: 29, G: 26, H: 30, I: 30 }, "800 à 1000m": { A: 23, B: 27, C: 23, D: 25, E: 26, F: 28, G: 25, H: 29, I: 29 }, "1000 à 1200m": { A: 22, B: 26, C: 22, D: 24, E: 25, F: 27, G: 24, H: 28, I: 28 }, "1200 à 1400m": { A: 21, B: 25, C: 21, D: 23, E: 24, F: 26, G: 23, H: 27, I: 27 }, "1400 à 1600m": { A: 20, B: 24, C: 20, D: 22, E: 23, F: 25, G: 22, H: 26, I: 26 }, "1600 à 1800m": { A: 18, B: 22, C: 18, D: 20, E: 21, F: 23, G: 20, H: 24, I: 24 }, "1800 à 2000m": { A: 17, B: 21, C: 17, D: 19, E: 20, F: 22, G: 19, H: 23, I: 23 }, "2000 à 2200m": { A: 16, B: 20, C: 16, D: 18, E: 19, F: 21, G: 18, H: 22, I: 22 } };
 
         // --- PWA ---
-        const manifest = {
-            "name": "ProSizer B2B",
-            "short_name": "ProSizer",
-            "description": "Outil de dimensionnement Toshiba / Panasonic",
-            "start_url": window.location.href.split('?')[0].split('#')[0],
-            "display": "standalone",
-            "background_color": "#111111",
-            "theme_color": "#FF0000",
-            "icons": [{
-                "src": "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23FF0000'/><path d='M20 30 h60 v15 h-60 z M20 55 h60 v15 h-60 z' fill='%23fff'/></svg>",
-                "sizes": "192x192", "type": "image/svg+xml", "purpose": "any maskable"
-            }]
-        };
-        const manifestBlob = new Blob([JSON.stringify(manifest)], {type: 'application/manifest+json'});
-        document.getElementById('dynamic-manifest').href = URL.createObjectURL(manifestBlob);
-
-        const currentAppUrl = window.location.href.split('?')[0].split('#')[0];
-        const swCode = `
-            const CACHE_NAME = 'toshiba-prosizer-v1';
-            self.addEventListener('install', (event) => { event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(['${currentAppUrl}']))); });
-            self.addEventListener('fetch', (event) => { event.respondWith(caches.match(event.request).then(res => res || fetch(event.request))); });
-        `;
-        const swBlob = new Blob([swCode], {type: 'application/javascript'});
+        // Manifest (manifest.json) et icônes sont désormais des fichiers statiques réels
+        // (voir <head>). Le service worker (sw.js) est servi en same-origin : contrairement à
+        // l'ancienne version enregistrée depuis une blob: URL, les navigateurs l'acceptent.
         if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => { navigator.serviceWorker.register(URL.createObjectURL(swBlob)).catch(err => console.warn('PWA SW: ', err)); });
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js').catch(err => console.warn('PWA SW: ', err));
+            });
         }
 
         window.onload = initApp;

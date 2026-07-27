@@ -13,8 +13,20 @@
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
 
-# Le service worker ne doit jamais être mis en cache trop longtemps
+# Le document HTML et le service worker ne doivent jamais être mis en cache trop longtemps :
+# le SW gère lui-même sa stratégie de cache applicative (voir sw.js), le HTTP cache ne doit
+# pas s'interposer et retarder la détection d'une nouvelle version.
 [[headers]]
   for = "/index.html"
   [headers.values]
     Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/manifest.json"
+  [headers.values]
+    Cache-Control = "public, max-age=3600"
