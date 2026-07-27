@@ -50,9 +50,25 @@
         /* Zone sûre iOS (notch / Dynamic Island) : le header sticky ne doit pas passer sous la barre d'état. */
         header { padding-top: env(safe-area-inset-top); }
         body { padding-bottom: env(safe-area-inset-bottom); }
+
+        /* Export PDF (window.print()) : masque l'appli, n'affiche que #print-area. */
+        #print-area { display: none; }
+        #print-area h1 { font-size: 1.25rem; margin-bottom: 0.75rem; }
+        #print-area h2 { font-size: 1rem; margin: 1rem 0 0.375rem; }
+        #print-area p { margin: 0.25rem 0; font-size: 0.9rem; }
+        #print-area ul { margin: 0; padding-left: 1.25rem; font-size: 0.9rem; }
+        #print-area li { margin-bottom: 0.2rem; }
+        #print-area .print-disclaimer { margin-top: 1.5rem; font-size: 0.75rem; color: #666; font-style: italic; }
+        @media print {
+            body > *:not(#print-area) { display: none !important; }
+            #print-area { display: block !important; }
+        }
     </style>
 </head>
 <body class="bg-toshiba-gray text-gray-800 font-sans antialiased min-h-screen flex flex-col">
+
+    <!-- Vue d'impression (export PDF) : masquée à l'écran, seule visible dans window.print() -->
+    <div id="print-area"></div>
 
     <!-- Header -->
     <header class="bg-white shadow-sm border-b-4 border-[var(--brand-accent)] sticky top-0 z-50">
@@ -75,7 +91,13 @@
 
     <!-- ==== VUE 1 : SIMULATEUR ==== -->
     <main id="app-main" class="flex-grow max-w-3xl mx-auto w-full px-4 py-6 flex flex-col gap-6">
-        
+
+        <!-- Bannière de reprise de saisie (autosave) -->
+        <div id="draft-banner" class="hidden p-3 bg-blue-50 border border-blue-200 text-blue-900 rounded-lg text-xs font-medium flex items-center justify-between gap-3 fade-in">
+            <span>📝 Saisie précédente restaurée.</span>
+            <button onclick="startNewCalcul()" class="text-[11px] font-bold text-blue-700 border border-blue-300 hover:bg-blue-100 px-2 py-1 rounded whitespace-nowrap">Nouveau calcul</button>
+        </div>
+
         <!-- Brand Selector -->
         <section class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 fade-in">
             <h2 class="text-lg font-semibold text-toshiba-dark flex items-center gap-2 mb-4">
@@ -100,7 +122,7 @@
                     <div class="flex flex-col gap-2">
                         <label for="isolationCoef" class="text-xs font-bold uppercase text-gray-500 tracking-wider">Niveau d'Isolation (G)</label>
                         <div class="flex gap-2">
-                            <select id="isolationCoef" onchange="toggleCustomCoef(); updateClimateInfo();" class="select-custom flex-grow p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all">
+                            <select id="isolationCoef" onchange="toggleCustomCoef(); updateClimateInfo(); persistDraft();" class="select-custom flex-grow p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all">
                                 <option value="2.0">Avant 1974 (Aucune isolation) - G: 2.0</option>
                                 <option value="1.2">1974 à 1988 (Isolation basique) - G: 1.2</option>
                                 <option value="1.1">1989 à 2000 (Années 90) - G: 1.1</option>
@@ -110,18 +132,18 @@
                                 <option value="3.0">Véranda (Très déperditif) - G: 3.0</option>
                                 <option value="custom">Saisie personnalisée...</option>
                             </select>
-                            <input type="number" id="customCoef" step="0.01" min="0.1" value="0.65" oninput="updateClimateInfo()" class="hidden w-24 p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all" placeholder="Ex: 0.65">
+                            <input type="number" id="customCoef" step="0.01" min="0.1" value="0.65" oninput="updateClimateInfo(); persistDraft();" class="hidden w-24 p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all" placeholder="Ex: 0.65">
                         </div>
                     </div>
 
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div class="flex flex-col gap-2">
                             <label for="deptSelect" class="text-xs font-bold uppercase text-[var(--brand-accent)] tracking-wider">Département</label>
-                            <select id="deptSelect" onchange="updateClimateInfo()" class="select-custom p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all"></select>
+                            <select id="deptSelect" onchange="updateClimateInfo(); persistDraft();" class="select-custom p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all"></select>
                         </div>
                         <div class="flex flex-col gap-2">
                             <label for="altitude" class="text-xs font-bold uppercase text-[var(--brand-accent)] tracking-wider">Altitude</label>
-                            <select id="altitude" onchange="updateClimateInfo()" class="select-custom p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all">
+                            <select id="altitude" onchange="updateClimateInfo(); persistDraft();" class="select-custom p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all">
                                 <option value="0 à 200m" selected>0 à 200m</option>
                                 <option value="200 à 400m">200 à 400m</option>
                                 <option value="400 à 600m">400 à 600m</option>
@@ -139,7 +161,7 @@
 
                     <div class="flex flex-col gap-2">
                         <label for="consigneInt" class="text-xs font-bold uppercase text-[var(--brand-accent)] tracking-wider">Consigne Intérieure Été</label>
-                        <select id="consigneInt" onchange="updateClimateInfo()" class="select-custom p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all">
+                        <select id="consigneInt" onchange="updateClimateInfo(); persistDraft();" class="select-custom p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all">
                             <option value="25">25°C – Confort maximal</option>
                             <option value="26" selected>26°C – Standard (référence)</option>
                             <option value="27">27°C – Optimisé</option>
@@ -191,7 +213,7 @@
         let state = {
             brand: 'toshiba',
             mode: 'mono',
-            rooms: [{ id: 1, surface: '', height: 2.5, emplacement: 'plain_pied', orientation: 'mixte', vitrage: 'moyen', protection: 'stores_int', occupants: '' }],
+            rooms: [{ id: 1, nom: '', surface: '', height: 2.5, emplacement: 'plain_pied', orientation: 'mixte', vitrage: 'moyen', protection: 'stores_int', occupants: '' }],
             lastResultData: null,
             currentCalc: null,
             // Solution choisie par l'utilisateur parmi les options proposées (mono / dédiés multi / gammes UI du groupe)
@@ -226,6 +248,7 @@
             updateClimateInfo();
             renderRooms();
             initDashboardEvents();
+            restoreDraftIfAny();
         }
 
         // --- DASHBOARD & LOCALSTORAGE LOGIC ---
@@ -316,7 +339,10 @@
                             ${detailsHtml}
                             <p class="text-[9px] text-gray-400 mt-2 font-medium">${escapeHtml(cfg.date)}</p>
                         </div>
-                        <button data-action="delete-config" data-client="${escapeHtml(client)}" data-index="${i}" class="absolute right-0 top-3 text-gray-300 hover:text-red-500 p-2" title="Supprimer cette zone"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
+                        <div class="absolute right-0 top-3 flex items-center gap-1">
+                            <button data-action="reload-config" data-client="${escapeHtml(client)}" data-index="${i}" class="text-gray-300 hover:text-[var(--brand-accent)] p-2" title="Recharger cette configuration pour la modifier"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg></button>
+                            <button data-action="delete-config" data-client="${escapeHtml(client)}" data-index="${i}" class="text-gray-300 hover:text-red-500 p-2" title="Supprimer cette zone"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
+                        </div>
                     </div>
                 `}).join('');
 
@@ -346,6 +372,7 @@
                 const client = btn.dataset.client;
                 if (btn.dataset.action === 'delete-chantier') deleteChantier(client);
                 else if (btn.dataset.action === 'delete-config') deleteConfig(client, parseInt(btn.dataset.index, 10));
+                else if (btn.dataset.action === 'reload-config') reloadConfig(client, parseInt(btn.dataset.index, 10));
             });
         }
 
@@ -367,11 +394,117 @@
             renderDashboard();
         }
 
+        // Recharge une configuration sauvegardée dans le simulateur pour la modifier : marque,
+        // paramètres bâtiment, pièces et sélection utilisateur sont restaurés à l'identique, puis
+        // le calcul est relancé. Avant ce correctif, un chantier n'était consultable qu'en lecture
+        // seule (texte figé) : toute variante demandée par le client obligeait à tout ressaisir.
+        function reloadConfig(clientName, index) {
+            const chantiers = loadChantiers();
+            const cfg = chantiers[clientName] && chantiers[clientName].configurations[index];
+            if (!cfg) return;
+
+            if (!cfg.rooms || !cfg.rooms.length) {
+                alert("Cette configuration a été enregistrée avec une version antérieure de l'outil et ne contient pas assez d'informations pour être rechargée automatiquement.");
+                return;
+            }
+
+            toggleDashboard(false);
+
+            setBrand(cfg.brand || 'toshiba');
+            applyBuildingParams(cfg.params);
+
+            state.mode = cfg.mode === 'multi' ? 'multi' : 'mono';
+            state.rooms = JSON.parse(JSON.stringify(cfg.rooms));
+            updateModeButtons(state.mode);
+            renderRooms();
+
+            calculate();
+            if (cfg.selection) {
+                state.selection = JSON.parse(JSON.stringify(cfg.selection));
+                renderResults();
+            }
+
+            const clientEl = document.getElementById('save-client');
+            const zoneEl = document.getElementById('save-zone');
+            if (clientEl) clientEl.value = clientName;
+            if (zoneEl) zoneEl.value = cfg.zone || '';
+        }
+
         function populateClientDatalist() {
             const dl = document.getElementById('client-list');
             if(!dl) return;
             const chantiers = loadChantiers();
             dl.innerHTML = Object.keys(chantiers).map(c => `<option value="${escapeHtml(c)}">`).join('');
+        }
+
+        // Paramètres bâtiment courants (isolation, localisation, consigne), lus depuis le DOM.
+        // Sauvegardés avec chaque configuration de chantier pour la rendre reproductible et
+        // modifiable plus tard (voir reloadConfig) — auparavant seul le résultat texte était
+        // conservé, sans savoir avec quelles hypothèses il avait été produit.
+        function captureBuildingParams() {
+            return {
+                deptSelect: document.getElementById('deptSelect').value,
+                altitude: document.getElementById('altitude').value,
+                isolationCoef: document.getElementById('isolationCoef').value,
+                customCoef: document.getElementById('customCoef').value,
+                consigneInt: document.getElementById('consigneInt').value
+            };
+        }
+        function applyBuildingParams(params) {
+            if (!params) return;
+            if (params.deptSelect) document.getElementById('deptSelect').value = params.deptSelect;
+            if (params.altitude) document.getElementById('altitude').value = params.altitude;
+            if (params.isolationCoef) document.getElementById('isolationCoef').value = params.isolationCoef;
+            if (params.customCoef) document.getElementById('customCoef').value = params.customCoef;
+            toggleCustomCoef();
+            if (params.consigneInt) document.getElementById('consigneInt').value = params.consigneInt;
+            updateClimateInfo();
+        }
+
+        // Autosave de la saisie en cours (pas encore enregistrée dans "Mes Chantiers") : un onglet
+        // mobile tué en arrière-plan, ou un appel qui interrompt la saisie, ne doit pas faire perdre
+        // 5 pièces déjà remplies. Sauvegarde silencieuse à chaque modification, restaurée au chargement.
+        const DRAFT_KEY = 'toshiba_prosizer_draft';
+        function persistDraft() {
+            try {
+                localStorage.setItem(DRAFT_KEY, JSON.stringify({
+                    brand: state.brand,
+                    mode: state.mode,
+                    rooms: state.rooms,
+                    params: captureBuildingParams()
+                }));
+            } catch (e) { /* stockage indisponible : tant pis, pas de brouillon */ }
+        }
+        function clearDraft() {
+            try { localStorage.removeItem(DRAFT_KEY); } catch (e) { /* ignoré */ }
+        }
+        function restoreDraftIfAny() {
+            let draft;
+            try { draft = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null'); }
+            catch (e) { return; }
+            if (!draft || !draft.rooms || !draft.rooms.length) return;
+            // Un brouillon sans la moindre surface saisie n'a rien à restaurer.
+            if (!draft.rooms.some(r => r.surface)) return;
+
+            setBrand(draft.brand || 'toshiba');
+            applyBuildingParams(draft.params);
+            state.mode = draft.mode === 'multi' ? 'multi' : 'mono';
+            state.rooms = draft.rooms;
+            updateModeButtons(state.mode);
+            renderRooms();
+
+            const banner = document.getElementById('draft-banner');
+            if (banner) banner.classList.remove('hidden');
+        }
+        // Efface le brouillon et repart d'une saisie vierge (bouton de la bannière de reprise).
+        function startNewCalcul() {
+            clearDraft();
+            state.rooms = [{ id: Date.now(), nom: '', surface: '', height: 2.5, emplacement: 'plain_pied', orientation: 'mixte', vitrage: 'moyen', protection: 'stores_int', occupants: '' }];
+            state.currentCalc = null;
+            document.getElementById('results-container').innerHTML = '';
+            renderRooms();
+            const banner = document.getElementById('draft-banner');
+            if (banner) banner.classList.add('hidden');
         }
 
         function saveChantier() {
@@ -391,9 +524,13 @@
             chantiers[client].configurations.push({
                 zone: zone,
                 mode: state.mode,
+                brand: state.brand,
                 resultStr: state.lastResultData.summaryText,
                 equipments: state.lastResultData.equipments,
                 roomDetails: state.lastResultData.roomDetails,
+                params: captureBuildingParams(),
+                rooms: JSON.parse(JSON.stringify(state.rooms)),
+                selection: JSON.parse(JSON.stringify(state.selection)),
                 date: new Date().toLocaleString('fr-FR', {day: '2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'})
             });
 
@@ -620,12 +757,18 @@
             if (select.value === 'custom') customInput.focus();
         }
 
-        function setMode(mode) {
-            state.mode = mode;
-            state.rooms = [state.rooms[0]];
+        // Reflet visuel du mode (boutons Monosplit/Multisplit), séparé de setMode() : reloadConfig()
+        // a besoin de mettre à jour l'affichage sans déclencher la réinitialisation des pièces.
+        function updateModeButtons(mode) {
             const isMono = mode === 'mono';
             document.getElementById('btn-mono').className = `flex-1 py-2 text-sm font-medium rounded-md transition-all ${isMono ? 'shadow-sm bg-white text-[var(--brand-accent)]' : 'text-gray-500'}`;
             document.getElementById('btn-multi').className = `flex-1 py-2 text-sm font-medium rounded-md transition-all ${!isMono ? 'shadow-sm bg-white text-[var(--brand-accent)]' : 'text-gray-500'}`;
+        }
+
+        function setMode(mode) {
+            state.mode = mode;
+            state.rooms = [state.rooms[0]];
+            updateModeButtons(mode);
             state.currentCalc = null;
             document.getElementById('results-container').innerHTML = '';
             renderRooms();
@@ -634,15 +777,25 @@
         function renderRooms() {
             const container = document.getElementById('rooms-container');
             container.innerHTML = '';
+            const canAddMore = state.rooms.length < 5;
             state.rooms.forEach((room, index) => {
                 const showRemove = state.mode === 'multi' && state.rooms.length > 1;
+                const showDuplicate = state.mode === 'multi' && canAddMore;
                 container.insertAdjacentHTML('beforeend', `
                     <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 fade-in relative">
-                        ${showRemove ? `<button onclick="removeRoom(${room.id})" class="absolute top-4 right-4 text-gray-300 hover:text-red-500 transition"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>` : ''}
+                        <div class="absolute top-4 right-4 flex items-center gap-1">
+                            ${showDuplicate ? `<button onclick="duplicateRoom(${room.id})" title="Dupliquer cette pièce" class="text-gray-300 hover:text-[var(--brand-accent)] transition p-1"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 4h8a2 2 0 012 2v8a2 2 0 01-2 2h-8a2 2 0 01-2-2v-8a2 2 0 012-2z"></path></svg></button>` : ''}
+                            ${showRemove ? `<button onclick="removeRoom(${room.id})" title="Supprimer cette pièce" class="text-gray-300 hover:text-red-500 transition p-1"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>` : ''}
+                        </div>
                         <h3 class="text-sm font-bold text-gray-700 mb-4 flex items-center gap-2 uppercase tracking-tight">
                             <span class="bg-gray-100 text-gray-500 rounded-lg w-7 h-7 flex items-center justify-center text-xs border border-gray-200">${index + 1}</span>
                             ${state.mode === 'multi' ? `Pièce ${index + 1}` : 'Volume de la pièce'}
                         </h3>
+                        ${state.mode === 'multi' ? `
+                        <div class="mb-4">
+                            <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Nom de la pièce (optionnel)</label>
+                            <input type="text" maxlength="40" oninput="updateRoom(${room.id}, 'nom', this.value)" value="${escapeHtml(room.nom || '')}" placeholder="Ex: Salon, Chambre parents..." class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
+                        </div>` : ''}
                         <div class="grid grid-cols-2 gap-4">
                             <div>
                                 <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Surface (m²)</label>
@@ -703,12 +856,21 @@
             }
         }
 
-        function addRoom() { state.rooms.push({ id: Date.now(), surface: '', height: 2.5, emplacement: 'plain_pied', orientation: 'mixte', vitrage: 'moyen', protection: 'stores_int', occupants: '' }); renderRooms(); }
-        function removeRoom(id) { state.rooms = state.rooms.filter(r => r.id !== id); renderRooms(); }
+        function addRoom() { state.rooms.push({ id: Date.now(), nom: '', surface: '', height: 2.5, emplacement: 'plain_pied', orientation: 'mixte', vitrage: 'moyen', protection: 'stores_int', occupants: '' }); renderRooms(); persistDraft(); }
+        function removeRoom(id) { state.rooms = state.rooms.filter(r => r.id !== id); renderRooms(); persistDraft(); }
+        function duplicateRoom(id) {
+            if (state.rooms.length >= 5) return;
+            const idx = state.rooms.findIndex(r => r.id === id);
+            if (idx === -1) return;
+            const clone = { ...state.rooms[idx], id: Date.now() };
+            state.rooms.splice(idx + 1, 0, clone);
+            renderRooms();
+            persistDraft();
+        }
         function updateRoom(id, field, value) {
             const r = state.rooms.find(x => x.id === id);
             if (!r) return;
-            const champsTexte = ['emplacement', 'orientation', 'vitrage', 'protection'];
+            const champsTexte = ['nom', 'emplacement', 'orientation', 'vitrage', 'protection'];
             if (champsTexte.includes(field)) {
                 r[field] = value;
             } else {
@@ -717,6 +879,7 @@
                 const num = parseFloat(value);
                 r[field] = Number.isFinite(num) ? num : '';
             }
+            persistDraft();
         }
 
         // Nombre d'occupants par défaut (≈ 1 pers. / 15 m²) tant que rien n'est saisi.
@@ -777,9 +940,9 @@
                     let froidMatch = req.froid * facteurCanicule;
                     let chaudMatch = req.chaud * facteurDeclassementChaud;
                     let size = getUiSizeForKw(froidMatch, chaudMatch);
-                    return { index: i + 1, req: req, froidMatch: froidMatch, chaudMatch: chaudMatch, size: size, maxKw: Math.max(froidMatch, chaudMatch) };
+                    return { index: i + 1, nom: r.nom || '', req: req, froidMatch: froidMatch, chaudMatch: chaudMatch, size: size, maxKw: Math.max(froidMatch, chaudMatch) };
                 });
-                const roomDetails = roomsData.map(r => `Pièce ${r.index} : ${r.req.froid.toFixed(1)}kW F / ${r.req.chaud.toFixed(1)}kW C ➔ Taille ${r.size || 'HORS LIMITE'}`);
+                const roomDetails = roomsData.map(r => `Pièce ${r.index}${r.nom ? ' (' + r.nom + ')' : ''} : ${r.req.froid.toFixed(1)}kW F / ${r.req.chaud.toFixed(1)}kW C ➔ Taille ${r.size || 'HORS LIMITE'}`);
 
                 let extractedForMono = roomsData.filter(r => r.size === null);
                 let standardRooms = roomsData.filter(r => r.size !== null);
@@ -822,7 +985,7 @@
                 // Cartes "monosplit dédié" (pièces trop grosses / délestées du groupe).
                 let dedicated = extractedForMono.map(room => ({
                     room: room,
-                    label: `Monosplit Dédié (Pièce ${room.index})`,
+                    label: `Monosplit Dédié (Pièce ${room.index}${room.nom ? ' — ' + escapeHtml(room.nom) : ''})`,
                     options: findBestMonos(room.froidMatch, room.chaudMatch)
                 }));
 
@@ -831,7 +994,7 @@
                     // Une seule pièce restante après délestage : traitée comme un mono dédié de plus.
                     dedicated.push({
                         room: standardRooms[0],
-                        label: `Monosplit Restant (Pièce ${standardRooms[0].index})`,
+                        label: `Monosplit Restant (Pièce ${standardRooms[0].index}${standardRooms[0].nom ? ' — ' + escapeHtml(standardRooms[0].nom) : ''})`,
                         options: findBestMonos(standardRooms[0].froidMatch, standardRooms[0].chaudMatch)
                     });
                 } else if (bestGroup && bestGroup !== "MONO") {
@@ -938,7 +1101,15 @@
 
             if (state.lastResultData.summaryText) {
                 html += `
-                <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 mt-6 fade-in">
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 mt-6 fade-in flex flex-col sm:flex-row gap-3">
+                    <button onclick="exportPdf()" class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 rounded-lg transition-colors flex justify-center items-center gap-2 text-sm">
+                        🖨️ Imprimer / Exporter PDF
+                    </button>
+                    <button onclick="shareResults()" class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 rounded-lg transition-colors flex justify-center items-center gap-2 text-sm">
+                        📤 Partager
+                    </button>
+                </div>
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 mt-4 fade-in">
                     <h3 class="text-sm font-bold text-toshiba-dark flex items-center gap-2 mb-4 uppercase tracking-wide">
                         <svg class="w-5 h-5 text-[var(--brand-accent)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
                         Enregistrer au Chantier
@@ -964,6 +1135,69 @@
 
             resultsContainer.innerHTML = html;
             populateClientDatalist();
+        }
+
+        // Export / partage de la fiche de dimensionnement. Aucune dépendance ajoutée : l'export
+        // PDF s'appuie sur l'impression native du navigateur (une feuille de style @media print
+        // isole une vue propre dans #print-area), et le partage utilise la Web Share API quand
+        // disponible, avec un repli mailto: sinon.
+        function buildResultSummaryLines() {
+            const calc = state.currentCalc;
+            if (!calc || !state.lastResultData) return null;
+            const client = (document.getElementById('save-client') || {}).value?.trim() || '';
+            const zone = (document.getElementById('save-zone') || {}).value?.trim() || '';
+            const dateStr = new Date().toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+            return {
+                client, zone, dateStr,
+                brandLabel: state.brand === 'toshiba' ? 'Toshiba' : 'Panasonic',
+                modeLabel: calc.mode === 'mono' ? 'Monosplit' : 'Multisplit',
+                roomDetails: calc.roomDetails || [],
+                equipments: state.lastResultData.equipments || []
+            };
+        }
+
+        function exportPdf() {
+            const s = buildResultSummaryLines();
+            if (!s) return;
+            const printArea = document.getElementById('print-area');
+            printArea.innerHTML = `
+                <h1>ProSizer B2B — Fiche de dimensionnement</h1>
+                ${s.client ? `<p><strong>Client :</strong> ${escapeHtml(s.client)}</p>` : ''}
+                ${s.zone ? `<p><strong>Zone :</strong> ${escapeHtml(s.zone)}</p>` : ''}
+                <p><strong>Date :</strong> ${escapeHtml(s.dateStr)} — <strong>Marque :</strong> ${s.brandLabel} — <strong>Mode :</strong> ${s.modeLabel}</p>
+                <h2>Détail par pièce</h2>
+                <ul>${s.roomDetails.map(r => `<li>${escapeHtml(r)}</li>`).join('')}</ul>
+                <h2>Équipements recommandés</h2>
+                <ul>${s.equipments.map(e => `<li>${escapeHtml(e)}</li>`).join('')}</ul>
+                <p class="print-disclaimer">Dimensionnement indicatif généré par ProSizer B2B. À valider par un professionnel avant installation.</p>
+            `;
+            window.print();
+        }
+
+        function shareResults() {
+            const s = buildResultSummaryLines();
+            if (!s) return;
+            const lines = [
+                'ProSizer B2B — Fiche de dimensionnement',
+                s.client ? `Client : ${s.client}` : null,
+                s.zone ? `Zone : ${s.zone}` : null,
+                `Marque : ${s.brandLabel} — Mode : ${s.modeLabel}`,
+                '',
+                'Détail par pièce :',
+                ...s.roomDetails.map(r => `- ${r}`),
+                '',
+                'Équipements recommandés :',
+                ...s.equipments.map(e => `- ${e}`)
+            ].filter(l => l !== null);
+            const text = lines.join('\n');
+
+            if (navigator.share) {
+                navigator.share({ title: 'ProSizer B2B — Dimensionnement', text }).catch(() => {});
+            } else {
+                const subject = encodeURIComponent(`ProSizer B2B — Dimensionnement${s.client ? ' — ' + s.client : ''}`);
+                const body = encodeURIComponent(text);
+                window.location.href = `mailto:?subject=${subject}&body=${body}`;
+            }
         }
 
         // Ré-applique le choix de l'utilisateur et redessine les résultats, en conservant ce qui est
@@ -996,7 +1230,7 @@
             let details = '';
             if(isMulti) {
                 details = `<div class="mt-3 border-t border-gray-100 pt-2 flex flex-col gap-1">` + 
-                    roomsData.map(r => `<div class="flex justify-between text-[10px] text-gray-500"><span>Pièce ${r.index}</span><span>${r.req.froid.toFixed(1)} kW F / ${r.req.chaud.toFixed(1)} kW C</span></div>`).join('') + `</div>`;
+                    roomsData.map(r => `<div class="flex justify-between text-[10px] text-gray-500"><span>Pièce ${r.index}${r.nom ? ' — ' + escapeHtml(r.nom) : ''}</span><span>${r.req.froid.toFixed(1)} kW F / ${r.req.chaud.toFixed(1)} kW C</span></div>`).join('') + `</div>`;
             }
             return `<div class="bg-white border border-gray-200 rounded-xl p-4 shadow-sm flex flex-col gap-2 mb-4 mt-2">
                 <span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Bilan Thermique Cumulé</span>
@@ -1075,7 +1309,7 @@
                 }).join('');
                 return `
                 <div class="py-3 border-b border-gray-100 last:border-0">
-                    <div class="text-xs font-bold text-gray-700 mb-2">Pièce ${r.index} <span class="font-normal text-gray-400">— ${r.req.froid.toFixed(1)} kW F / ${r.req.chaud.toFixed(1)} kW C</span></div>
+                    <div class="text-xs font-bold text-gray-700 mb-2">Pièce ${r.index}${r.nom ? ' — ' + escapeHtml(r.nom) : ''} <span class="font-normal text-gray-400">— ${r.req.froid.toFixed(1)} kW F / ${r.req.chaud.toFixed(1)} kW C</span></div>
                     <div class="flex flex-wrap gap-3">${chips}</div>
                 </div>`;
             }).join('');
