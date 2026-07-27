@@ -1,6 +1,6 @@
 // Service worker réel de ProSizer B2B, servi en same-origin (contrairement à l'ancienne
 // version enregistrée depuis une blob: URL, que les navigateurs refusent silencieusement).
-const CACHE_VERSION = 'v3';
+const CACHE_VERSION = 'v4';
 const CACHE_NAME = `prosizer-${CACHE_VERSION}`;
 const PRECACHE_URLS = [
     './',
@@ -31,34 +31,25 @@ self.addEventListener('activate', (event) => {
     );
 });
 
+// Réseau d'abord pour tout (document HTML comme assets JS/CSS), cache en secours uniquement
+// hors-ligne. Un "cache d'abord, rafraîchi en tâche de fond" a déjà servi deux fois du code
+// périmé sans prévenir juste après un déploiement (le rafraîchissement n'arrive qu'au
+// rechargement suivant, ce qui ressemble à un bug pour l'utilisateur). Pour une appli de
+// quelques dizaines de Ko, le coût réseau est négligeable en ligne ; la fraîcheur du code prime
+// sur le gain de vitesse du cache-first.
 self.addEventListener('fetch', (event) => {
     const req = event.request;
     if (req.method !== 'GET') return;
 
-    // Document HTML : réseau d'abord, cache en secours hors-ligne. Évite de rester bloqué
-    // sur une version périmée de l'app tant que la connexion fonctionne (le service worker
-    // ignore sinon le Cache-Control: must-revalidate défini par netlify.toml).
-    if (req.mode === 'navigate') {
-        event.respondWith(
-            fetch(req)
-                .then((res) => {
+    event.respondWith(
+        fetch(req)
+            .then((res) => {
+                if (res.ok) {
                     const copy = res.clone();
                     caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
-                    return res;
-                })
-                .catch(() => caches.match(req).then((res) => res || caches.match('./index.html')))
-        );
-        return;
-    }
-
-    // Assets statiques same-origin : cache d'abord (rapidité hors-ligne), rafraîchis en tâche de fond.
-    event.respondWith(
-        caches.match(req).then((cached) => {
-            const network = fetch(req).then((res) => {
-                if (res.ok) caches.open(CACHE_NAME).then((cache) => cache.put(req, res.clone()));
+                }
                 return res;
-            }).catch(() => cached);
-            return cached || network;
-        })
+            })
+            .catch(() => caches.match(req).then((res) => res || (req.mode === 'navigate' ? caches.match('./index.html') : undefined)))
     );
 });
