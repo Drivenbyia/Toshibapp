@@ -16,6 +16,10 @@ import {
 let state = {
     brand: 'toshiba',
     mode: 'mono',
+    // 'reversible' (défaut) : sélection du matériel sur le besoin froid ET chaud.
+    // 'froid_seul' : le besoin chaud n'entre plus dans le dimensionnement (mais reste affiché à
+    // titre indicatif) — permet de proposer une solution quand seul le chaud dépasse le catalogue.
+    usage: 'reversible',
     rooms: [{ id: 1, nom: '', surface: '', height: 2.5, emplacement: 'plain_pied', orientation: 'mixte', vitrage: 'moyen', protection: 'stores_int', occupants: '', expositionMurs: 4 }],
     lastResultData: null,
     currentCalc: null,
@@ -216,8 +220,10 @@ function reloadConfig(clientName, index) {
     applyBuildingParams(cfg.params);
 
     state.mode = cfg.mode === 'multi' ? 'multi' : 'mono';
+    state.usage = cfg.usage === 'froid_seul' ? 'froid_seul' : 'reversible';
     state.rooms = JSON.parse(JSON.stringify(cfg.rooms));
     updateModeButtons(state.mode);
+    updateUsageButtons(state.usage);
     renderRooms();
 
     calculate();
@@ -272,6 +278,7 @@ function persistDraft() {
         localStorage.setItem(DRAFT_KEY, JSON.stringify({
             brand: state.brand,
             mode: state.mode,
+            usage: state.usage,
             rooms: state.rooms,
             params: captureBuildingParams()
         }));
@@ -291,8 +298,10 @@ function restoreDraftIfAny() {
     setBrand(draft.brand || 'toshiba');
     applyBuildingParams(draft.params);
     state.mode = draft.mode === 'multi' ? 'multi' : 'mono';
+    state.usage = draft.usage === 'froid_seul' ? 'froid_seul' : 'reversible';
     state.rooms = draft.rooms;
     updateModeButtons(state.mode);
+    updateUsageButtons(state.usage);
     renderRooms();
 
     const banner = document.getElementById('draft-banner');
@@ -327,6 +336,7 @@ function saveChantier() {
         zone: zone,
         mode: state.mode,
         brand: state.brand,
+        usage: state.usage,
         resultStr: state.lastResultData.summaryText,
         equipments: state.lastResultData.equipments,
         roomDetails: state.lastResultData.roomDetails,
@@ -411,6 +421,25 @@ function setMode(mode) {
     state.currentCalc = null;
     document.getElementById('results-container').innerHTML = '';
     renderRooms();
+}
+
+// Reflet visuel du toggle Réversible / Froid seul, séparé de setUsage() pour les mêmes raisons
+// que updateModeButtons (reloadConfig / restoreDraftIfAny doivent pouvoir l'appliquer sans
+// déclencher les effets de bord de setUsage).
+function updateUsageButtons(usage) {
+    const isReversible = usage !== 'froid_seul';
+    document.getElementById('btn-usage-reversible').className = `flex-1 py-2 text-sm font-medium rounded-md transition-all ${isReversible ? 'shadow-sm bg-white text-[var(--brand-accent)]' : 'text-gray-500 hover:text-gray-700'}`;
+    document.getElementById('btn-usage-froid_seul').className = `flex-1 py-2 text-sm font-medium rounded-md transition-all ${!isReversible ? 'shadow-sm bg-white text-[var(--brand-accent)]' : 'text-gray-500 hover:text-gray-700'}`;
+    const note = document.getElementById('usage-note');
+    if (note) note.classList.toggle('hidden', isReversible);
+}
+
+function setUsage(usage) {
+    state.usage = usage;
+    updateUsageButtons(usage);
+    state.currentCalc = null;
+    document.getElementById('results-container').innerHTML = '';
+    persistDraft();
 }
 
 function renderRooms() {
@@ -554,6 +583,7 @@ function calculate() {
     }
 
     const { zone, tBaseHiver } = getClimateContext();
+    const froidSeul = state.usage === 'froid_seul';
 
     // Marge canicule : en zone chaude, la puissance froid réelle chute au-delà de 35°C ext.
     const facteurCanicule = getFacteurCanicule(zone);
@@ -561,10 +591,14 @@ function calculate() {
         ? `<div class="p-2.5 bg-orange-50 border border-orange-200 text-orange-800 rounded-lg text-[11px] font-medium text-center mb-4 -mt-2">☀️ Zone chaude : marge canicule de +${Math.round((facteurCanicule - 1) * 100)}% appliquée à la sélection (pointes 40-42°C).</div>`
         : '';
 
-    // Déclassement chaud : la puissance catalogue (+7°C) chute par grand froid.
+    // Déclassement chaud : la puissance catalogue (+7°C) chute par grand froid. Sans objet en
+    // "Froid seul" puisque le chaud n'entre alors plus dans le dimensionnement.
     const facteurDeclassementChaud = getFacteurDeclassementChaud(tBaseHiver);
-    const declassementNote = facteurDeclassementChaud > 1.05
+    const declassementNote = (!froidSeul && facteurDeclassementChaud > 1.05)
         ? `<div class="p-2.5 bg-sky-50 border border-sky-200 text-sky-900 rounded-lg text-[11px] font-medium text-center mb-4 -mt-2">🥶 Grand froid : la puissance chaud requise en catalogue est majorée de +${Math.round((facteurDeclassementChaud - 1) * 100)}% pour compenser la perte de capacité de la PAC à température de base (estimation générique, à affiner avec les courbes constructeur).</div>`
+        : '';
+    const usageNote = froidSeul
+        ? `<div class="p-2.5 bg-cyan-50 border border-cyan-200 text-cyan-900 rounded-lg text-[11px] font-medium text-center mb-4 -mt-2">❄️ Froid seul : la sélection ignore le besoin chauffage (affiché à titre indicatif ci-dessous). Les machines proposées restent des PAC réversibles standard.</div>`
         : '';
 
     // Reset des choix utilisateur à chaque nouveau calcul.
@@ -573,22 +607,24 @@ function calculate() {
     if (state.mode === 'mono') {
         const req = getRequiredKw(state.rooms[0].surface, state.rooms[0].height, state.rooms[0]);
         const froidMatch = req.froid * facteurCanicule;
-        const chaudMatch = req.chaud * facteurDeclassementChaud;
+        // En "Froid seul", le besoin chaud est neutralisé pour la sélection (mais reste affiché
+        // via req.chaud, non modifié, dans le détail par pièce et le bilan cumulé).
+        const chaudMatch = froidSeul ? 0 : req.chaud * facteurDeclassementChaud;
         const size = getUiSizeForKw(froidMatch, chaudMatch, state.brand);
 
         state.currentCalc = {
             mode: 'mono',
             req: req,
             besoinsHtml: renderBesoinsCard([req]),
-            caniculeNote: caniculeNote + declassementNote,
+            caniculeNote: caniculeNote + declassementNote + usageNote,
             roomDetails: [`Pièce 1 : ${req.froid.toFixed(1)}kW F / ${req.chaud.toFixed(1)}kW C ➔ Taille ${size || 'HORS LIMITE'}`],
-            mono: { options: findBestMonos(froidMatch, chaudMatch, state.brand) }
+            mono: { options: findBestMonos(froidMatch, chaudMatch, state.brand), froidSeul }
         };
     } else {
         let roomsData = state.rooms.map((r, i) => {
             let req = getRequiredKw(r.surface, r.height, r);
             let froidMatch = req.froid * facteurCanicule;
-            let chaudMatch = req.chaud * facteurDeclassementChaud;
+            let chaudMatch = froidSeul ? 0 : req.chaud * facteurDeclassementChaud;
             let size = getUiSizeForKw(froidMatch, chaudMatch, state.brand);
             return { index: i + 1, nom: r.nom || '', req: req, froidMatch: froidMatch, chaudMatch: chaudMatch, size: size, maxKw: Math.max(froidMatch, chaudMatch) };
         });
@@ -648,9 +684,9 @@ function calculate() {
         state.currentCalc = {
             mode: 'multi',
             besoinsHtml: renderBesoinsCard(roomsData.map(r => r.req), true, roomsData),
-            caniculeNote: caniculeNote + declassementNote + balanceNote,
+            caniculeNote: caniculeNote + declassementNote + usageNote + balanceNote,
             roomDetails: roomDetails,
-            multi: { dedicated: dedicated, groupOptions: groupOptions, standardRooms: standardRooms, hybridNote: hybridNote }
+            multi: { dedicated: dedicated, groupOptions: groupOptions, standardRooms: standardRooms, hybridNote: hybridNote, froidSeul }
         };
     }
 
@@ -682,7 +718,7 @@ function renderResults() {
             options.forEach((sol, idx) => {
                 const selectOpts = options.length > 1 ? { selected: idx === selIdx, onclick: `selectMono(${idx})` } : null;
                 const tvaInfo = getTvaInfo(sol.gamme, sol.reference_ensemble, 'mono', state.brand);
-                html += renderCard("Monosplit Recommandé", sol.gamme, sol.reference_ensemble, sol.puissance_froid_kw, sol.puissance_chaud_kw, false, [], selectOpts, tvaInfo, { reqFroid: calc.req.froid, reqChaud: calc.req.chaud });
+                html += renderCard("Monosplit Recommandé", sol.gamme, sol.reference_ensemble, sol.puissance_froid_kw, sol.puissance_chaud_kw, false, [], selectOpts, tvaInfo, { reqFroid: calc.req.froid, reqChaud: calc.mono.froidSeul ? null : calc.req.chaud });
             });
             const chosen = options[selIdx];
             const chosenTva = getTvaInfo(chosen.gamme, chosen.reference_ensemble, 'mono', state.brand);
@@ -711,7 +747,7 @@ function renderResults() {
                 options.forEach((sol, idx) => {
                     const selectOpts = options.length > 1 ? { selected: idx === selIdx, onclick: `selectDedicated(${room.index}, ${idx})` } : null;
                     const tvaInfo = getTvaInfo(sol.gamme, sol.reference_ensemble, 'mono', state.brand);
-                    html += renderCard(dedItem.label, sol.gamme, sol.reference_ensemble, sol.puissance_froid_kw, sol.puissance_chaud_kw, false, [], selectOpts, tvaInfo, { reqFroid: room.req.froid, reqChaud: room.req.chaud });
+                    html += renderCard(dedItem.label, sol.gamme, sol.reference_ensemble, sol.puissance_froid_kw, sol.puissance_chaud_kw, false, [], selectOpts, tvaInfo, { reqFroid: room.req.froid, reqChaud: m.froidSeul ? null : room.req.chaud });
                 });
                 const chosen = options[selIdx];
                 const chosenTva = getTvaInfo(chosen.gamme, chosen.reference_ensemble, 'mono', state.brand);
@@ -730,7 +766,7 @@ function renderResults() {
             const selIdx = Math.min(state.selection.groupChoice || 0, m.groupOptions.length - 1);
             m.groupOptions.forEach((g, idx) => {
                 const selectOpts = m.groupOptions.length > 1 ? { selected: idx === selIdx, onclick: `selectGroup(${idx})` } : null;
-                html += renderCard(`Groupe Multisplit (${m.standardRooms.length} sorties)`, "Groupe Extérieur", g.reference, g.puissance_nominale_froid_kw, g.puissance_nominale_chaud_kw, true, sizesArr, selectOpts, null, { reqFroid: groupReqFroid, reqChaud: groupReqChaud });
+                html += renderCard(`Groupe Multisplit (${m.standardRooms.length} sorties)`, "Groupe Extérieur", g.reference, g.puissance_nominale_froid_kw, g.puissance_nominale_chaud_kw, true, sizesArr, selectOpts, null, { reqFroid: groupReqFroid, reqChaud: m.froidSeul ? null : groupReqChaud });
             });
             const bestGroup = m.groupOptions[selIdx];
             html += renderMultiRoomsGuide(m.standardRooms, bestGroup.gammes_compatibles);
@@ -1099,7 +1135,7 @@ if ('serviceWorker' in navigator) {
 // délégation. Liste figée = fonctions effectivement référencées depuis des attributs HTML.
 Object.assign(window, {
     addRoom, calculate, duplicateRoom, exportPdf, persistDraft, removeRoom, saveChantier,
-    selectGroupGamme, setBrand, setMode, shareResults, startNewCalcul, toggleCustomCoef,
+    selectGroupGamme, setBrand, setMode, setUsage, shareResults, startNewCalcul, toggleCustomCoef,
     toggleDashboard, updateClimateInfo, updateRoom, selectDedicated, selectGroup, selectMono
 });
 

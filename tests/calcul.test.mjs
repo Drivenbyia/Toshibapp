@@ -128,6 +128,18 @@ describe('Sélection catalogue (Toshiba)', () => {
     test('findBestMonos retourne un tableau vide si aucune machine ne couvre le besoin', () => {
         assert.deepEqual(findBestMonos(999, 999, 'toshiba'), []);
     });
+
+    // "Froid seul" (app.js) neutralise le besoin chaud pour la sélection en le mettant à 0 avant
+    // d'appeler ces fonctions pures — un besoin chaud hors catalogue à lui seul ne doit donc plus
+    // exclure de solution, alors qu'un besoin froid hors catalogue doit toujours en exclure.
+    test('un besoin chaud = 0 ne contraint plus la sélection (mode "froid seul")', () => {
+        const sansContrainteChaud = findBestMonos(1.8, 0, 'toshiba');
+        assert.ok(sansContrainteChaud.length > 0, 'des solutions doivent rester disponibles');
+        assert.equal(getUiSizeForKw(1.8, 0, 'toshiba'), getUiSizeForKw(1.8, 0.1, 'toshiba'), 'la taille ne doit dépendre que du froid quand le chaud est neutralisé');
+    });
+    test('un besoin chaud hors catalogue exclut toujours tout en mode réversible normal', () => {
+        assert.deepEqual(findBestMonos(1.8, 999, 'toshiba'), []);
+    });
 });
 
 describe('Sélection groupe multisplit', () => {
