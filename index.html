@@ -66,25 +66,6 @@
             body > *:not(#print-area) { display: none !important; }
             #print-area { display: block !important; }
         }
-
-        /* Mode sombre léger : ne redécline que le fond de page et l'en-tête (chrome de l'appli).
-           Les cartes de saisie/résultats restent blanches ("papier" sur fond sombre) plutôt que
-           de redécliner chaque classe Tailwind utilitaire (bg-white/text-gray-*) présente dans
-           le HTML généré — un vrai thème sombre complet nécessiterait de reprendre l'ensemble du
-           rendu carte par carte, hors de portée raisonnable de ce correctif. Une PWA installée
-           hérite de prefers-color-scheme sans configuration côté utilisateur : sans cette règle,
-           l'app resterait blanche et éblouissante sur un téléphone en thème sombre.  */
-        @media (prefers-color-scheme: dark) {
-            /* Compound sélecteurs (balise + classe) pour égaler la spécificité des classes
-               utilitaires Tailwind déjà présentes sur ces éléments (bg-toshiba-gray, bg-white...),
-               sans !important. */
-            body.bg-toshiba-gray { background-color: #18181b; }
-            header.bg-white { background-color: #232326; }
-            header h1 { color: #f4f4f5; }
-            header .text-gray-500 { color: #a1a1aa; }
-            header .bg-gray-100 { background-color: #2f2f33; }
-            #results-container { border-top-color: #3f3f46; }
-        }
     </style>
 </head>
 <body class="bg-toshiba-gray text-gray-800 font-sans antialiased min-h-screen flex flex-col">
