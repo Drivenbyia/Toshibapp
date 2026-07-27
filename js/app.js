@@ -123,9 +123,9 @@ function renderDashboard() {
                         </span>
                         <svg class="w-4 h-4 transition-transform group-open:rotate-180 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
                     </summary>
-                    <div class="p-3 text-[10px] text-gray-700 flex flex-col gap-2">
-                        ${eqs.length > 0 ? `<div><div class="font-extrabold text-gray-400 uppercase tracking-wider text-[8px] mb-1">Matériel Proposé :</div>${eqs.map(e => `<div class="font-medium text-toshiba-dark">• ${escapeHtml(e)}</div>`).join('')}</div>` : ''}
-                        ${rds.length > 0 ? `<div><div class="font-extrabold text-gray-400 uppercase tracking-wider text-[8px] mb-1 mt-1">Bilan par Pièce :</div>${rds.map(r => `<div>• ${escapeHtml(r)}</div>`).join('')}</div>` : ''}
+                    <div class="p-3 text-[11px] text-gray-700 flex flex-col gap-2">
+                        ${eqs.length > 0 ? `<div><div class="font-extrabold text-gray-400 uppercase tracking-wider text-[11px] mb-1">Matériel Proposé :</div>${eqs.map(e => `<div class="font-medium text-toshiba-dark">• ${escapeHtml(e)}</div>`).join('')}</div>` : ''}
+                        ${rds.length > 0 ? `<div><div class="font-extrabold text-gray-400 uppercase tracking-wider text-[11px] mb-1 mt-1">Bilan par Pièce :</div>${rds.map(r => `<div>• ${escapeHtml(r)}</div>`).join('')}</div>` : ''}
                     </div>
                 </details>`;
             }
@@ -135,11 +135,11 @@ function renderDashboard() {
                 <div class="w-full pr-8">
                     <div class="flex items-center gap-2 mb-1">
                         <span class="font-bold text-sm text-toshiba-dark">${escapeHtml(cfg.zone)}</span>
-                        <span class="text-[9px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded font-bold uppercase">${escapeHtml(cfg.mode)}</span>
+                        <span class="text-[11px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded font-bold uppercase">${escapeHtml(cfg.mode)}</span>
                     </div>
                     <p class="text-xs text-[var(--brand-accent)] font-bold uppercase tracking-tight">${escapeHtml(cfg.resultStr)}</p>
                     ${detailsHtml}
-                    <p class="text-[9px] text-gray-400 mt-2 font-medium">${escapeHtml(cfg.date)}</p>
+                    <p class="text-[11px] text-gray-400 mt-2 font-medium">${escapeHtml(cfg.date)}</p>
                 </div>
                 <div class="absolute right-0 top-3 flex items-center gap-1">
                     <button data-action="reload-config" data-client="${escapeHtml(client)}" data-index="${i}" class="text-gray-300 hover:text-[var(--brand-accent)] p-2" title="Recharger cette configuration pour la modifier"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg></button>
@@ -155,7 +155,7 @@ function renderDashboard() {
                     <svg class="w-5 h-5 text-gray-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"></path></svg>
                     ${escapeHtml(client)}
                 </h3>
-                <button data-action="delete-chantier" data-client="${escapeHtml(client)}" class="text-[10px] font-bold text-red-500 hover:text-white border border-red-200 hover:bg-red-500 hover:border-red-500 transition-colors px-2 py-1 rounded">SUPPRIMER TOUT</button>
+                <button data-action="delete-chantier" data-client="${escapeHtml(client)}" class="text-[11px] font-bold text-red-500 hover:text-white border border-red-200 hover:bg-red-500 hover:border-red-500 transition-colors px-2 py-1 rounded">SUPPRIMER TOUT</button>
             </div>
             <div class="bg-gray-50 rounded-lg px-4 border border-gray-100">
                 ${configsHtml}
@@ -432,21 +432,21 @@ function renderRooms() {
                 </h3>
                 ${state.mode === 'multi' ? `
                 <div class="mb-4">
-                    <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Nom de la pièce (optionnel)</label>
+                    <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">Nom de la pièce (optionnel)</label>
                     <input type="text" maxlength="40" oninput="updateRoom(${room.id}, 'nom', this.value)" value="${escapeHtml(room.nom || '')}" placeholder="Ex: Salon, Chambre parents..." class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                 </div>` : ''}
                 <div class="grid grid-cols-2 gap-4">
                     <div>
-                        <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Surface (m²)</label>
+                        <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">Surface (m²)</label>
                         <input type="number" min="1" max="200" oninput="updateRoom(${room.id}, 'surface', this.value)" value="${room.surface}" placeholder="Ex: 30" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                     </div>
                     <div>
-                        <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Hauteur (m)</label>
+                        <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">Hauteur (m)</label>
                         <input type="number" min="1.8" max="6" oninput="updateRoom(${room.id}, 'height', this.value)" value="${room.height}" step="0.1" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                     </div>
                 </div>
                 <div class="mt-4">
-                    <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Emplacement de la pièce</label>
+                    <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">Emplacement de la pièce</label>
                     <select onchange="updateRoom(${room.id}, 'emplacement', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                         <option value="sous_toiture" ${room.emplacement === 'sous_toiture' ? 'selected' : ''}>Sous toiture / combles aménagés (fort apport)</option>
                         <option value="plain_pied" ${room.emplacement === 'plain_pied' ? 'selected' : ''}>Plain-pied, combles perdus isolés (apport modéré)</option>
@@ -455,7 +455,7 @@ function renderRooms() {
                 </div>
                 ${state.mode === 'multi' ? `
                 <div class="mt-4">
-                    <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Murs donnant sur l'extérieur</label>
+                    <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">Murs donnant sur l'extérieur</label>
                     <select onchange="updateRoom(${room.id}, 'expositionMurs', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                         <option value="4" ${String(room.expositionMurs) === '4' ? 'selected' : ''}>4 (pièce isolée sur toutes ses faces)</option>
                         <option value="3" ${String(room.expositionMurs) === '3' ? 'selected' : ''}>3</option>
@@ -465,7 +465,7 @@ function renderRooms() {
                 </div>` : ''}
                 <div class="grid grid-cols-2 gap-4 mt-4">
                     <div>
-                        <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Orientation des baies</label>
+                        <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">Orientation des baies</label>
                         <select onchange="updateRoom(${room.id}, 'orientation', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                             <option value="nord" ${room.orientation === 'nord' ? 'selected' : ''}>Nord</option>
                             <option value="est" ${room.orientation === 'est' ? 'selected' : ''}>Est</option>
@@ -475,7 +475,7 @@ function renderRooms() {
                         </select>
                     </div>
                     <div>
-                        <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Quantité de vitrage</label>
+                        <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">Quantité de vitrage</label>
                         <select onchange="updateRoom(${room.id}, 'vitrage', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                             <option value="peu" ${room.vitrage === 'peu' ? 'selected' : ''}>Peu vitré</option>
                             <option value="moyen" ${room.vitrage === 'moyen' ? 'selected' : ''}>Moyen</option>
@@ -485,7 +485,7 @@ function renderRooms() {
                 </div>
                 <div class="grid grid-cols-2 gap-4 mt-4">
                     <div>
-                        <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Protection solaire</label>
+                        <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">Protection solaire</label>
                         <select onchange="updateRoom(${room.id}, 'protection', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                             <option value="aucune" ${room.protection === 'aucune' ? 'selected' : ''}>Aucune</option>
                             <option value="stores_int" ${room.protection === 'stores_int' ? 'selected' : ''}>Stores / rideaux intérieurs</option>
@@ -493,7 +493,7 @@ function renderRooms() {
                         </select>
                     </div>
                     <div>
-                        <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Occupants</label>
+                        <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">Occupants</label>
                         <input type="number" min="0" oninput="updateRoom(${room.id}, 'occupants', this.value)" value="${room.occupants}" placeholder="Auto: ${occupantsParDefaut(room.surface) || '–'}" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                     </div>
                 </div>
@@ -768,12 +768,12 @@ function renderResults() {
             </h3>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                 <div>
-                    <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Nom du Client / Projet</label>
+                    <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">Nom du Client / Projet</label>
                     <input type="text" id="save-client" list="client-list" placeholder="Ex: Dupont" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                     <datalist id="client-list"></datalist>
                 </div>
                 <div>
-                    <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Désignation de la Zone</label>
+                    <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">Désignation de la Zone</label>
                     <input type="text" id="save-zone" placeholder="Ex: RDC, Étage, Salon..." class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                 </div>
             </div>
@@ -895,7 +895,7 @@ function renderBesoinsCard(reqs, isMulti = false, roomsData = []) {
     let details = '';
     if (isMulti) {
         details = `<div class="mt-3 border-t border-gray-100 pt-2 flex flex-col gap-1">` +
-            roomsData.map(r => `<div class="flex justify-between text-[10px] text-gray-500"><span>Pièce ${r.index}${r.nom ? ' — ' + escapeHtml(r.nom) : ''}</span><span>${r.req.froid.toFixed(1)} kW F / ${r.req.chaud.toFixed(1)} kW C</span></div>`).join('') + `</div>`;
+            roomsData.map(r => `<div class="flex justify-between text-[11px] text-gray-500"><span>Pièce ${r.index}${r.nom ? ' — ' + escapeHtml(r.nom) : ''}</span><span>${r.req.froid.toFixed(1)} kW F / ${r.req.chaud.toFixed(1)} kW C</span></div>`).join('') + `</div>`;
     }
     return `<div class="bg-white border border-gray-200 rounded-xl p-4 shadow-sm flex flex-col gap-2 mb-4 mt-2">
         <span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Bilan Thermique Cumulé</span>
@@ -914,12 +914,12 @@ function gammeGuideContent(gammeName) {
     const wifiColor = g.wifi === 'De série' ? 'text-green-600' : 'text-amber-600';
     return `
     <div class="flex flex-col gap-2 text-[11px]">
-        <div class="bg-gray-50 rounded-lg p-2.5 text-gray-700"><span class="font-bold text-gray-500 uppercase text-[9px] tracking-wider">Idéal pour</span><br>${g.ideal}</div>
+        <div class="bg-gray-50 rounded-lg p-2.5 text-gray-700"><span class="font-bold text-gray-500 uppercase text-[11px] tracking-wider">Idéal pour</span><br>${g.ideal}</div>
         <div class="flex flex-col gap-1">
             ${g.plus.map(p => `<div class="flex items-start gap-1.5 text-green-700"><span class="font-bold">✓</span><span>${p}</span></div>`).join('')}
             ${g.moins.map(m => `<div class="flex items-start gap-1.5 text-amber-700"><span class="font-bold">!</span><span>${m}</span></div>`).join('')}
         </div>
-        <div class="text-[10px] text-gray-400 font-medium">Wifi : <span class="${wifiColor} font-bold">${g.wifi}</span></div>
+        <div class="text-[11px] text-gray-400 font-medium">Wifi : <span class="${wifiColor} font-bold">${g.wifi}</span></div>
     </div>`;
 }
 
@@ -932,7 +932,7 @@ function renderGammeGuide(gammeName) {
         <summary class="cursor-pointer text-[11px] font-bold text-gray-500 hover:text-[var(--brand-accent)] flex items-center gap-1.5 select-none">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
             Guide de la gamme
-            <span class="ml-auto text-[10px] font-extrabold bg-gray-100 text-gray-600 px-2 py-0.5 rounded">${g.tier}</span>
+            <span class="ml-auto text-[11px] font-extrabold bg-gray-100 text-gray-600 px-2 py-0.5 rounded">${g.tier}</span>
             <svg class="w-4 h-4 transition-transform group-open/guide:rotate-180 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
         </summary>
         <div class="mt-3">${gammeGuideContent(gammeName)}</div>
@@ -965,7 +965,7 @@ function renderMultiRoomsGuide(roomsData, allowedGammes) {
                 </button>
                 ${renderTvaBadge(tvaInfo)}
                 <details class="group/mg mt-1" onclick="event.stopPropagation()">
-                    <summary class="cursor-pointer text-[10px] text-gray-400 hover:text-gray-600 select-none">Détails</summary>
+                    <summary class="cursor-pointer text-[11px] text-gray-400 hover:text-gray-600 select-none">Détails</summary>
                     <div class="mt-2 mb-1">${gammeGuideContent(g)}</div>
                 </details>
             </div>`;
@@ -1000,7 +1000,7 @@ function renderChargeBadge(reqFroid, reqChaud, nominalFroid, nominalChaud) {
     const classes = sousCharge ? 'bg-amber-50 text-amber-700 border-amber-300' : 'bg-gray-50 text-gray-500 border-gray-200';
     const label = `Taux de charge : ${Math.round(chargeF * 100)}% F${chargeC !== null ? ` / ${Math.round(chargeC * 100)}% C` : ''}`;
     const warn = sousCharge ? ` <span title="Machine surdimensionnée pour ce besoin : cycles courts, confort et rendement réel dégradés.">⚠️</span>` : '';
-    return `<div class="mt-2 inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-full border ${classes}">${label}${warn}</div>`;
+    return `<div class="mt-2 inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-full border ${classes}">${label}${warn}</div>`;
 }
 
 // selectOpts = null (carte simple, non sélectionnable) ou { selected: bool, onclick: string }
@@ -1020,7 +1020,9 @@ function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = fals
     let gammeGuideBlock = renderGammeGuide(mainTitle);
 
     if (selectOpts) {
-        clickAttr = ` onclick="${selectOpts.onclick}" role="button" tabindex="0"`;
+        // role="button" + tabindex rend la carte focusable au clavier, mais un onclick seul ne
+        // répond ni à Entrée ni à Espace : on délègue explicitement au clic déjà câblé.
+        clickAttr = ` onclick="${selectOpts.onclick}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}" role="button" tabindex="0"`;
         wrapperClasses += selectOpts.selected
             ? ' cursor-pointer ring-2 ring-[var(--brand-accent)] ring-offset-2'
             : ' cursor-pointer opacity-60 hover:opacity-100 saturate-50 hover:saturate-100';
@@ -1040,7 +1042,7 @@ function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = fals
         <div class="absolute -right-4 -top-4 opacity-5 pointer-events-none"><svg class="w-32 h-32" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zm0 7.5l-6-3v6.5l6 3 6-3V6.5l-6 3z"/></svg></div>
         <div class="flex justify-between items-start gap-4 relative z-10">
             <div class="flex-grow">
-                <div class="text-[10px] font-black uppercase text-[var(--brand-accent)] mb-1 tracking-widest">${badgeText}</div>
+                <div class="text-[11px] font-black uppercase text-[var(--brand-accent)] mb-1 tracking-widest">${badgeText}</div>
                 <h3 class="text-lg font-extrabold text-toshiba-dark leading-tight">${mainTitle}</h3>
                 <p class="text-xs font-mono text-gray-500 mt-1">${subtitle}</p>
                 ${renderTvaBadge(tvaInfo)}
@@ -1048,11 +1050,11 @@ function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = fals
             </div>
             <div class="flex flex-col gap-2 min-w-[90px]">
                 <div class="bg-blue-50 px-3 py-1 rounded-lg text-center border border-blue-100">
-                    <div class="text-[8px] font-bold text-blue-500 uppercase tracking-tighter leading-none">Froid Nom.</div>
+                    <div class="text-[11px] font-bold text-blue-500 uppercase tracking-tighter leading-none">Froid Nom.</div>
                     <div class="text-sm font-black text-blue-700">${froid} kW</div>
                 </div>
                 <div class="bg-red-50 px-3 py-1 rounded-lg text-center border border-red-100">
-                    <div class="text-[8px] font-bold text-red-500 uppercase tracking-tighter leading-none">Chaud Nom.</div>
+                    <div class="text-[11px] font-bold text-red-500 uppercase tracking-tighter leading-none">Chaud Nom.</div>
                     <div class="text-sm font-black text-red-700">${chaud} kW</div>
                 </div>
             </div>
@@ -1067,10 +1069,10 @@ function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = fals
 function renderTvaBadge(tvaInfo) {
     if (!tvaInfo) return '';
     const badge = tvaInfo.eligible
-        ? `<span class="inline-flex items-center gap-1 text-[10px] font-black px-2 py-1 rounded-full bg-green-100 text-green-700 border border-green-300">TVA 5,5%</span>`
-        : `<span class="inline-flex items-center gap-1 text-[10px] font-black px-2 py-1 rounded-full bg-red-100 text-red-700 border border-red-300">TVA 20%</span>`;
+        ? `<span class="inline-flex items-center gap-1 text-[11px] font-black px-2 py-1 rounded-full bg-green-100 text-green-700 border border-green-300">TVA 5,5%</span>`
+        : `<span class="inline-flex items-center gap-1 text-[11px] font-black px-2 py-1 rounded-full bg-red-100 text-red-700 border border-red-300">TVA 20%</span>`;
     const wifi = tvaInfo.wifiRequired
-        ? `<span class="inline-flex items-center gap-1 text-[9px] font-bold px-2 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200">📶 Module Wifi requis</span>`
+        ? `<span class="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200">📶 Module Wifi requis</span>`
         : '';
     return `<div class="flex flex-wrap gap-1.5 mt-2">${badge}${wifi}</div>`;
 }

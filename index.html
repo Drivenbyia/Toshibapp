@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>ProSizer B2B - Outil de Dimensionnement Climatisation</title>
-    <meta name="theme-color" content="#FF0000">
+    <meta name="theme-color" content="#E01A1A">
 
     <!-- Balises PWA -->
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -19,11 +19,14 @@
 
     <link rel="stylesheet" href="assets/tailwind.css">
     <style>
-        :root { --brand-accent: #FF0000; --brand-accent-dark: #C81E1E; }
+        /* Rouge légèrement désaturé par rapport au rouge Toshiba pur (#FF0000, contraste 4:1 sur
+           blanc, sous le seuil AA de 4.5:1 pour du texte normal) : #E01A1A atteint ~4.85:1 tout
+           en restant fidèle à l'identité de marque. */
+        :root { --brand-accent: #E01A1A; --brand-accent-dark: #B01515; }
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: #f1f1f1; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-        ::-webkit-scrollbar-thumb:hover { background: #FF0000; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--brand-accent); }
 
         .fade-in { animation: fadeIn 0.3s ease-in-out; }
         @keyframes fadeIn {
@@ -63,6 +66,25 @@
             body > *:not(#print-area) { display: none !important; }
             #print-area { display: block !important; }
         }
+
+        /* Mode sombre léger : ne redécline que le fond de page et l'en-tête (chrome de l'appli).
+           Les cartes de saisie/résultats restent blanches ("papier" sur fond sombre) plutôt que
+           de redécliner chaque classe Tailwind utilitaire (bg-white/text-gray-*) présente dans
+           le HTML généré — un vrai thème sombre complet nécessiterait de reprendre l'ensemble du
+           rendu carte par carte, hors de portée raisonnable de ce correctif. Une PWA installée
+           hérite de prefers-color-scheme sans configuration côté utilisateur : sans cette règle,
+           l'app resterait blanche et éblouissante sur un téléphone en thème sombre.  */
+        @media (prefers-color-scheme: dark) {
+            /* Compound sélecteurs (balise + classe) pour égaler la spécificité des classes
+               utilitaires Tailwind déjà présentes sur ces éléments (bg-toshiba-gray, bg-white...),
+               sans !important. */
+            body.bg-toshiba-gray { background-color: #18181b; }
+            header.bg-white { background-color: #232326; }
+            header h1 { color: #f4f4f5; }
+            header .text-gray-500 { color: #a1a1aa; }
+            header .bg-gray-100 { background-color: #2f2f33; }
+            #results-container { border-top-color: #3f3f46; }
+        }
     </style>
 </head>
 <body class="bg-toshiba-gray text-gray-800 font-sans antialiased min-h-screen flex flex-col">
@@ -81,7 +103,7 @@
             </div>
             
             <div class="flex items-center gap-3">
-                <div class="text-[10px] sm:text-xs font-semibold text-gray-500 bg-gray-100 px-2 py-1 rounded hidden sm:block">V18 - FROID PHYSIQUE</div>
+                <div class="text-[11px] sm:text-xs font-semibold text-gray-500 bg-gray-100 px-2 py-1 rounded hidden sm:block">V18 - FROID PHYSIQUE</div>
                 <button onclick="toggleDashboard(true)" class="flex items-center justify-center p-2 rounded-full bg-gray-100 text-gray-600 hover:bg-[var(--brand-accent)] hover:text-white transition-colors" title="Mes Chantiers">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
                 </button>
@@ -191,7 +213,9 @@
         </button>
 
         <!-- Results Section -->
-        <section id="results-container" class="flex flex-col gap-4 pb-10"></section>
+        <!-- Zone résultats : bordure/espacement distincts de la saisie au-dessus, pour que les
+             solutions produites se lisent clairement comme la sortie de l'outil, pas un formulaire de plus. -->
+        <section id="results-container" aria-live="polite" class="flex flex-col gap-4 pb-10 border-t-2 border-gray-200 pt-6"></section>
 
     </main>
 

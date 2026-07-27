@@ -67,8 +67,10 @@ export const SEUIL_DESEQUILIBRE_GROUPE = 0.6;
 // petite solution valide, plutôt qu'un choix unique imposé.
 export const TOLERANCE_EQUIVALENCE = 1.15;
 
+// Rouge Toshiba légèrement désaturé (#E01A1A au lieu de #FF0000 pur) : contraste ~4.85:1 sur
+// blanc contre ~4:1 pour le rouge pur, sous le seuil AA de 4.5:1 pour du texte normal.
 export const BRAND_ACCENTS = {
-    toshiba: { accent: '#FF0000', accentDark: '#C81E1E' },
+    toshiba: { accent: '#E01A1A', accentDark: '#B01515' },
     panasonic: { accent: '#0046AD', accentDark: '#003174' }
 };
 

@@ -1,6 +1,6 @@
 // Service worker réel de ProSizer B2B, servi en same-origin (contrairement à l'ancienne
 // version enregistrée depuis une blob: URL, que les navigateurs refusent silencieusement).
-const CACHE_VERSION = 'v2';
+const CACHE_VERSION = 'v3';
 const CACHE_NAME = `prosizer-${CACHE_VERSION}`;
 const PRECACHE_URLS = [
     './',
