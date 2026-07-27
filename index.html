@@ -213,11 +213,11 @@
         let state = {
             brand: 'toshiba',
             mode: 'mono',
-            rooms: [{ id: 1, nom: '', surface: '', height: 2.5, emplacement: 'plain_pied', orientation: 'mixte', vitrage: 'moyen', protection: 'stores_int', occupants: '' }],
+            rooms: [{ id: 1, nom: '', surface: '', height: 2.5, emplacement: 'plain_pied', orientation: 'mixte', vitrage: 'moyen', protection: 'stores_int', occupants: '', expositionMurs: 4 }],
             lastResultData: null,
             currentCalc: null,
-            // Solution choisie par l'utilisateur parmi les options proposées (mono / dédiés multi / gammes UI du groupe)
-            selection: { mono: 0, dedicated: {}, group: {} }
+            // Solution choisie par l'utilisateur parmi les options proposées (mono / dédiés multi / gammes UI du groupe / groupe extérieur)
+            selection: { mono: 0, dedicated: {}, group: {}, groupChoice: 0 }
         };
 
         const BRAND_ACCENTS = {
@@ -499,7 +499,7 @@
         // Efface le brouillon et repart d'une saisie vierge (bouton de la bannière de reprise).
         function startNewCalcul() {
             clearDraft();
-            state.rooms = [{ id: Date.now(), nom: '', surface: '', height: 2.5, emplacement: 'plain_pied', orientation: 'mixte', vitrage: 'moyen', protection: 'stores_int', occupants: '' }];
+            state.rooms = [{ id: Date.now(), nom: '', surface: '', height: 2.5, emplacement: 'plain_pied', orientation: 'mixte', vitrage: 'moyen', protection: 'stores_int', occupants: '', expositionMurs: 4 }];
             state.currentCalc = null;
             document.getElementById('results-container').innerHTML = '';
             renderRooms();
@@ -680,9 +680,19 @@
 
             const volume = surface * height;
 
+            // Ratio d'exposition : G·V·ΔT est une méthode de bilan bâtiment global (6 faces
+            // déperditives) ; appliquée telle quelle pièce par pièce, elle surestime les pièces
+            // intérieures entourées d'autres pièces chauffées. Approximation générique (pas de
+            // géométrie de bâtiment réelle en entrée) : on réduit le G·V·ΔT au prorata du nombre
+            // de murs donnant sur l'extérieur déclaré (4/4 = comportement identique à avant ce
+            // correctif, valeur par défaut de toute pièce non renseignée).
+            const expositionSaisie = parseFloat(room.expositionMurs);
+            const nbMursExt = Number.isFinite(expositionSaisie) ? Math.min(4, Math.max(1, expositionSaisie)) : 4;
+            const ratioExposition = nbMursExt / 4;
+
             // --- CHAUD : méthode déperditions (coefficient volumique G · V · ΔT) ---
             const deltaTChaud = 20 - tBaseHiver;
-            const deperditionsSeches = (volume * coefG * deltaTChaud) / 1000;
+            const deperditionsSeches = (volume * coefG * deltaTChaud * ratioExposition) / 1000;
             const COEF_RELANCE = 1.20;
             const besoinChaud = deperditionsSeches * COEF_RELANCE;
 
@@ -697,10 +707,16 @@
             // Bande d'isolation dérivée du G (pour la surcharge toiture).
             const bandeIso = coefG <= 0.35 ? 'bonne' : (coefG <= 0.8 ? 'moyenne' : 'faible');
 
-            // 1. Enveloppe : transmission des parois + air neuf (via G).
-            const qEnveloppe = coefG * volume * deltaTEte;   // W
+            // 1. Enveloppe : transmission des parois + air neuf (via G), pondérée par l'exposition.
+            const qEnveloppe = coefG * volume * deltaTEte * ratioExposition;   // W
 
-            // 2. Toiture : surcharge solaire si la pièce est sous la couverture.
+            // 2. Toiture : surcharge solaire si la pièce est sous la couverture. Approximation
+            //    connue et non résolue : le G capte déjà la transmission de toute l'enveloppe,
+            //    toiture comprise (voir plus haut), donc cette surcharge se cumule en partie avec
+            //    une part déjà comptée dans qEnveloppe pour les pièces sous toiture — sans données
+            //    de géométrie réelle (surface de toiture distincte des murs), on ne peut pas isoler
+            //    proprement cette part pour la retrancher. Le double comptage biaise vers une
+            //    surestimation (donc un sur-dimensionnement), jamais vers un déficit de puissance.
             //    plain_pied = combles perdus isolés (apport modéré) → demi-surcharge.
             const chargeToit = CHARGE_TOITURE[bandeIso];
             const qToiture = room.emplacement === 'sous_toiture' ? chargeToit * surface
@@ -814,6 +830,16 @@
                                 <option value="etage_protege" ${room.emplacement === 'etage_protege' ? 'selected' : ''}>Étage protégé / RDC sous un autre niveau (nul)</option>
                             </select>
                         </div>
+                        ${state.mode === 'multi' ? `
+                        <div class="mt-4">
+                            <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Murs donnant sur l'extérieur</label>
+                            <select onchange="updateRoom(${room.id}, 'expositionMurs', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
+                                <option value="4" ${String(room.expositionMurs) === '4' ? 'selected' : ''}>4 (pièce isolée sur toutes ses faces)</option>
+                                <option value="3" ${String(room.expositionMurs) === '3' ? 'selected' : ''}>3</option>
+                                <option value="2" ${String(room.expositionMurs) === '2' ? 'selected' : ''}>2 (pièce d'angle)</option>
+                                <option value="1" ${String(room.expositionMurs) === '1' ? 'selected' : ''}>1 (pièce intérieure, peu de déperditions)</option>
+                            </select>
+                        </div>` : ''}
                         <div class="grid grid-cols-2 gap-4 mt-4">
                             <div>
                                 <label class="block text-[10px] font-bold text-gray-400 uppercase mb-1">Orientation des baies</label>
@@ -856,7 +882,7 @@
             }
         }
 
-        function addRoom() { state.rooms.push({ id: Date.now(), nom: '', surface: '', height: 2.5, emplacement: 'plain_pied', orientation: 'mixte', vitrage: 'moyen', protection: 'stores_int', occupants: '' }); renderRooms(); persistDraft(); }
+        function addRoom() { state.rooms.push({ id: Date.now(), nom: '', surface: '', height: 2.5, emplacement: 'plain_pied', orientation: 'mixte', vitrage: 'moyen', protection: 'stores_int', occupants: '', expositionMurs: 4 }); renderRooms(); persistDraft(); }
         function removeRoom(id) { state.rooms = state.rooms.filter(r => r.id !== id); renderRooms(); persistDraft(); }
         function duplicateRoom(id) {
             if (state.rooms.length >= 5) return;
@@ -919,7 +945,7 @@
                 : '';
 
             // Reset des choix utilisateur à chaque nouveau calcul.
-            state.selection = { mono: 0, dedicated: {}, group: {} };
+            state.selection = { mono: 0, dedicated: {}, group: {}, groupChoice: 0 };
 
             if (state.mode === 'mono') {
                 const req = getRequiredKw(state.rooms[0].surface, state.rooms[0].height, state.rooms[0]);
@@ -929,6 +955,7 @@
 
                 state.currentCalc = {
                     mode: 'mono',
+                    req: req,
                     besoinsHtml: renderBesoinsCard([req]),
                     caniculeNote: caniculeNote + declassementNote,
                     roomDetails: [`Pièce 1 : ${req.froid.toFixed(1)}kW F / ${req.chaud.toFixed(1)}kW C ➔ Taille ${size || 'HORS LIMITE'}`],
@@ -955,20 +982,27 @@
                 // solaires/internes variables pièce à pièce) et garde un foisonnement plus large.
                 const COEF_FOISONNEMENT_FROID = 1.05;
                 const COEF_FOISONNEMENT_CHAUD = 1.25;
-                function findMultiGroup(roomsObj) {
-                    if(roomsObj.length === 0) return null;
-                    if(roomsObj.length === 1) return "MONO";
-
+                // Toutes les gammes extérieures valides (contrainte de puissance + nombre de sorties),
+                // triées par puissance croissante, avec la même tolérance de +15% qu'en monosplit
+                // (findBestMonos) pour inclure les alternatives équivalentes plutôt qu'un choix unique imposé.
+                function findMultiGroupOptions(roomsObj) {
+                    if (roomsObj.length === 0) return [];
                     let totF = roomsObj.reduce((sum, r) => sum + r.froidMatch, 0);
                     let totC = roomsObj.reduce((sum, r) => sum + r.chaudMatch, 0);
-
                     let validGroups = CATALOGS[state.brand].multisplits_groupes_exterieurs.filter(g =>
                         g.max_unites_interieures >= roomsObj.length &&
                         (g.puissance_nominale_froid_kw * COEF_FOISONNEMENT_FROID) >= totF &&
                         (g.puissance_nominale_chaud_kw * COEF_FOISONNEMENT_CHAUD) >= totC
-                    ).sort((a,b) => a.puissance_nominale_froid_kw - b.puissance_nominale_froid_kw);
-
-                    return validGroups.length > 0 ? validGroups[0] : null;
+                    ).sort((a, b) => a.puissance_nominale_froid_kw - b.puissance_nominale_froid_kw);
+                    if (validGroups.length === 0) return [];
+                    const minFroid = validGroups[0].puissance_nominale_froid_kw;
+                    return validGroups.filter(g => g.puissance_nominale_froid_kw <= minFroid * 1.15);
+                }
+                function findMultiGroup(roomsObj) {
+                    if (roomsObj.length === 0) return null;
+                    if (roomsObj.length === 1) return "MONO";
+                    const opts = findMultiGroupOptions(roomsObj);
+                    return opts.length > 0 ? opts[0] : null;
                 }
 
                 let bestGroup = findMultiGroup(standardRooms);
@@ -989,7 +1023,7 @@
                     options: findBestMonos(room.froidMatch, room.chaudMatch)
                 }));
 
-                let group = null;
+                let groupOptions = [];
                 if (bestGroup === "MONO" && standardRooms.length === 1) {
                     // Une seule pièce restante après délestage : traitée comme un mono dédié de plus.
                     dedicated.push({
@@ -998,15 +1032,31 @@
                         options: findBestMonos(standardRooms[0].froidMatch, standardRooms[0].chaudMatch)
                     });
                 } else if (bestGroup && bestGroup !== "MONO") {
-                    group = bestGroup;
+                    groupOptions = findMultiGroupOptions(standardRooms);
+                }
+
+                // Avertissement d'équilibre : si une pièce à elle seule consomme une grande part de la
+                // puissance nominale du groupe, les autres pièces peuvent manquer de capacité en cas de
+                // forte demande simultanée sur cette pièce (un compresseur unique alimente toutes les UI).
+                // Seuil générique (pas de donnée constructeur de ratio de raccordement par référence).
+                const SEUIL_DESEQUILIBRE_GROUPE = 0.6;
+                let balanceNote = '';
+                if (groupOptions.length > 0) {
+                    const g0 = groupOptions[0];
+                    const nominalMax = Math.max(g0.puissance_nominale_froid_kw, g0.puissance_nominale_chaud_kw);
+                    const maxRoomKw = Math.max(...standardRooms.map(r => Math.max(r.froidMatch, r.chaudMatch)));
+                    if (nominalMax > 0 && (maxRoomKw / nominalMax) > SEUIL_DESEQUILIBRE_GROUPE) {
+                        const worstRoom = standardRooms.find(r => Math.max(r.froidMatch, r.chaudMatch) === maxRoomKw);
+                        balanceNote = `<div class="p-2.5 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg text-[11px] font-medium text-center mb-4 -mt-2">⚠️ Pièce ${worstRoom.index}${worstRoom.nom ? ' (' + escapeHtml(worstRoom.nom) : ''}${worstRoom.nom ? ')' : ''} représente à elle seule plus de ${Math.round(SEUIL_DESEQUILIBRE_GROUPE * 100)}% de la puissance du groupe extérieur : les autres pièces peuvent manquer de capacité en cas de forte demande simultanée. Un monosplit dédié pour cette pièce est à envisager.</div>`;
+                    }
                 }
 
                 state.currentCalc = {
                     mode: 'multi',
                     besoinsHtml: renderBesoinsCard(roomsData.map(r => r.req), true, roomsData),
-                    caniculeNote: caniculeNote + declassementNote,
+                    caniculeNote: caniculeNote + declassementNote + balanceNote,
                     roomDetails: roomDetails,
-                    multi: { dedicated: dedicated, group: group, standardRooms: standardRooms, hybridNote: hybridNote }
+                    multi: { dedicated: dedicated, groupOptions: groupOptions, standardRooms: standardRooms, hybridNote: hybridNote }
                 };
             }
 
@@ -1036,7 +1086,7 @@
                     options.forEach((sol, idx) => {
                         const selectOpts = options.length > 1 ? { selected: idx === selIdx, onclick: `selectMono(${idx})` } : null;
                         const tvaInfo = getTvaInfo(sol.gamme, sol.reference_ensemble, 'mono');
-                        html += renderCard("Monosplit Recommandé", sol.gamme, sol.reference_ensemble, sol.puissance_froid_kw, sol.puissance_chaud_kw, false, [], selectOpts, tvaInfo);
+                        html += renderCard("Monosplit Recommandé", sol.gamme, sol.reference_ensemble, sol.puissance_froid_kw, sol.puissance_chaud_kw, false, [], selectOpts, tvaInfo, { reqFroid: calc.req.froid, reqChaud: calc.req.chaud });
                     });
                     const chosen = options[selIdx];
                     const chosenTva = getTvaInfo(chosen.gamme, chosen.reference_ensemble, 'mono');
@@ -1065,7 +1115,7 @@
                         options.forEach((sol, idx) => {
                             const selectOpts = options.length > 1 ? { selected: idx === selIdx, onclick: `selectDedicated(${room.index}, ${idx})` } : null;
                             const tvaInfo = getTvaInfo(sol.gamme, sol.reference_ensemble, 'mono');
-                            html += renderCard(dedItem.label, sol.gamme, sol.reference_ensemble, sol.puissance_froid_kw, sol.puissance_chaud_kw, false, [], selectOpts, tvaInfo);
+                            html += renderCard(dedItem.label, sol.gamme, sol.reference_ensemble, sol.puissance_froid_kw, sol.puissance_chaud_kw, false, [], selectOpts, tvaInfo, { reqFroid: room.req.froid, reqChaud: room.req.chaud });
                         });
                         const chosen = options[selIdx];
                         const chosenTva = getTvaInfo(chosen.gamme, chosen.reference_ensemble, 'mono');
@@ -1077,10 +1127,16 @@
                     }
                 });
 
-                if (m.group) {
-                    const bestGroup = m.group;
+                if (m.groupOptions.length > 0) {
                     const sizesArr = m.standardRooms.map(r => r.size);
-                    html += renderCard(`Groupe Multisplit (${m.standardRooms.length} sorties)`, "Groupe Extérieur", bestGroup.reference, bestGroup.puissance_nominale_froid_kw, bestGroup.puissance_nominale_chaud_kw, true, sizesArr);
+                    const groupReqFroid = m.standardRooms.reduce((sum, r) => sum + r.req.froid, 0);
+                    const groupReqChaud = m.standardRooms.reduce((sum, r) => sum + r.req.chaud, 0);
+                    const selIdx = Math.min(state.selection.groupChoice || 0, m.groupOptions.length - 1);
+                    m.groupOptions.forEach((g, idx) => {
+                        const selectOpts = m.groupOptions.length > 1 ? { selected: idx === selIdx, onclick: `selectGroup(${idx})` } : null;
+                        html += renderCard(`Groupe Multisplit (${m.standardRooms.length} sorties)`, "Groupe Extérieur", g.reference, g.puissance_nominale_froid_kw, g.puissance_nominale_chaud_kw, true, sizesArr, selectOpts, null, { reqFroid: groupReqFroid, reqChaud: groupReqChaud });
+                    });
+                    const bestGroup = m.groupOptions[selIdx];
                     html += renderMultiRoomsGuide(m.standardRooms, bestGroup.gammes_compatibles);
                     summaryParts.push(`1x Multi ${bestGroup.reference} (${m.standardRooms.length} UI)`);
 
@@ -1223,6 +1279,9 @@
         function selectGroupGamme(roomIndex, gamme) {
             withSaveInputsPreserved(() => { state.selection.group[roomIndex] = gamme; renderResults(); });
         }
+        function selectGroup(idx) {
+            withSaveInputsPreserved(() => { state.selection.groupChoice = idx; renderResults(); });
+        }
 
         function renderBesoinsCard(reqs, isMulti = false, roomsData = []) {
             let totF = reqs.reduce((a, b) => a + b.froid, 0);
@@ -1327,7 +1386,23 @@
 
         // selectOpts = null (carte simple, non sélectionnable) ou { selected: bool, onclick: string }
         // quand plusieurs solutions équivalentes sont proposées et que l'utilisateur doit en choisir une.
-        function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = false, sizes = [], selectOpts = null, tvaInfo = null) {
+        // Taux de charge = besoin réel / puissance nominale catalogue. En dessous de ~50%, un
+        // inverter résidentiel cycle court (marche/arrêt fréquents) : confort et rendement réel
+        // dégradés malgré une puissance affichée confortable — d'où l'alerte, absente jusqu'ici.
+        const SEUIL_SOUS_CHARGE = 0.5;
+        function renderChargeBadge(reqFroid, reqChaud, nominalFroid, nominalChaud) {
+            if (!reqFroid || !nominalFroid) return '';
+            const chargeF = reqFroid / nominalFroid;
+            const chargeC = (reqChaud && nominalChaud) ? reqChaud / nominalChaud : null;
+            const minCharge = chargeC !== null ? Math.min(chargeF, chargeC) : chargeF;
+            const sousCharge = minCharge < SEUIL_SOUS_CHARGE;
+            const classes = sousCharge ? 'bg-amber-50 text-amber-700 border-amber-300' : 'bg-gray-50 text-gray-500 border-gray-200';
+            const label = `Taux de charge : ${Math.round(chargeF * 100)}% F${chargeC !== null ? ` / ${Math.round(chargeC * 100)}% C` : ''}`;
+            const warn = sousCharge ? ` <span title="Machine surdimensionnée pour ce besoin : cycles courts, confort et rendement réel dégradés.">⚠️</span>` : '';
+            return `<div class="mt-2 inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-full border ${classes}">${label}${warn}</div>`;
+        }
+
+        function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = false, sizes = [], selectOpts = null, tvaInfo = null, chargeInfo = null) {
             let footer = '';
             if (isMulti) {
                 footer = `<div class="mt-4 pt-4 border-t border-gray-100 flex flex-wrap gap-2 items-center">
@@ -1366,6 +1441,7 @@
                         <h3 class="text-lg font-extrabold text-toshiba-dark leading-tight">${mainTitle}</h3>
                         <p class="text-xs font-mono text-gray-500 mt-1">${subtitle}</p>
                         ${renderTvaBadge(tvaInfo)}
+                        ${chargeInfo ? renderChargeBadge(chargeInfo.reqFroid, chargeInfo.reqChaud, froid, chaud) : ''}
                     </div>
                     <div class="flex flex-col gap-2 min-w-[90px]">
                         <div class="bg-blue-50 px-3 py-1 rounded-lg text-center border border-blue-100">
