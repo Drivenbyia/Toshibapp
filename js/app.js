@@ -9,7 +9,8 @@ import {
 import {
     occupantsParDefaut, resolveCoefG, getFacteurCanicule, getFacteurDeclassementChaud,
     estimerEcartConsigne, getRequiredKw as getRequiredKwCore, getUiSizeForKw, findBestMonos,
-    findMultiGroup, findMultiGroupOptions, getRoomEligibleGammes, getTvaInfo, getRoomSelectedTvaInfo
+    findMultiGroup, findMultiGroupOptions, getRoomEligibleGammes, getTvaInfo, getRoomSelectedTvaInfo,
+    findGroupeEquilibre, estGroupeDesequilibre, ratioPieceDominante, pieceDominante
 } from './calcul.js';
 
 // --- STATE ---
@@ -664,29 +665,36 @@ function calculate() {
             groupOptions = findMultiGroupOptions(standardRooms, state.brand, COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD);
         }
 
-        // Avertissement d'équilibre : si une pièce à elle seule consomme une grande part de la
-        // puissance nominale du groupe, les autres pièces peuvent manquer de capacité en cas de
-        // forte demande simultanée sur cette pièce (un compresseur unique alimente toutes les UI).
-        // Seuil générique (pas de donnée constructeur de ratio de raccordement par référence).
-        let balanceNote = '';
-        if (groupOptions.length > 0) {
-            const g0 = groupOptions[0];
-            const nominalMax = Math.max(g0.puissance_nominale_froid_kw, g0.puissance_nominale_chaud_kw);
-            const maxRoomKw = Math.max(...standardRooms.map(r => Math.max(r.froidMatch, r.chaudMatch)));
-            if (nominalMax > 0 && (maxRoomKw / nominalMax) > SEUIL_DESEQUILIBRE_GROUPE) {
-                const worstRoom = standardRooms.find(r => Math.max(r.froidMatch, r.chaudMatch) === maxRoomKw);
-                balanceNote = `<div class="p-2.5 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg text-[11px] font-medium text-center mb-4 -mt-2">⚠️ Pièce ${worstRoom.index}${worstRoom.nom ? ' (' + escapeHtml(worstRoom.nom) : ''}${worstRoom.nom ? ')' : ''} représente à elle seule plus de ${Math.round(SEUIL_DESEQUILIBRE_GROUPE * 100)}% de la puissance du groupe extérieur : les autres pièces peuvent manquer de capacité en cas de forte demande simultanée. Un monosplit dédié pour cette pièce est à envisager.</div>`;
+        // Escalade anti-déséquilibre : quand la plus petite solution valide laisse une pièce
+        // absorber une part excessive de la puissance du groupe (demande simultanée limitée pour
+        // les autres pièces), on ne se contente plus d'alerter — on va chercher dans le catalogue
+        // le groupe supérieur qui rééquilibre (ex. 2M14 -> 2M18) et on le propose en tête, donc
+        // sélectionné par défaut. Le groupe juste dimensionné reste sélectionnable en dessous, et
+        // le délestage en monosplit dédié reste l'alternative quand aucun groupe ne rééquilibre.
+        let groupEquilibre = null;
+        if (groupOptions.length > 0 && estGroupeDesequilibre(groupOptions[0], standardRooms)) {
+            const besoins = {
+                froid: standardRooms.reduce((sum, r) => sum + r.req.froid, 0),
+                chaud: froidSeul ? 0 : standardRooms.reduce((sum, r) => sum + r.req.chaud, 0)
+            };
+            const upgrade = findGroupeEquilibre(standardRooms, state.brand, COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD, besoins);
+            if (upgrade && !groupOptions.some(g => g.reference === upgrade.reference)) {
+                groupEquilibre = upgrade;
+                groupOptions = [upgrade, ...groupOptions];
             }
+        }
+
+        if (groupOptions.length > 0) {
             // Seede les choix de gamme par défaut pour le premier groupe (groupChoice = 0 après le reset ci-dessus).
-            seedGroupGammeDefaults(standardRooms, g0.gammes_compatibles);
+            seedGroupGammeDefaults(standardRooms, groupOptions[0].gammes_compatibles);
         }
 
         state.currentCalc = {
             mode: 'multi',
             besoinsHtml: renderBesoinsCard(roomsData.map(r => r.req), true, roomsData),
-            caniculeNote: caniculeNote + declassementNote + usageNote + balanceNote,
+            caniculeNote: caniculeNote + declassementNote + usageNote,
             roomDetails: roomDetails,
-            multi: { dedicated: dedicated, groupOptions: groupOptions, standardRooms: standardRooms, hybridNote: hybridNote, froidSeul }
+            multi: { dedicated: dedicated, groupOptions: groupOptions, standardRooms: standardRooms, hybridNote: hybridNote, froidSeul, groupEquilibre: groupEquilibre }
         };
     }
 
@@ -764,13 +772,22 @@ function renderResults() {
             const groupReqFroid = m.standardRooms.reduce((sum, r) => sum + r.req.froid, 0);
             const groupReqChaud = m.standardRooms.reduce((sum, r) => sum + r.req.chaud, 0);
             const selIdx = Math.min(state.selection.groupChoice || 0, m.groupOptions.length - 1);
+            const bestGroup = m.groupOptions[selIdx];
+
+            // Note d'équilibre du groupe RETENU (et non plus du plus petit groupe valide) : elle
+            // suit donc le choix de l'utilisateur quand il passe d'une option à l'autre.
+            const equilibre = analyseEquilibreGroupe(m, bestGroup);
+            if (equilibre) html += renderBalanceNote(equilibre);
+
             m.groupOptions.forEach((g, idx) => {
                 const selectOpts = m.groupOptions.length > 1 ? { selected: idx === selIdx, onclick: `selectGroup(${idx})` } : null;
-                html += renderCard(`Groupe Multisplit (${m.standardRooms.length} sorties)`, "Groupe Extérieur", g.reference, g.puissance_nominale_froid_kw, g.puissance_nominale_chaud_kw, true, sizesArr, selectOpts, null, { reqFroid: groupReqFroid, reqChaud: m.froidSeul ? null : groupReqChaud });
+                const estEquilibre = m.groupEquilibre && g.reference === m.groupEquilibre.reference;
+                const badge = `Groupe Multisplit (${m.standardRooms.length} sorties)${estEquilibre ? ' · Équilibré' : ''}`;
+                html += renderCard(badge, "Groupe Extérieur", g.reference, g.puissance_nominale_froid_kw, g.puissance_nominale_chaud_kw, true, sizesArr, selectOpts, null, { reqFroid: groupReqFroid, reqChaud: m.froidSeul ? null : groupReqChaud });
             });
-            const bestGroup = m.groupOptions[selIdx];
             html += renderMultiRoomsGuide(m.standardRooms, bestGroup.gammes_compatibles);
             summaryParts.push(`1x Multi ${bestGroup.reference} (${m.standardRooms.length} UI)`);
+            if (equilibre) equipments.push(`Équilibre du groupe : ${equilibre.message}`);
 
             const uiChoices = m.standardRooms.map(r => {
                 const selGamme = state.selection.group[r.index];
@@ -1022,6 +1039,69 @@ function renderMultiRoomsGuide(roomsData, allowedGammes) {
         <p class="text-[11px] text-gray-400 mb-1">Sélectionnez la gamme souhaitée pour chaque pièce${allowedGammes ? ` (compatibles avec ${allowedGammes.join(' / ')})` : ''}. Vous pouvez mixer les gammes sur un même groupe extérieur pour éviter de surdimensionner une petite pièce. La TVA à 5,5% dépend de la gamme retenue et peut nécessiter un module Wifi (voir pastille sous chaque gamme).</p>
         ${rows}
     </div>`;
+}
+
+// "Pièce 2" ou "Pièce 2 (Salon)" — libellé court en texte brut (échappé au moment du rendu HTML,
+// jamais ici : le même libellé alimente aussi l'export PDF / le partage, qui échappent de leur côté).
+function roomLabel(room) {
+    return `Pièce ${room.index}${room.nom ? ` (${room.nom})` : ''}`;
+}
+
+// Équilibre du groupe extérieur retenu : un compresseur unique alimente toutes les UI, donc une
+// pièce qui absorbe l'essentiel de la puissance nominale peut priver les autres en cas de demande
+// simultanée (seuil SEUIL_DESEQUILIBRE_GROUPE, générique : pas de donnée constructeur de ratio de
+// raccordement par référence). Trois situations, au lieu de la seule alerte d'avant :
+//   - 'ok'       : le groupe proposé par l'escalade est retenu -> on explique ce qu'il corrige ;
+//   - 'escalade' : un groupe déséquilibré est retenu alors qu'un groupe rééquilibrant existe ;
+//   - 'alerte'   : déséquilibré et aucun groupe du catalogue ne rééquilibre -> monosplit dédié.
+// Retourne null quand il n'y a rien à signaler. Message en texte brut (voir roomLabel).
+function analyseEquilibreGroupe(m, selectedGroup) {
+    const rooms = m.standardRooms;
+    if (!selectedGroup || rooms.length < 2) return null;
+    const dominante = pieceDominante(rooms);
+    if (!dominante) return null;
+
+    const pct = ratio => Math.round(ratio * 100);
+    const seuilPct = pct(SEUIL_DESEQUILIBRE_GROUPE);
+    const ratioSel = ratioPieceDominante(selectedGroup, rooms);
+    const equil = m.groupEquilibre;
+    const puissances = g => `${g.puissance_nominale_froid_kw} kW F / ${g.puissance_nominale_chaud_kw} kW C`;
+
+    if (equil && selectedGroup.reference === equil.reference) {
+        // L'escalade n'existe que si le groupe juste dimensionné était déséquilibré : il est
+        // forcément présent dans les options, juste après celui-ci.
+        const justeDimensionne = m.groupOptions.find(g => g.reference !== equil.reference);
+        const detailBase = justeDimensionne
+            ? ` Sur le ${justeDimensionne.reference}, juste dimensionné, elle en absorbait ${pct(ratioPieceDominante(justeDimensionne, rooms))}% : cette référence reste sélectionnable si le budget primait, en acceptant la limite en demande simultanée.`
+            : '';
+        return {
+            ton: 'ok',
+            message: `Groupe supérieur retenu automatiquement pour tenir la demande simultanée : ${roomLabel(dominante)} ne représente plus que ${pct(ratioSel)}% de la puissance du ${selectedGroup.reference} (limite ${seuilPct}%).${detailBase}`
+        };
+    }
+
+    if (ratioSel > SEUIL_DESEQUILIBRE_GROUPE) {
+        const solution = equil
+            ? ` Le ${equil.reference} (${puissances(equil)}), proposé en premier choix, ramène cette part à ${pct(ratioPieceDominante(equil, rooms))}% ; un monosplit dédié pour cette pièce est l'autre solution.`
+            : ` Aucun groupe plus puissant du catalogue ne rééquilibre cette configuration : un monosplit dédié pour cette pièce est à envisager.`;
+        return {
+            ton: equil ? 'escalade' : 'alerte',
+            message: `${roomLabel(dominante)} représente à elle seule ${pct(ratioSel)}% de la puissance du ${selectedGroup.reference} (limite ${seuilPct}%) : les autres pièces peuvent manquer de capacité en cas de forte demande simultanée.${solution}`
+        };
+    }
+
+    return null;
+}
+
+// Bandeau de la note d'équilibre, au-dessus des cartes de groupe extérieur (contrairement aux notes
+// climat, elle dépend du groupe sélectionné : sa place est donc à côté des solutions concernées).
+function renderBalanceNote(analyse) {
+    const styles = {
+        ok:       { classes: 'bg-emerald-50 border-emerald-200 text-emerald-800', icone: '✅' },
+        escalade: { classes: 'bg-amber-50 border-amber-200 text-amber-800', icone: '⚠️' },
+        alerte:   { classes: 'bg-amber-50 border-amber-200 text-amber-800', icone: '⚠️' }
+    }[analyse.ton];
+    return `<div class="p-2.5 ${styles.classes} border rounded-lg text-[11px] font-medium text-center mb-4">${styles.icone} ${escapeHtml(analyse.message)}</div>`;
 }
 
 // Taux de charge = besoin réel / puissance nominale catalogue. En dessous de ~50%, un

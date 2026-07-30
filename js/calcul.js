@@ -7,7 +7,7 @@ import {
     APPORTS_INTERNES, CHARGE_TOITURE, RAYONNEMENT_VITRAGE, RATIO_VITRAGE, FC_PROTECTION,
     G_VITRAGE, COEF_INERTIE_SOLAIRE, OCCUPANT_W, COEF_RELANCE, COEF_G_DEFAUT,
     CONSIGNE_REFERENCE, ZONES_CHAUDES, ABATTEMENT_CANICULE, DECLASSEMENT_CHAUD_PALIERS,
-    TOLERANCE_EQUIVALENCE
+    TOLERANCE_EQUIVALENCE, SEUIL_DESEQUILIBRE_GROUPE, SEUIL_SOUS_CHARGE_ESCALADE
 } from './data.js';
 
 // Nombre d'occupants par défaut (≈ 1 pers. / 15 m²) tant que rien n'est saisi.
@@ -166,22 +166,80 @@ export function findBestMonos(reqF, reqC, brand) {
     return allSols.filter(p => p.puissance_froid_kw <= minFroid * TOLERANCE_EQUIVALENCE);
 }
 
+// Tous les groupes extérieurs du catalogue capables d'alimenter cet ensemble de pièces (nombre de
+// sorties + besoin cumulé foisonné), triés par puissance froid croissante puis par nombre de
+// sorties croissant (à puissance égale, inutile de proposer un groupe 3 sorties pour 2 pièces).
+// Base commune aux options équivalentes (findMultiGroupOptions) et à l'escalade anti-déséquilibre
+// (findGroupeEquilibre). roomsObj : tableau de { froidMatch, chaudMatch }.
+export function findGroupesValides(roomsObj, brand, coefFoisonnementFroid, coefFoisonnementChaud) {
+    if (roomsObj.length === 0) return [];
+    const totF = roomsObj.reduce((sum, r) => sum + r.froidMatch, 0);
+    const totC = roomsObj.reduce((sum, r) => sum + r.chaudMatch, 0);
+    return CATALOGS[brand].multisplits_groupes_exterieurs.filter(g =>
+        g.max_unites_interieures >= roomsObj.length &&
+        (g.puissance_nominale_froid_kw * coefFoisonnementFroid) >= totF &&
+        (g.puissance_nominale_chaud_kw * coefFoisonnementChaud) >= totC
+    ).sort((a, b) => (a.puissance_nominale_froid_kw - b.puissance_nominale_froid_kw)
+                  || (a.max_unites_interieures - b.max_unites_interieures));
+}
+
 // Toutes les gammes extérieures valides pour un ensemble de pièces (contrainte de puissance +
 // nombre de sorties), triées par puissance croissante, avec la même tolérance de +15% qu'en
 // monosplit pour inclure les alternatives équivalentes plutôt qu'un choix unique imposé.
 // roomsObj : tableau de { froidMatch, chaudMatch }.
 export function findMultiGroupOptions(roomsObj, brand, coefFoisonnementFroid, coefFoisonnementChaud) {
-    if (roomsObj.length === 0) return [];
-    let totF = roomsObj.reduce((sum, r) => sum + r.froidMatch, 0);
-    let totC = roomsObj.reduce((sum, r) => sum + r.chaudMatch, 0);
-    let validGroups = CATALOGS[brand].multisplits_groupes_exterieurs.filter(g =>
-        g.max_unites_interieures >= roomsObj.length &&
-        (g.puissance_nominale_froid_kw * coefFoisonnementFroid) >= totF &&
-        (g.puissance_nominale_chaud_kw * coefFoisonnementChaud) >= totC
-    ).sort((a, b) => a.puissance_nominale_froid_kw - b.puissance_nominale_froid_kw);
+    const validGroups = findGroupesValides(roomsObj, brand, coefFoisonnementFroid, coefFoisonnementChaud);
     if (validGroups.length === 0) return [];
     const minFroid = validGroups[0].puissance_nominale_froid_kw;
     return validGroups.filter(g => g.puissance_nominale_froid_kw <= minFroid * TOLERANCE_EQUIVALENCE);
+}
+
+// Pièce la plus demandeuse d'un ensemble : celle qui dicte le déséquilibre d'un groupe multisplit
+// (un compresseur unique alimente toutes les UI).
+export function pieceDominante(roomsObj) {
+    if (!roomsObj || roomsObj.length === 0) return null;
+    return roomsObj.reduce((max, r) =>
+        Math.max(r.froidMatch, r.chaudMatch) > Math.max(max.froidMatch, max.chaudMatch) ? r : max);
+}
+
+// Part de la puissance nominale d'un groupe absorbée par sa pièce la plus demandeuse (0 → 1).
+export function ratioPieceDominante(group, roomsObj) {
+    const piece = pieceDominante(roomsObj);
+    const nominalMax = Math.max(group.puissance_nominale_froid_kw, group.puissance_nominale_chaud_kw);
+    if (!piece || !nominalMax) return 0;
+    return Math.max(piece.froidMatch, piece.chaudMatch) / nominalMax;
+}
+
+// Groupe déséquilibré : une seule pièce mobilise une part telle de la puissance du groupe que les
+// autres pièces peuvent manquer de capacité en cas de forte demande simultanée. Sans objet sur une
+// pièce unique (il n'y a alors personne à pénaliser).
+export function estGroupeDesequilibre(group, roomsObj, seuil = SEUIL_DESEQUILIBRE_GROUPE) {
+    return roomsObj.length > 1 && ratioPieceDominante(group, roomsObj) > seuil;
+}
+
+// Taux de charge d'un groupe = besoin réel cumulé / puissance nominale catalogue. Un besoin chaud
+// nul ou absent (mode "froid seul") ne compte pas, comme dans le badge de taux de charge affiché.
+export function tauxChargeGroupe(group, besoinFroid, besoinChaud) {
+    const froid = group.puissance_nominale_froid_kw ? besoinFroid / group.puissance_nominale_froid_kw : 0;
+    const chaud = (besoinChaud && group.puissance_nominale_chaud_kw) ? besoinChaud / group.puissance_nominale_chaud_kw : null;
+    return { froid, chaud, min: chaud !== null ? Math.min(froid, chaud) : froid };
+}
+
+// Escalade anti-déséquilibre : plus petit groupe du catalogue qui couvre le besoin cumulé ET ramène
+// la pièce dominante sous le seuil de déséquilibre. C'est la réponse "intelligente" à l'alerte de
+// demande simultanée : monter d'un cran de groupe (ex. 2M14 -> 2M18) résout le problème sans
+// imposer le délestage en monosplit dédié.
+// besoins ({ froid, chaud } réels, non foisonnés) sert de garde-fou : on refuse une escalade qui
+// ferait tomber le groupe sous SEUIL_SOUS_CHARGE_ESCALADE (surdimensionnement plus coûteux que le
+// déséquilibre qu'il corrige). Retourne null si le catalogue n'offre aucun groupe de ce type —
+// dans ce cas seul un monosplit dédié pour la pièce dominante résout le déséquilibre.
+export function findGroupeEquilibre(roomsObj, brand, coefFoisonnementFroid, coefFoisonnementChaud, besoins = null,
+                                    seuilDesequilibre = SEUIL_DESEQUILIBRE_GROUPE, seuilSousCharge = SEUIL_SOUS_CHARGE_ESCALADE) {
+    const candidats = findGroupesValides(roomsObj, brand, coefFoisonnementFroid, coefFoisonnementChaud)
+        .filter(g => !estGroupeDesequilibre(g, roomsObj, seuilDesequilibre));
+    if (candidats.length === 0) return null;
+    if (!besoins) return candidats[0];
+    return candidats.find(g => tauxChargeGroupe(g, besoins.froid, besoins.chaud).min >= seuilSousCharge) || null;
 }
 
 // Meilleur groupe extérieur (ou "MONO" si une seule pièce restante, ou null si aucun ne convient).

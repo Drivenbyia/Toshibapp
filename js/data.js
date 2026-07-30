@@ -62,6 +62,15 @@ export const SEUIL_SOUS_CHARGE = 0.5;
 // multisplit, les autres pièces peuvent manquer de capacité en cas de forte demande simultanée.
 export const SEUIL_DESEQUILIBRE_GROUPE = 0.6;
 
+// Taux de charge plancher accepté pour l'escalade anti-déséquilibre (findGroupeEquilibre) : monter
+// d'un cran de groupe pour rééquilibrer fait mécaniquement baisser le taux de charge, et un cran
+// de plus passe presque toujours sous SEUIL_SOUS_CHARGE. Un déficit de capacité en demande
+// simultanée est plus pénalisant qu'un léger surdimensionnement, on tolère donc de descendre sous
+// le seuil de sous-charge — mais pas en dessous de ce plancher, où le surcoût matériel et les
+// cycles courts coûteraient plus que le déséquilibre corrigé (le badge de taux de charge continue
+// d'alerter dès SEUIL_SOUS_CHARGE, l'utilisateur garde donc l'information).
+export const SEUIL_SOUS_CHARGE_ESCALADE = 0.4;
+
 // Tolérance de regroupement des solutions équivalentes (findBestMonos / findMultiGroupOptions) :
 // on retient toutes les références dont la puissance froid nominale reste à +15% max de la plus
 // petite solution valide, plutôt qu'un choix unique imposé.
