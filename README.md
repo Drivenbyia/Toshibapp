@@ -31,6 +31,12 @@ S'y ajoutent quelques fichiers statiques (`manifest.json`, `sw.js`, `assets/tail
     compatibles avec les unités intérieures TZ Ultra Compact).
 - **Architecture hybride** : en multisplit, délestage automatique des grandes pièces
   vers des monosplits dédiés.
+- **Équilibre du groupe multisplit** : quand une pièce absorberait plus de 60% de la puissance
+  du groupe (capacité limitée pour les autres pièces en demande simultanée), l'application
+  propose d'elle-même le groupe supérieur du catalogue qui rééquilibre l'installation
+  (ex. RAS-2M14 → RAS-2M18) et le sélectionne par défaut ; le groupe juste dimensionné reste
+  proposé en alternative, et le monosplit dédié n'est conseillé que si aucun groupe ne
+  rééquilibre.
 - **Mes Chantiers** : sauvegarde locale (localStorage) des configurations par client
   et par zone.
 - **PWA hors-ligne** : manifest (`manifest.json`) et service worker (`sw.js`) réels,

@@ -5,9 +5,14 @@ import assert from 'node:assert/strict';
 import {
     getRequiredKw, getFacteurCanicule, getFacteurDeclassementChaud, ratioDeclassementChaud,
     estimerEcartConsigne, resolveCoefG, getUiSizeForKw, findBestMonos, findMultiGroupOptions,
-    findMultiGroup, getRoomEligibleGammes, getTvaInfo, occupantsParDefaut
+    findMultiGroup, getRoomEligibleGammes, getTvaInfo, occupantsParDefaut,
+    findGroupesValides, findGroupeEquilibre, estGroupeDesequilibre, ratioPieceDominante,
+    pieceDominante, tauxChargeGroupe
 } from '../js/calcul.js';
-import { CONSIGNE_REFERENCE, COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD } from '../js/data.js';
+import {
+    CONSIGNE_REFERENCE, COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD,
+    SEUIL_DESEQUILIBRE_GROUPE
+} from '../js/data.js';
 
 const ROOM_TYPE = { emplacement: 'plain_pied', orientation: 'mixte', vitrage: 'moyen', protection: 'stores_int', occupants: '', expositionMurs: 4 };
 
@@ -159,6 +164,80 @@ describe('Sélection groupe multisplit', () => {
             assert.ok(g.puissance_nominale_froid_kw * COEF_FOISONNEMENT_FROID >= totF - 1e-9);
             assert.ok(g.puissance_nominale_chaud_kw * COEF_FOISONNEMENT_CHAUD >= totC - 1e-9);
         }
+    });
+});
+
+describe('Équilibre du groupe multisplit (demande simultanée)', () => {
+    // Cas réel remonté par le terrain : 2 pièces en zone chaude (canicule +11%) avec déclassement
+    // chaud +25%. Le plus petit groupe valide (2M14) laisse la pièce 2 absorber ~63% de la puissance
+    // nominale : l'application doit proposer d'elle-même le cran au-dessus (2M18) plutôt que de se
+    // contenter d'alerter et de renvoyer vers un monosplit dédié.
+    const CAS_TERRAIN = [
+        { index: 1, req: { froid: 0.86, chaud: 1.83 }, froidMatch: 0.86 * 1.11, chaudMatch: 1.83 * 1.25 },
+        { index: 2, req: { froid: 1.70, chaud: 2.23 }, froidMatch: 1.70 * 1.11, chaudMatch: 2.23 * 1.25 }
+    ];
+    const besoinsTerrain = { froid: 2.56, chaud: 4.06 };
+
+    test('pieceDominante identifie la pièce la plus demandeuse', () => {
+        assert.equal(pieceDominante(CAS_TERRAIN).index, 2);
+        assert.equal(pieceDominante([]), null);
+    });
+
+    test('le plus petit groupe valide (2M14) est bien détecté comme déséquilibré', () => {
+        const opts = findMultiGroupOptions(CAS_TERRAIN, 'toshiba', COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD);
+        assert.equal(opts[0].reference, 'RAS-2M14G3AVG-E');
+        assert.ok(ratioPieceDominante(opts[0], CAS_TERRAIN) > SEUIL_DESEQUILIBRE_GROUPE);
+        assert.equal(estGroupeDesequilibre(opts[0], CAS_TERRAIN), true);
+    });
+
+    test('findGroupeEquilibre propose le 2M18 : couvre le besoin ET repasse sous le seuil', () => {
+        const up = findGroupeEquilibre(CAS_TERRAIN, 'toshiba', COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD, besoinsTerrain);
+        assert.equal(up.reference, 'RAS-2M18G3AVG-E');
+        assert.equal(estGroupeDesequilibre(up, CAS_TERRAIN), false);
+        assert.ok(ratioPieceDominante(up, CAS_TERRAIN) < SEUIL_DESEQUILIBRE_GROUPE);
+    });
+
+    test('à puissance froid égale, le groupe au plus petit nombre de sorties passe devant (2M18 avant 3M18)', () => {
+        const refs = findGroupesValides(CAS_TERRAIN, 'toshiba', COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD).map(g => g.reference);
+        assert.ok(refs.indexOf('RAS-2M18G3AVG-E') < refs.indexOf('RAS-3M18G3AVG-E'), `ordre inattendu : ${refs.join(', ')}`);
+    });
+
+    test('une pièce unique n\'est jamais déséquilibrée (personne à pénaliser)', () => {
+        const group = { reference: 'X', max_unites_interieures: 2, puissance_nominale_froid_kw: 3.3, puissance_nominale_chaud_kw: 4.0 };
+        assert.equal(estGroupeDesequilibre(group, [{ froidMatch: 3.0, chaudMatch: 3.9 }]), false);
+    });
+
+    test('deux pièces équilibrées : aucune escalade n\'est nécessaire (le groupe juste dimensionné convient)', () => {
+        const rooms = [{ froidMatch: 1.3, chaudMatch: 1.5 }, { froidMatch: 1.3, chaudMatch: 1.5 }];
+        const opts = findMultiGroupOptions(rooms, 'toshiba', COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD);
+        assert.equal(estGroupeDesequilibre(opts[0], rooms), false);
+        const up = findGroupeEquilibre(rooms, 'toshiba', COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD, { froid: 2.6, chaud: 3.0 });
+        assert.equal(up.reference, opts[0].reference, 'le groupe déjà équilibré doit être retourné tel quel');
+    });
+
+    test('escalade refusée si elle ferait tomber le groupe sous le plancher de taux de charge', () => {
+        // Même configuration de pièces, mais un besoin réel volontairement dérisoire : tout groupe
+        // rééquilibrant serait alors très surdimensionné, l'escalade doit être abandonnée (le
+        // délestage en monosplit dédié reste la seule réponse au déséquilibre).
+        const up = findGroupeEquilibre(CAS_TERRAIN, 'toshiba', COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD, { froid: 0.5, chaud: 0.5 });
+        assert.equal(up, null);
+    });
+
+    test('aucun groupe rééquilibrant dans le catalogue : findGroupeEquilibre retourne null', () => {
+        // Une petite pièce + une grosse pièce proche du haut du catalogue : même le plus gros groupe
+        // laisse la grosse pièce au-dessus du seuil.
+        const rooms = [{ froidMatch: 0.8, chaudMatch: 1.0 }, { froidMatch: 7.0, chaudMatch: 8.0 }];
+        assert.equal(findGroupeEquilibre(rooms, 'toshiba', COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD, { froid: 7.8, chaud: 9.0 }), null);
+    });
+
+    test('tauxChargeGroupe ignore le chaud en mode "froid seul" (besoin chaud nul)', () => {
+        const group = { puissance_nominale_froid_kw: 5.2, puissance_nominale_chaud_kw: 5.6 };
+        const avecChaud = tauxChargeGroupe(group, 2.56, 4.06);
+        assert.ok(Math.abs(avecChaud.froid - 2.56 / 5.2) < 1e-9);
+        assert.ok(Math.abs(avecChaud.min - 2.56 / 5.2) < 1e-9);
+        const froidSeul = tauxChargeGroupe(group, 2.56, 0);
+        assert.equal(froidSeul.chaud, null);
+        assert.equal(froidSeul.min, froidSeul.froid);
     });
 });
 
