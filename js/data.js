@@ -238,28 +238,60 @@ export const GAMMES_INFO = {
 // --- TVA 5,5% (rénovation énergétique) — Pompes à chaleur Air/Air ---
 // Base légale : Article 92, Loi n°2026-103 du 19/02/2026 de finances pour 2026 (codifié à l'art. 278-0 bis A du CGI)
 // + Arrêté du 13/07/2026 (exigences SEER/SCOP classe A++ en mono-split ≤12kW / A+ en multi-split, et pilotage à distance Wifi).
-// Données extraites du fichier interne Toshiba « AA_TVA_5,5_éligibilité v2 » (mail Toshiba du 17/07/2026).
+//
+// SOURCE : fichier Toshiba « TVA 5,5 éligibilité Toshiba v3 » fourni par l'entreprise (remplace la v2
+// du 17/07/2026). Le tableau est référence par référence (UE + UI), colonne « Eligible TVA 5,5 Mono ».
+// Les règles ci-dessous en sont la transcription littérale, taille par taille, pour rester
+// re-vérifiable ligne à ligne face au fichier d'origine.
+//
+// DEUX RÉGIMES DISTINCTS, c'est le point clé du tableau :
+//   - MONOSPLIT : l'éligibilité se juge sur l'ensemble UE+UI, gamme par gamme et taille par taille
+//     (Naka refusée en entier, Yukai refusée en 18 et 24, Wifi exigé sur les gammes signalées
+//     « option Wifi necessaire »).
+//   - MULTISPLIT : l'éligibilité est portée par le GROUPE EXTÉRIEUR. Le tableau liste les groupes
+//     éligibles avec, en unité intérieure, « Toutes unités intérieures » — donc les gammes et tailles
+//     refusées en monosplit (Naka, Yukai 18/24) redeviennent éligibles une fois raccordées à un
+//     groupe listé, et AUCUNE condition de module Wifi n'est posée en multisplit (contrairement à la
+//     v2, qui en exigeait un sur Naka / Yukai / Console).
+//
+// Une référence absente du tableau n'est PAS traitée comme refusée mais comme « à vérifier » :
+// l'outil ne peut ni promettre 5,5% ni condamner à 20% une machine que le constructeur n'a pas
+// tranchée (voir getTvaInfo). Seul cas dans le catalogue actuel : Shorai Edge taille 24.
+//
+// Couvert par le tableau mais hors catalogue de l'application (aucune donnée de puissance
+// exploitable ici, donc non transcrit) : Shorai Curve et Shorai Curve Super Heating (mêmes tailles
+// qu'en Shorai Edge, éligibles), Cassette 1 voie (RAV-GM303/403 : non éligibles), Gainable standard
+// (éligibilité par référence — série GP éligible avec Wifi, série GM non éligible), et le groupe
+// multisplit RAS-2M60S4AVG-ND (éligible, réservé aux UI « ND » : Haori ND, Shorai Curve ND).
+//
 // Uniquement disponible pour la marque Toshiba : aucune donnée d'éligibilité officielle communiquée pour Panasonic.
 export const TVA_RULES = {
   toshiba: {
-    // Gamme utilisée en monosplit (une UE dédiée à une seule UI) : exigence SEER/SCOP classe A++.
+    // Monosplit (une UE dédiée à une seule UI). taillesEligibles / taillesNonEligibles = codes taille
+    // effectivement présents dans le tableau ; toute autre taille est « à vérifier ».
     mono: {
-        "Naka":                 { eligible: false },
-        "Yukai":                { eligible: true, wifiRequired: true, taillesNonEligibles: ["18", "24"] },
-        "Shorai Edge":          { eligible: true, wifiRequired: false },
-        "Haori":                { eligible: true, wifiRequired: false },
-        "Daiseikai 10":         { eligible: true, wifiRequired: false },
-        "Console Double-Flux":  { eligible: true, wifiRequired: false }
+        "Naka":                 { wifiRequired: false, taillesEligibles: [],                                 taillesNonEligibles: ["05", "07", "10", "13", "16", "18", "24"] },
+        "Yukai":                { wifiRequired: true,  taillesEligibles: ["05", "07", "10", "13", "16"],     taillesNonEligibles: ["18", "24"] },
+        "Shorai Edge":          { wifiRequired: false, taillesEligibles: ["07", "10", "13", "16", "18", "22"], taillesNonEligibles: [] },
+        "Haori":                { wifiRequired: false, taillesEligibles: ["10", "13", "16"],                 taillesNonEligibles: [] },
+        "Daiseikai 10":         { wifiRequired: false, taillesEligibles: ["10", "13", "18"],                 taillesNonEligibles: [] },
+        "Console Double-Flux":  { wifiRequired: false, taillesEligibles: ["10", "13", "18"],                 taillesNonEligibles: [] }
     },
-    // Gamme utilisée comme unité intérieure sur un groupe extérieur multisplit : exigence SEER/SCOP classe A+ (moins stricte),
-    // d'où l'éligibilité de gammes/tailles refusées en monosplit dès lors qu'un module Wifi assure le pilotage à distance.
-    multiUi: {
-        "Naka":                 { eligible: true, wifiRequired: true },
-        "Yukai":                { eligible: true, wifiRequired: true },
-        "Shorai Edge":          { eligible: true, wifiRequired: false },
-        "Haori":                { eligible: true, wifiRequired: false },
-        "Daiseikai 10":         { eligible: true, wifiRequired: false },
-        "Console Double-Flux":  { eligible: true, wifiRequired: true }
+    // Multisplit : éligibilité portée par le groupe extérieur, sans condition de Wifi.
+    multi: {
+        // Groupes listés comme éligibles, par racine de référence : le suffixe commercial varie selon
+        // les millésimes (RAS-5M34G3AVG-E/ET au catalogue, -E1 dans le tableau) sans changer la machine.
+        groupesEligibles: [
+            "RAS-2M10G3AVG", "RAS-2M14G3AVG", "RAS-2M18G3AVG", "RAS-2M60S4AVG",
+            "RAS-3M18G3AVG", "RAS-3M26G3AVG", "RAS-4M27G3AVG", "RAS-5M34G3AVG"
+        ],
+        // « Toutes unités intérieures », détaillées en commentaire du tableau (noms alignés sur les
+        // gammes du catalogue de l'application).
+        gammesUi: [
+            "Daiseikai 10", "Haori", "Shorai Edge", "Shorai Curve", "Yukai", "Naka",
+            "Cassette 1 voie", "Console Double-Flux"
+        ],
+        wifiRequired: false
     }
   }
 };

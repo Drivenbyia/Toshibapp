@@ -10,6 +10,7 @@ import {
     occupantsParDefaut, resolveCoefG, getFacteurCanicule, getFacteurDeclassementChaud,
     estimerEcartConsigne, getRequiredKw as getRequiredKwCore, getUiSizeForKw, findBestMonos,
     findMultiGroup, findMultiGroupOptions, getRoomEligibleGammes, getTvaInfo, getRoomSelectedTvaInfo,
+    getGroupTvaInfo, trierMonosParTva,
     findGroupeEquilibre, estGroupeDesequilibre, ratioPieceDominante, pieceDominante
 } from './calcul.js';
 
@@ -619,7 +620,7 @@ function calculate() {
             besoinsHtml: renderBesoinsCard([req]),
             caniculeNote: caniculeNote + declassementNote + usageNote,
             roomDetails: [`Pièce 1 : ${req.froid.toFixed(1)}kW F / ${req.chaud.toFixed(1)}kW C ➔ Taille ${size || 'HORS LIMITE'}`],
-            mono: { options: findBestMonos(froidMatch, chaudMatch, state.brand), froidSeul }
+            mono: { options: trierMonosParTva(findBestMonos(froidMatch, chaudMatch, state.brand), state.brand), froidSeul }
         };
     } else {
         let roomsData = state.rooms.map((r, i) => {
@@ -650,7 +651,7 @@ function calculate() {
         let dedicated = extractedForMono.map(room => ({
             room: room,
             label: `Monosplit Dédié (Pièce ${room.index}${room.nom ? ' — ' + escapeHtml(room.nom) : ''})`,
-            options: findBestMonos(room.froidMatch, room.chaudMatch, state.brand)
+            options: trierMonosParTva(findBestMonos(room.froidMatch, room.chaudMatch, state.brand), state.brand)
         }));
 
         let groupOptions = [];
@@ -659,7 +660,7 @@ function calculate() {
             dedicated.push({
                 room: standardRooms[0],
                 label: `Monosplit Restant (Pièce ${standardRooms[0].index}${standardRooms[0].nom ? ' — ' + escapeHtml(standardRooms[0].nom) : ''})`,
-                options: findBestMonos(standardRooms[0].froidMatch, standardRooms[0].chaudMatch, state.brand)
+                options: trierMonosParTva(findBestMonos(standardRooms[0].froidMatch, standardRooms[0].chaudMatch, state.brand), state.brand)
             });
         } else if (bestGroup && bestGroup !== "MONO") {
             groupOptions = findMultiGroupOptions(standardRooms, state.brand, COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD);
@@ -783,15 +784,15 @@ function renderResults() {
                 const selectOpts = m.groupOptions.length > 1 ? { selected: idx === selIdx, onclick: `selectGroup(${idx})` } : null;
                 const estEquilibre = m.groupEquilibre && g.reference === m.groupEquilibre.reference;
                 const badge = `Groupe Multisplit (${m.standardRooms.length} sorties)${estEquilibre ? ' · Équilibré' : ''}`;
-                html += renderCard(badge, "Groupe Extérieur", g.reference, g.puissance_nominale_froid_kw, g.puissance_nominale_chaud_kw, true, sizesArr, selectOpts, null, { reqFroid: groupReqFroid, reqChaud: m.froidSeul ? null : groupReqChaud });
+                html += renderCard(badge, "Groupe Extérieur", g.reference, g.puissance_nominale_froid_kw, g.puissance_nominale_chaud_kw, true, sizesArr, selectOpts, getGroupTvaInfo(g.reference, state.brand), { reqFroid: groupReqFroid, reqChaud: m.froidSeul ? null : groupReqChaud });
             });
-            html += renderMultiRoomsGuide(m.standardRooms, bestGroup.gammes_compatibles);
+            html += renderMultiRoomsGuide(m.standardRooms, bestGroup);
             summaryParts.push(`1x Multi ${bestGroup.reference} (${m.standardRooms.length} UI)`);
             if (equilibre) equipments.push(`Équilibre du groupe : ${equilibre.message}`);
 
             const uiChoices = m.standardRooms.map(r => {
                 const selGamme = state.selection.group[r.index];
-                const info = selGamme ? getRoomSelectedTvaInfo(r, selGamme, bestGroup.gammes_compatibles, state.brand) : null;
+                const info = selGamme ? getRoomSelectedTvaInfo(r, selGamme, bestGroup.gammes_compatibles, state.brand, bestGroup.reference) : null;
                 return `Pièce ${r.index} (taille ${r.size}) : ${selGamme || '—'}${tvaSuffixText(info)}`;
             }).join(' / ');
             equipments.push(`Groupe Extérieur ${bestGroup.reference} — Unités sélectionnées : ${uiChoices}`);
@@ -997,7 +998,10 @@ function renderGammeGuide(gammeName) {
 // éligibles sont recalculées via getRoomEligibleGammes (calcul.js) et la sélection courante
 // (state.selection.group) est supposée déjà valide, seedée par calculate()/selectGroup() —
 // jamais mutée ici (contrairement à l'ancienne implémentation).
-function renderMultiRoomsGuide(roomsData, allowedGammes) {
+// group : le groupe extérieur retenu — c'est lui qui porte l'éligibilité TVA en multisplit
+// (voir TVA_RULES.multi), en plus de restreindre éventuellement les gammes d'UI compatibles.
+function renderMultiRoomsGuide(roomsData, group) {
+    const allowedGammes = group.gammes_compatibles;
     const rows = roomsData.map(r => {
         const gammesUniques = getRoomEligibleGammes(r, allowedGammes, state.brand);
         if (gammesUniques.length === 0) {
@@ -1010,7 +1014,7 @@ function renderMultiRoomsGuide(roomsData, allowedGammes) {
             const isSel = g === selectedGamme;
             const gEsc = g.replace(/'/g, "\\'");
             const solForG = sols.find(s => s.gamme === g);
-            const tvaInfo = getTvaInfo(g, solForG.reference_ensemble, 'multiUi', state.brand);
+            const tvaInfo = getTvaInfo(g, solForG.reference_ensemble, 'multiUi', state.brand, group.reference);
             return `
             <div>
                 <button type="button" onclick="selectGroupGamme(${r.index}, '${gEsc}')" class="cursor-pointer inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1.5 rounded-full select-none transition-colors border-2 ${isSel ? 'bg-[var(--brand-accent)] border-[var(--brand-accent)] text-white' : 'bg-gray-100 border-transparent hover:bg-gray-200 text-gray-700'}">
@@ -1036,7 +1040,7 @@ function renderMultiRoomsGuide(roomsData, allowedGammes) {
             <svg class="w-5 h-5 text-[var(--brand-accent)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
             Guide de sélection des unités intérieures
         </h3>
-        <p class="text-[11px] text-gray-400 mb-1">Sélectionnez la gamme souhaitée pour chaque pièce${allowedGammes ? ` (compatibles avec ${allowedGammes.join(' / ')})` : ''}. Vous pouvez mixer les gammes sur un même groupe extérieur pour éviter de surdimensionner une petite pièce. La TVA à 5,5% dépend de la gamme retenue et peut nécessiter un module Wifi (voir pastille sous chaque gamme).</p>
+        <p class="text-[11px] text-gray-400 mb-1">Sélectionnez la gamme souhaitée pour chaque pièce${allowedGammes ? ` (compatibles avec ${allowedGammes.join(' / ')})` : ''}. Vous pouvez mixer les gammes sur un même groupe extérieur pour éviter de surdimensionner une petite pièce. En multisplit, la TVA à 5,5% est portée par le groupe extérieur : toutes les unités intérieures raccordées à un groupe éligible en bénéficient, sans condition de module Wifi — y compris les gammes et tailles refusées en monosplit (Naka, Yukai 18 et 24).</p>
         ${rows}
     </div>`;
 }
@@ -1181,21 +1185,26 @@ function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = fals
     </div>`;
 }
 
-// Pastilles HTML "TVA 5,5% / TVA 20%" + mention Wifi si un module est nécessaire pour en bénéficier.
+// Pastilles HTML "TVA 5,5% / TVA 20% / TVA à vérifier" + mention Wifi si un module est nécessaire
+// pour en bénéficier. Le statut 'a_verifier' correspond à une référence absente du tableau
+// d'éligibilité Toshiba : l'outil ne promet pas 5,5% mais ne condamne pas non plus à 20%.
 function renderTvaBadge(tvaInfo) {
     if (!tvaInfo) return '';
-    const badge = tvaInfo.eligible
-        ? `<span class="inline-flex items-center gap-1 text-[11px] font-black px-2 py-1 rounded-full bg-green-100 text-green-700 border border-green-300">TVA 5,5%</span>`
-        : `<span class="inline-flex items-center gap-1 text-[11px] font-black px-2 py-1 rounded-full bg-red-100 text-red-700 border border-red-300">TVA 20%</span>`;
+    const badges = {
+        eligible:     `<span class="inline-flex items-center gap-1 text-[11px] font-black px-2 py-1 rounded-full bg-green-100 text-green-700 border border-green-300">TVA 5,5%</span>`,
+        non_eligible: `<span class="inline-flex items-center gap-1 text-[11px] font-black px-2 py-1 rounded-full bg-red-100 text-red-700 border border-red-300">TVA 20%</span>`,
+        a_verifier:   `<span class="inline-flex items-center gap-1 text-[11px] font-black px-2 py-1 rounded-full bg-gray-100 text-gray-600 border border-gray-300" title="Référence absente du tableau d'éligibilité Toshiba : à confirmer auprès du constructeur avant de facturer en 5,5%.">TVA à vérifier</span>`
+    };
     const wifi = tvaInfo.wifiRequired
         ? `<span class="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200">📶 Module Wifi requis</span>`
         : '';
-    return `<div class="flex flex-wrap gap-1.5 mt-2">${badge}${wifi}</div>`;
+    return `<div class="flex flex-wrap gap-1.5 mt-2">${badges[tvaInfo.statut] || badges.a_verifier}${wifi}</div>`;
 }
 
 function tvaSuffixText(tvaInfo) {
     if (!tvaInfo) return '';
-    return ` — TVA ${tvaInfo.eligible ? '5,5%' : '20%'}${tvaInfo.wifiRequired ? ' (Module Wifi requis)' : ''}`;
+    const libelles = { eligible: 'TVA 5,5%', non_eligible: 'TVA 20%', a_verifier: 'TVA à vérifier (référence absente du tableau Toshiba)' };
+    return ` — ${libelles[tvaInfo.statut] || libelles.a_verifier}${tvaInfo.wifiRequired ? ' (Module Wifi requis)' : ''}`;
 }
 
 // --- PWA ---
