@@ -256,7 +256,8 @@ export const GAMMES_INFO = {
 //
 // Une référence absente du tableau n'est PAS traitée comme refusée mais comme « à vérifier » :
 // l'outil ne peut ni promettre 5,5% ni condamner à 20% une machine que le constructeur n'a pas
-// tranchée (voir getTvaInfo). Seul cas dans le catalogue actuel : Shorai Edge taille 24.
+// tranchée (voir getTvaInfo). Aucun cas dans le catalogue actuel : la seule référence non listée,
+// Shorai Edge taille 24, a été confirmée éligible par l'entreprise (toute la gamme l'est).
 //
 // Couvert par le tableau mais hors catalogue de l'application (aucune donnée de puissance
 // exploitable ici, donc non transcrit) : Shorai Curve et Shorai Curve Super Heating (mêmes tailles
@@ -272,7 +273,9 @@ export const TVA_RULES = {
     mono: {
         "Naka":                 { wifiRequired: false, taillesEligibles: [],                                 taillesNonEligibles: ["05", "07", "10", "13", "16", "18", "24"] },
         "Yukai":                { wifiRequired: true,  taillesEligibles: ["05", "07", "10", "13", "16"],     taillesNonEligibles: ["18", "24"] },
-        "Shorai Edge":          { wifiRequired: false, taillesEligibles: ["07", "10", "13", "16", "18", "22"], taillesNonEligibles: [] },
+        // Taille 24 absente du tableau v3, mais éligible : toute la gamme Shorai Edge l'est
+        // (confirmation de l'entreprise, 03/08/2026).
+        "Shorai Edge":          { wifiRequired: false, taillesEligibles: ["07", "10", "13", "16", "18", "22", "24"], taillesNonEligibles: [] },
         "Haori":                { wifiRequired: false, taillesEligibles: ["10", "13", "16"],                 taillesNonEligibles: [] },
         "Daiseikai 10":         { wifiRequired: false, taillesEligibles: ["10", "13", "18"],                 taillesNonEligibles: [] },
         "Console Double-Flux":  { wifiRequired: false, taillesEligibles: ["10", "13", "18"],                 taillesNonEligibles: [] }

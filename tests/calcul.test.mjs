@@ -275,8 +275,14 @@ describe('TVA 5,5% (Toshiba) — monosplit', () => {
             assert.equal(info.wifiRequired, false, gamme);
         }
     });
-    test('taille absente du tableau constructeur : "à vérifier", ni 5,5% ni 20% (Shorai Edge 24)', () => {
+    test('Shorai Edge : toute la gamme est éligible, taille 24 comprise (absente du tableau v3)', () => {
         const info = getTvaInfo('Shorai Edge', 'RAS-24J2AVSG-E1 / RAS-B24G3KVSG-E', 'mono', 'toshiba');
+        assert.equal(info.statut, 'eligible');
+        assert.equal(info.wifiRequired, false);
+    });
+
+    test('taille inconnue d\'une gamme couverte : "à vérifier", ni 5,5% ni 20%', () => {
+        const info = getTvaInfo('Haori', 'RAS-22J2AVSG-E1 / RAS-B22N4KVRG-E', 'mono', 'toshiba');
         assert.equal(info.statut, 'a_verifier');
         assert.equal(info.eligible, false);
         assert.equal(info.wifiRequired, false);
@@ -292,7 +298,7 @@ describe('TVA 5,5% (Toshiba) — monosplit', () => {
 // TVA connu et conforme au tableau v3 — un ajout au catalogue sans mise à jour des règles se voit ici.
 describe('TVA — couverture de tout le catalogue monosplit Toshiba', () => {
     const attendu = { 'Naka': 'non_eligible', 'Yukai': 'eligible', 'Shorai Edge': 'eligible', 'Haori': 'eligible', 'Daiseikai 10': 'eligible', 'Console Double-Flux': 'eligible' };
-    const exceptions = { 'Yukai:18': 'non_eligible', 'Yukai:24': 'non_eligible', 'Shorai Edge:24': 'a_verifier' };
+    const exceptions = { 'Yukai:18': 'non_eligible', 'Yukai:24': 'non_eligible' };
 
     test('statut conforme pour chaque référence du catalogue', () => {
         for (const m of CATALOGS.toshiba.monosplits) {
