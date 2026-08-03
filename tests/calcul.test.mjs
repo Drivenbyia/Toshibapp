@@ -7,11 +7,11 @@ import {
     estimerEcartConsigne, resolveCoefG, getUiSizeForKw, findBestMonos, findMultiGroupOptions,
     findMultiGroup, getRoomEligibleGammes, getTvaInfo, occupantsParDefaut,
     findGroupesValides, findGroupeEquilibre, estGroupeDesequilibre, ratioPieceDominante,
-    pieceDominante, tauxChargeGroupe
+    pieceDominante, tauxChargeGroupe, getGroupTvaInfo, normaliserReferenceGroupe, trierMonosParTva
 } from '../js/calcul.js';
 import {
     CONSIGNE_REFERENCE, COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD,
-    SEUIL_DESEQUILIBRE_GROUPE
+    SEUIL_DESEQUILIBRE_GROUPE, CATALOGS
 } from '../js/data.js';
 
 const ROOM_TYPE = { emplacement: 'plain_pied', orientation: 'mixte', vitrage: 'moyen', protection: 'stores_int', occupants: '', expositionMurs: 4 };
@@ -241,19 +241,162 @@ describe('Équilibre du groupe multisplit (demande simultanée)', () => {
     });
 });
 
-describe('TVA 5,5% (Toshiba)', () => {
-    test('Naka en mono : non éligible', () => {
-        const info = getTvaInfo('Naka', 'RAS-10B2AVG-E / RAS-B10B2KVG-E', 'mono', 'toshiba');
-        assert.equal(info.eligible, false);
+// Référence : fichier Toshiba « TVA 5,5 éligibilité Toshiba v3 » (voir TVA_RULES dans data.js).
+describe('TVA 5,5% (Toshiba) — monosplit', () => {
+    test('Naka : non éligible, toutes tailles', () => {
+        for (const ref of ['RAS-05B2AVG-E / RAS-B05B2KVG-E', 'RAS-10B2AVG-E / RAS-B10B2KVG-E', 'RAS-24B2AVG-E / RAS-B24B2KVG-E']) {
+            const info = getTvaInfo('Naka', ref, 'mono', 'toshiba');
+            assert.equal(info.statut, 'non_eligible', ref);
+            assert.equal(info.eligible, false);
+        }
     });
-    test('Shorai Edge en mono : éligible sans wifi requis', () => {
+    test('Shorai Edge : éligible sans wifi requis', () => {
         const info = getTvaInfo('Shorai Edge', 'RAS-10J2AVSG-E1 / RAS-B10G3KVSG-E', 'mono', 'toshiba');
+        assert.equal(info.statut, 'eligible');
         assert.equal(info.eligible, true);
         assert.equal(info.wifiRequired, false);
     });
+    test('Yukai : éligible avec module Wifi jusqu\'à la taille 16, refusée en 18 et 24', () => {
+        const t16 = getTvaInfo('Yukai', 'RAS-16E2AVG-E / RAS-B16E2KVG-E', 'mono', 'toshiba');
+        assert.equal(t16.statut, 'eligible');
+        assert.equal(t16.wifiRequired, true);
+        for (const ref of ['RAS-18E2AVG-E / RAS-B18E2KVG-E', 'RAS-24E2AVG-E / RAS-B24E2KVG-E']) {
+            assert.equal(getTvaInfo('Yukai', ref, 'mono', 'toshiba').statut, 'non_eligible', ref);
+        }
+    });
+    test('Haori, Daiseikai 10, Console Double-Flux : éligibles sans wifi sur leurs tailles listées', () => {
+        for (const [gamme, ref] of [
+            ['Haori', 'RAS-13J2AVSG-E1 / RAS-B13N4KVRG-E'],
+            ['Daiseikai 10', 'RAS-18S4AVPG-E / RAS-B18S4KVDG-E'],
+            ['Console Double-Flux', 'RAS-10J2AVSG-E1 / RAS-B10J2FVG-E']
+        ]) {
+            const info = getTvaInfo(gamme, ref, 'mono', 'toshiba');
+            assert.equal(info.statut, 'eligible', gamme);
+            assert.equal(info.wifiRequired, false, gamme);
+        }
+    });
+    test('Shorai Edge : toute la gamme est éligible, taille 24 comprise (absente du tableau v3)', () => {
+        const info = getTvaInfo('Shorai Edge', 'RAS-24J2AVSG-E1 / RAS-B24G3KVSG-E', 'mono', 'toshiba');
+        assert.equal(info.statut, 'eligible');
+        assert.equal(info.wifiRequired, false);
+    });
+
+    test('taille inconnue d\'une gamme couverte : "à vérifier", ni 5,5% ni 20%', () => {
+        const info = getTvaInfo('Haori', 'RAS-22J2AVSG-E1 / RAS-B22N4KVRG-E', 'mono', 'toshiba');
+        assert.equal(info.statut, 'a_verifier');
+        assert.equal(info.eligible, false);
+        assert.equal(info.wifiRequired, false);
+    });
     test('Panasonic : aucune règle TVA connue (retourne null)', () => {
-        const info = getTvaInfo('Etherea', 'CU-Z35CKE / CS-Z35CKEW', 'mono', 'panasonic');
-        assert.equal(info, null);
+        assert.equal(getTvaInfo('Etherea', 'CU-Z35CKE / CS-Z35CKEW', 'mono', 'panasonic'), null);
+        assert.equal(getTvaInfo('Etherea', 'CU-Z35CKE / CS-Z35CKEW', 'multiUi', 'panasonic', 'CU-2Z50CBE'), null);
+        assert.equal(getGroupTvaInfo('CU-2Z50CBE', 'panasonic'), null);
+    });
+});
+
+// Garde-fou de dérive : chaque machine réellement proposable par l'application doit avoir un statut
+// TVA connu et conforme au tableau v3 — un ajout au catalogue sans mise à jour des règles se voit ici.
+describe('TVA — couverture de tout le catalogue monosplit Toshiba', () => {
+    const attendu = { 'Naka': 'non_eligible', 'Yukai': 'eligible', 'Shorai Edge': 'eligible', 'Haori': 'eligible', 'Daiseikai 10': 'eligible', 'Console Double-Flux': 'eligible' };
+    const exceptions = { 'Yukai:18': 'non_eligible', 'Yukai:24': 'non_eligible' };
+
+    test('statut conforme pour chaque référence du catalogue', () => {
+        for (const m of CATALOGS.toshiba.monosplits) {
+            const taille = m.reference_ensemble.match(/RAS-(\d{2})/)[1];
+            const attenduRef = exceptions[`${m.gamme}:${taille}`] || attendu[m.gamme];
+            const info = getTvaInfo(m.gamme, m.reference_ensemble, 'mono', 'toshiba');
+            assert.ok(info, `aucune règle TVA pour ${m.gamme} ${m.reference_ensemble}`);
+            assert.equal(info.statut, attenduRef, `${m.gamme} taille ${taille}`);
+        }
+    });
+
+    test('le module Wifi n\'est exigé que sur Yukai en monosplit', () => {
+        for (const m of CATALOGS.toshiba.monosplits) {
+            const info = getTvaInfo(m.gamme, m.reference_ensemble, 'mono', 'toshiba');
+            assert.equal(info.wifiRequired, m.gamme === 'Yukai' && info.eligible, `${m.gamme} ${m.reference_ensemble}`);
+        }
+    });
+});
+
+describe('Priorité TVA entre solutions équivalentes (monosplit)', () => {
+    test('à puissance équivalente, une machine éligible passe devant une machine en TVA 20%', () => {
+        // Besoin couvert à la fois par Naka (refusée) et par des gammes éligibles de même puissance.
+        const sols = findBestMonos(2.4, 3.0, 'toshiba');
+        assert.ok(sols.some(s => s.gamme === 'Naka'), 'le cas de test suppose une Naka parmi les équivalents');
+        const tries = trierMonosParTva(sols, 'toshiba');
+        assert.notEqual(tries[0].gamme, 'Naka', 'la première option (choisie par défaut) ne doit plus être la gamme non éligible');
+        assert.equal(getTvaInfo(tries[0].gamme, tries[0].reference_ensemble, 'mono', 'toshiba').statut, 'eligible');
+        assert.equal(tries.length, sols.length, 'aucune option ne doit être retirée');
+        assert.equal(tries[tries.length - 1].gamme, 'Naka', 'la gamme en TVA 20% reste proposée, en dernier');
+    });
+
+    test('tri stable : à rang TVA égal, l\'ordre par puissance croissante est conservé', () => {
+        const sols = findBestMonos(2.4, 3.0, 'toshiba');
+        const tries = trierMonosParTva(sols, 'toshiba');
+        const eligibles = tries.filter(s => getTvaInfo(s.gamme, s.reference_ensemble, 'mono', 'toshiba').statut === 'eligible');
+        const attendu = sols.filter(s => getTvaInfo(s.gamme, s.reference_ensemble, 'mono', 'toshiba').statut === 'eligible');
+        assert.deepEqual(eligibles.map(s => s.reference_ensemble), attendu.map(s => s.reference_ensemble));
+    });
+
+    test('marque sans base TVA (Panasonic) : ordre inchangé', () => {
+        const sols = findBestMonos(2.4, 3.0, 'panasonic');
+        assert.deepEqual(trierMonosParTva(sols, 'panasonic').map(s => s.reference_ensemble), sols.map(s => s.reference_ensemble));
+    });
+
+    test('le guide des UI en multisplit n\'est pas réordonné par la TVA (findBestMonos intact)', () => {
+        const sols = findBestMonos(2.4, 3.0, 'toshiba');
+        const puissances = sols.map(s => s.puissance_froid_kw);
+        assert.deepEqual(puissances, [...puissances].sort((a, b) => a - b), 'findBestMonos doit rester trié par puissance croissante');
+    });
+});
+
+describe('TVA 5,5% (Toshiba) — multisplit : la règle change', () => {
+    const GROUPE = 'RAS-2M14G3AVG-E';
+
+    test('le groupe extérieur porte l\'éligibilité et est listé comme éligible', () => {
+        const info = getGroupTvaInfo(GROUPE, 'toshiba');
+        assert.equal(info.statut, 'eligible');
+        assert.equal(info.wifiRequired, false);
+    });
+
+    test('suffixe de millésime ignoré : RAS-5M34G3AVG-E/ET (catalogue) = -E1 (tableau)', () => {
+        assert.equal(normaliserReferenceGroupe('RAS-5M34G3AVG-E/ET'), 'RAS-5M34G3AVG');
+        assert.equal(normaliserReferenceGroupe('RAS-5M34G3AVG-E1'), 'RAS-5M34G3AVG');
+        assert.equal(getGroupTvaInfo('RAS-5M34G3AVG-E/ET', 'toshiba').statut, 'eligible');
+    });
+
+    test('tous les groupes du catalogue Toshiba sont éligibles', () => {
+        for (const g of CATALOGS.toshiba.multisplits_groupes_exterieurs) {
+            assert.equal(getGroupTvaInfo(g.reference, 'toshiba').statut, 'eligible', g.reference);
+        }
+    });
+
+    test('Naka en UI sur un groupe : éligible, alors qu\'elle est refusée en monosplit', () => {
+        assert.equal(getTvaInfo('Naka', 'RAS-10B2AVG-E / RAS-B10B2KVG-E', 'mono', 'toshiba').statut, 'non_eligible');
+        const enMulti = getTvaInfo('Naka', 'RAS-10B2AVG-E / RAS-B10B2KVG-E', 'multiUi', 'toshiba', GROUPE);
+        assert.equal(enMulti.statut, 'eligible');
+    });
+
+    test('Yukai 18 en UI sur un groupe : éligible, alors que la taille est refusée en monosplit', () => {
+        assert.equal(getTvaInfo('Yukai', 'RAS-18E2AVG-E / RAS-B18E2KVG-E', 'mono', 'toshiba').statut, 'non_eligible');
+        assert.equal(getTvaInfo('Yukai', 'RAS-18E2AVG-E / RAS-B18E2KVG-E', 'multiUi', 'toshiba', GROUPE).statut, 'eligible');
+    });
+
+    test('plus aucune condition de module Wifi en multisplit (changement v2 -> v3)', () => {
+        for (const gamme of ['Naka', 'Yukai', 'Console Double-Flux', 'Shorai Edge', 'Haori', 'Daiseikai 10']) {
+            const info = getTvaInfo(gamme, 'RAS-10B2AVG-E / RAS-B10B2KVG-E', 'multiUi', 'toshiba', GROUPE);
+            assert.equal(info.statut, 'eligible', gamme);
+            assert.equal(info.wifiRequired, false, gamme);
+        }
+    });
+
+    test('groupe extérieur hors tableau : les UI raccordées passent en "à vérifier"', () => {
+        assert.equal(getGroupTvaInfo('RAS-9M99XXXX-E', 'toshiba').statut, 'a_verifier');
+        assert.equal(getTvaInfo('Shorai Edge', 'RAS-10J2AVSG-E1 / RAS-B10G3KVSG-E', 'multiUi', 'toshiba', 'RAS-9M99XXXX-E').statut, 'a_verifier');
+    });
+
+    test('référence de groupe absente (null) : "à vérifier" plutôt qu\'une promesse de 5,5%', () => {
+        assert.equal(getTvaInfo('Shorai Edge', 'RAS-10J2AVSG-E1 / RAS-B10G3KVSG-E', 'multiUi', 'toshiba').statut, 'a_verifier');
     });
 });
 

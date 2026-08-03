@@ -166,6 +166,22 @@ export function findBestMonos(reqF, reqC, brand) {
     return allSols.filter(p => p.puissance_froid_kw <= minFroid * TOLERANCE_EQUIVALENCE);
 }
 
+// Classe des solutions techniquement équivalentes en mettant devant celles éligibles à la TVA 5,5%
+// EN MONOSPLIT : sur des machines interchangeables, 14,5 points de TVA pèsent plus que l'écart
+// matériel, et la première option de la liste est celle proposée par défaut. Aucune option n'est
+// retirée : les machines en TVA 20% restent sélectionnables, avec leur pastille.
+// Réservé au contexte monosplit (machine vendue en UE dédiée) : en multisplit l'éligibilité vient du
+// groupe extérieur et ne départage plus les gammes, l'ordre par puissance doit y rester intact.
+// Tri stable : à rang TVA égal, l'ordre d'entrée (puissance croissante) est conservé.
+export function trierMonosParTva(sols, brand) {
+    const rang = sol => {
+        const info = getTvaInfo(sol.gamme, sol.reference_ensemble, 'mono', brand);
+        if (!info) return 1;                                    // marque sans base TVA : rang neutre
+        return info.statut === 'eligible' ? 0 : (info.statut === 'a_verifier' ? 1 : 2);
+    };
+    return [...sols].sort((a, b) => rang(a) - rang(b));
+}
+
 // Tous les groupes extérieurs du catalogue capables d'alimenter cet ensemble de pièces (nombre de
 // sorties + besoin cumulé foisonné), triés par puissance froid croissante puis par nombre de
 // sorties croissant (à puissance égale, inutile de proposer un groupe 3 sorties pour 2 pièces).
@@ -266,26 +282,64 @@ export function extractTailleCode(reference) {
     return m ? m[1] : null;
 }
 
+// Racine d'une référence de groupe extérieur, suffixe commercial de millésime retiré
+// (RAS-5M34G3AVG-E/ET et RAS-5M34G3AVG-E1 désignent la même machine) — voir TVA_RULES.multi.
+export function normaliserReferenceGroupe(reference) {
+    return String(reference || '').trim().toUpperCase().replace(/-E\d*(\/ET)?$/i, '').replace(/-ND$/i, '');
+}
+
 // Détermine l'éligibilité TVA 5,5% d'une gamme/référence, pour la marque donnée.
-// context : 'mono' (monosplit dédié) ou 'multiUi' (unité intérieure choisie sur un groupe multisplit).
-// Retourne null si la marque ou la gamme n'est pas couverte par la base TVA (pas d'affichage dans ce cas).
-export function getTvaInfo(gammeName, referenceEnsemble, context, brand) {
-    const rules = TVA_RULES[brand] && TVA_RULES[brand][context];
-    const rule = rules && rules[gammeName];
-    if (!rule) return null;
-    let eligible = rule.eligible;
-    if (eligible && rule.taillesNonEligibles) {
-        const taille = extractTailleCode(referenceEnsemble);
-        if (taille && rule.taillesNonEligibles.includes(taille)) eligible = false;
+// context : 'mono' (monosplit dédié) ou 'multiUi' (unité intérieure raccordée à un groupe multisplit,
+// auquel cas groupeReference est la référence du groupe extérieur retenu : c'est LUI qui porte
+// l'éligibilité en multisplit, pas l'unité intérieure).
+// Retourne null si la marque n'est pas couverte par la base TVA (pas d'affichage dans ce cas), sinon
+// { statut, eligible, wifiRequired } avec statut :
+//   'eligible'     → TVA 5,5% (sous condition de module Wifi si wifiRequired)
+//   'non_eligible' → TVA 20%, refus explicite du tableau constructeur
+//   'a_verifier'   → référence absente du tableau : ni promesse de 5,5%, ni condamnation à 20%
+export function getTvaInfo(gammeName, referenceEnsemble, context, brand, groupeReference = null) {
+    const rules = TVA_RULES[brand];
+    if (!rules) return null;
+
+    const resultat = (statut, wifiRequired = false) => ({ statut, eligible: statut === 'eligible', wifiRequired: statut === 'eligible' && wifiRequired });
+
+    if (context === 'multiUi') {
+        const multi = rules.multi;
+        if (!multi) return null;
+        // Groupe absent de la liste constructeur, ou unité intérieure hors des gammes couvertes :
+        // le tableau ne tranche pas, on ne tranche pas non plus.
+        const groupeListe = multi.groupesEligibles.includes(normaliserReferenceGroupe(groupeReference));
+        if (!groupeListe || !multi.gammesUi.includes(gammeName)) return resultat('a_verifier');
+        return resultat('eligible', multi.wifiRequired);
     }
-    return { eligible, wifiRequired: !!(eligible && rule.wifiRequired) };
+
+    const rule = rules.mono && rules.mono[gammeName];
+    if (!rule) return null;
+    const taille = extractTailleCode(referenceEnsemble);
+    if (taille && rule.taillesNonEligibles.includes(taille)) return resultat('non_eligible');
+    if (taille && rule.taillesEligibles.includes(taille)) return resultat('eligible', rule.wifiRequired);
+    return resultat('a_verifier');
+}
+
+// Éligibilité TVA du GROUPE EXTÉRIEUR multisplit lui-même : en multisplit, c'est lui qui porte
+// l'éligibilité de l'installation entière (toutes les UI raccordées en héritent), d'où son
+// affichage sur la carte du groupe. Retourne null si la marque n'est pas couverte.
+export function getGroupTvaInfo(groupeReference, brand) {
+    const multi = TVA_RULES[brand] && TVA_RULES[brand].multi;
+    if (!multi) return null;
+    const eligible = multi.groupesEligibles.includes(normaliserReferenceGroupe(groupeReference));
+    return {
+        statut: eligible ? 'eligible' : 'a_verifier',
+        eligible,
+        wifiRequired: eligible && multi.wifiRequired
+    };
 }
 
 // Éligibilité TVA de la gamme choisie pour une pièce d'un groupe multisplit (recalcule les options
 // compatibles avec cette pièce pour retrouver la référence exacte de l'UI sélectionnée).
-export function getRoomSelectedTvaInfo(room, gammeName, allowedGammes, brand) {
+export function getRoomSelectedTvaInfo(room, gammeName, allowedGammes, brand, groupeReference = null) {
     let sols = findBestMonos(room.froidMatch, room.chaudMatch, brand);
     if (allowedGammes) sols = sols.filter(s => allowedGammes.includes(s.gamme));
     const sol = sols.find(s => s.gamme === gammeName);
-    return sol ? getTvaInfo(gammeName, sol.reference_ensemble, 'multiUi', brand) : null;
+    return sol ? getTvaInfo(gammeName, sol.reference_ensemble, 'multiUi', brand, groupeReference) : null;
 }

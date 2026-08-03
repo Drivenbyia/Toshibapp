@@ -37,6 +37,12 @@ S'y ajoutent quelques fichiers statiques (`manifest.json`, `sw.js`, `assets/tail
   (ex. RAS-2M14 → RAS-2M18) et le sélectionne par défaut ; le groupe juste dimensionné reste
   proposé en alternative, et le monosplit dédié n'est conseillé que si aucun groupe ne
   rééquilibre.
+- **Éligibilité TVA 5,5%** (Toshiba) : transcrite du tableau constructeur « TVA 5,5 éligibilité
+  Toshiba v3 », avec ses deux régimes — en monosplit l'éligibilité se juge gamme par gamme et
+  taille par taille (Naka refusée, Yukai refusée en 18/24, module Wifi exigé sur Yukai) ; en
+  multisplit elle est portée par le groupe extérieur, qui rend éligibles toutes les unités
+  intérieures raccordées, sans condition de Wifi. Une référence absente du tableau est signalée
+  « TVA à vérifier » plutôt que tranchée arbitrairement.
 - **Mes Chantiers** : sauvegarde locale (localStorage) des configurations par client
   et par zone.
 - **PWA hors-ligne** : manifest (`manifest.json`) et service worker (`sw.js`) réels,
