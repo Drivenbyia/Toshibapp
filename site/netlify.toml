@@ -1,0 +1,21 @@
+# Configuration Netlify du SITE VITRINE (klimo.fr), à déployer comme un site Netlify
+# séparé de l'application (app.klimo.fr) — voir la note de déploiement dans le README
+# à la racine du dépôt. Ce fichier n'est lu que si le site Netlify correspondant a son
+# répertoire de base ("Base directory") réglé sur "site".
+
+[build]
+  publish = "."
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "SAMEORIGIN"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+# Pages statiques, pas d'app à invalider via un service worker ici : un cache court suffit
+# à propager rapidement une correction (texte, prix, mentions légales).
+[[headers]]
+  for = "/*.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"

@@ -10,8 +10,7 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        toshiba: {
-          red: '#E01A1A',
+        klimo: {
           dark: '#111111',
           gray: '#F3F4F6'
         }

@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>ProSizer B2B - Outil de Dimensionnement Climatisation</title>
-    <meta name="theme-color" content="#E01A1A">
+    <title>Klimo - Dimensionnement Climatisation</title>
+    <meta name="theme-color" content="#0F766E">
 
     <!-- Balises PWA -->
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -12,17 +12,18 @@
     <meta name="mobile-web-app-capable" content="yes">
     <link rel="manifest" href="manifest.json">
 
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%23FF0000'/%3E%3Cpath d='M4 7h16v2H4V7zm4 4h8v2H8v-2zm-4 4h16v2H4v-2z' fill='%23ffffff'/%3E%3C/svg%3E">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%230F766E'/%3E%3Cpath d='M4 7h16v2H4V7zm4 4h8v2H8v-2zm-4 4h16v2H4v-2z' fill='%23ffffff'/%3E%3C/svg%3E">
     <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png">
     <link rel="apple-touch-icon" href="icons/icon-192.png">
 
     <link rel="stylesheet" href="assets/tailwind.css">
     <style>
-        /* Rouge légèrement désaturé par rapport au rouge Toshiba pur (#FF0000, contraste 4:1 sur
-           blanc, sous le seuil AA de 4.5:1 pour du texte normal) : #E01A1A atteint ~4.85:1 tout
-           en restant fidèle à l'identité de marque. */
-        :root { --brand-accent: #E01A1A; --brand-accent-dark: #B01515; }
+        /* Accent Klimo fixe, indépendant de la marque de matériel sélectionnée : l'application
+           doit se présenter comme l'outil de l'installateur, pas comme le configurateur d'un
+           constructeur. Teal #0F766E : contraste ~5.2:1 sur blanc, au-dessus du seuil AA de
+           4.5:1 pour du texte normal, et n'appartient à aucune des marques du catalogue. */
+        :root { --brand-accent: #0F766E; --brand-accent-dark: #115E59; }
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: #f1f1f1; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
@@ -68,7 +69,7 @@
         }
     </style>
 </head>
-<body class="bg-toshiba-gray text-gray-800 font-sans antialiased min-h-screen flex flex-col">
+<body class="bg-klimo-gray text-gray-800 font-sans antialiased min-h-screen flex flex-col">
 
     <!-- Vue d'impression (export PDF) : masquée à l'écran, seule visible dans window.print() -->
     <div id="print-area"></div>
@@ -80,11 +81,12 @@
                 <svg class="w-8 h-8 text-[var(--brand-accent)]" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M2 7h20v2H2V7zm4 4h12v2H6v-2zm-4 4h20v2H2v-2z"/>
                 </svg>
-                <h1 class="text-xl font-bold tracking-tight text-toshiba-dark cursor-pointer" onclick="toggleDashboard(false)">ProSizer <span class="text-[var(--brand-accent)]">B2B</span></h1>
+                <h1 class="text-xl font-bold tracking-tight text-klimo-dark cursor-pointer" onclick="toggleDashboard(false)">Klimo</h1>
             </div>
             
             <div class="flex items-center gap-3">
                 <div class="text-[11px] sm:text-xs font-semibold text-gray-500 bg-gray-100 px-2 py-1 rounded hidden sm:block">V18 - FROID PHYSIQUE</div>
+                <span id="sync-badge" class="hidden text-[11px] font-semibold text-gray-500 bg-gray-100 px-2 py-1 rounded"></span>
                 <button id="account-badge" data-status="anonymous" class="text-[11px] sm:text-xs font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 px-2.5 py-1.5 rounded-full transition-colors max-w-[9rem] truncate" title="Compte">Se connecter</button>
                 <button onclick="toggleDashboard(true)" class="flex items-center justify-center p-2 rounded-full bg-gray-100 text-gray-600 hover:bg-[var(--brand-accent)] hover:text-white transition-colors" title="Mes Chantiers">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
@@ -113,7 +115,7 @@
 
         <!-- Brand Selector -->
         <section id="brand-section" class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 fade-in">
-            <h2 class="text-lg font-semibold text-toshiba-dark flex items-center gap-2 mb-4">
+            <h2 class="text-lg font-semibold text-klimo-dark flex items-center gap-2 mb-4">
                 <span class="w-2 h-6 bg-[var(--brand-accent)] rounded-full"></span>
                 Marque
             </h2>
@@ -126,7 +128,7 @@
         <!-- Configuration Card -->
         <section class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 fade-in">
             <div class="flex flex-col gap-4">
-                <h2 class="text-lg font-semibold text-toshiba-dark flex items-center gap-2">
+                <h2 class="text-lg font-semibold text-klimo-dark flex items-center gap-2">
                     <span class="w-2 h-6 bg-[var(--brand-accent)] rounded-full"></span>
                     1. Paramètres Techniques & Localisation
                 </h2>
@@ -222,7 +224,7 @@
     <!-- ==== VUE 2 : DASHBOARD CHANTIERS ==== -->
     <main id="app-dashboard" class="hidden flex-grow max-w-3xl mx-auto w-full px-4 py-6 flex-col gap-6 fade-in">
         <div class="flex items-center justify-between mb-4 border-b border-gray-200 pb-4">
-            <h2 class="text-2xl font-extrabold text-toshiba-dark flex items-center gap-2">
+            <h2 class="text-2xl font-extrabold text-klimo-dark flex items-center gap-2">
                 <svg class="w-6 h-6 text-[var(--brand-accent)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
                 Mes Chantiers
             </h2>

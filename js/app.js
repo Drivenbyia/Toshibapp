@@ -1,9 +1,9 @@
-// Application ProSizer B2B : état, rendu DOM et gestionnaires d'événements.
+// Application Klimo : état, rendu DOM et gestionnaires d'événements.
 // Importe les données (data.js) et les fonctions de calcul pures (calcul.js) ; c'est le seul
 // module qui touche au DOM, à localStorage ou à l'état applicatif.
 import {
     CATALOGS, GAMMES_INFO, TVA_RULES, DEPARTMENTS, tBaseMatrix, tBaseEteMatrix,
-    BRAND_ACCENTS, BRAND_LABELS, CONSIGNE_REFERENCE, COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD,
+    BRAND_LABELS, CONSIGNE_REFERENCE, COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD,
     SEUIL_SOUS_CHARGE, SEUIL_DESEQUILIBRE_GROUPE
 } from './data.js';
 import {
@@ -21,8 +21,9 @@ import {
     selecteurMarqueVisible
 } from './marques.js';
 import { store } from './store.js';
-import { init as initAccount, subscribe as subscribeAccount, getBrandsOverride } from './account.js';
+import { init as initAccount, subscribe as subscribeAccount, getBrandsOverride, getStatus as getAuthStatus } from './account.js';
 import { initAuthUi } from './auth-ui.js';
+import { createSync } from './sync.js';
 
 // --- STATE ---
 let state = {
@@ -66,9 +67,9 @@ function setBrand(brand) {
     // pour tenir compte des droits du compte connecté, s'il y en a un.
     brand = resoudreMarque(brand, marquesActives());
     state.brand = brand;
-    const colors = BRAND_ACCENTS[brand];
-    document.documentElement.style.setProperty('--brand-accent', colors.accent);
-    document.documentElement.style.setProperty('--brand-accent-dark', colors.accentDark);
+    // L'accent visuel est celui de Klimo, fixe, jamais celui du constructeur choisi (voir
+    // --brand-accent dans index.html) : l'app doit rester identifiable comme l'outil de
+    // l'installateur, pas comme le configurateur d'un fabricant.
     document.querySelectorAll('[data-brand]').forEach((btn) => {
         const actif = btn.dataset.brand === brand;
         btn.className = `flex-1 py-2 text-sm font-bold rounded-md transition-all ${actif ? 'shadow-sm bg-white text-[var(--brand-accent)]' : 'text-gray-500'}`;
@@ -101,6 +102,17 @@ function initApp() {
     initAuthUi();
     subscribeAccount(onAccountChange);
     restoreDraftIfAny();
+
+    // Déclencheurs de synchronisation. Chacun sort immédiatement si aucun compte n'est en
+    // jeu (voir planifierSync) — un utilisateur en mode local n'émet jamais de requête.
+    renderSyncBadge();
+    planifierSync();
+    window.addEventListener('online', planifierSync);
+    // Retour au premier plan : le cas le plus fréquent sur mobile, où l'onglet est gelé
+    // pendant des heures puis rouvert sur le chantier suivant.
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') planifierSync();
+    });
 }
 
 // Rejoue le sélecteur de marque quand l'état du compte change (connexion, déconnexion,
@@ -110,6 +122,65 @@ function initApp() {
 // prochain calcul ou au prochain chargement.
 function onAccountChange() {
     if (!state.currentCalc) initSelecteurMarque();
+    planifierSync();
+}
+
+// --- SYNCHRONISATION ---------------------------------------------------------------
+// Construite paresseusement : tant que personne ne s'est connecté, aucun module réseau
+// n'est chargé et aucune requête n'est émise — l'application reste exactement aussi
+// hors-ligne qu'avant l'arrivée des comptes.
+let sync = null;
+let syncPrete = null;
+
+async function obtenirSync() {
+    if (sync) return sync;
+    if (!syncPrete) {
+        syncPrete = (async () => {
+            const { createSupabaseTransport } = await import('./supabase-client.js');
+            sync = createSync({ store, transport: createSupabaseTransport() });
+            sync.subscribe(renderSyncBadge);
+            return sync;
+        })();
+    }
+    return syncPrete;
+}
+
+// Ne synchronise que si un compte est réellement en jeu. Un utilisateur en mode local pur
+// n'émet jamais rien : la synchro est un service rendu au compte, pas une condition d'usage.
+async function planifierSync() {
+    const statut = getAuthStatus();
+    if (statut !== 'authenticated' && statut !== 'stale') return;
+    const s = await obtenirSync();
+    await s.run();
+    renderSyncBadge();
+    renderDashboard();
+}
+
+function renderSyncBadge() {
+    const badge = document.getElementById('sync-badge');
+    if (!badge) return;
+    const statut = getAuthStatus();
+    if (statut !== 'authenticated' && statut !== 'stale') { badge.classList.add('hidden'); return; }
+
+    const etat = sync ? sync.getState() : { phase: 'idle', pending: 0 };
+    const enAttente = etat.pending || 0;
+    badge.classList.remove('hidden');
+
+    if (etat.phase === 'pushing' || etat.phase === 'pulling') {
+        badge.textContent = 'Synchro…';
+        badge.className = 'text-[11px] font-semibold text-gray-500 bg-gray-100 px-2 py-1 rounded';
+    } else if (etat.phase === 'offline') {
+        // Jamais d'invite de connexion ici : hors-ligne est un état de fonctionnement normal,
+        // pas une erreur à corriger. On informe, on ne réclame rien.
+        badge.textContent = enAttente ? `Hors ligne — ${enAttente} en attente` : 'Hors ligne';
+        badge.className = 'text-[11px] font-semibold text-amber-800 bg-amber-100 px-2 py-1 rounded';
+    } else if (enAttente) {
+        badge.textContent = `${enAttente} en attente`;
+        badge.className = 'text-[11px] font-semibold text-amber-800 bg-amber-100 px-2 py-1 rounded';
+    } else {
+        badge.textContent = 'À jour';
+        badge.className = 'text-[11px] font-semibold text-green-700 bg-green-50 px-2 py-1 rounded';
+    }
 }
 
 // Masque (sans les retirer du DOM — voir setBrand) les boutons des marques non autorisées,
@@ -196,12 +267,42 @@ function renderDashboard() {
     }
 
     const groupes = grouperParClient(store.listConfigs());
-    if (groupes.length === 0) {
+    const conflits = store.listConflicts();
+
+    if (groupes.length === 0 && conflits.length === 0) {
         list.innerHTML = `<div class="p-8 bg-gray-50 text-center text-gray-500 rounded-xl border border-gray-200 border-dashed italic">Aucun chantier enregistré pour le moment.</div>`;
         return;
     }
 
     let html = '';
+
+    // Versions rétrogradées par la synchronisation : une modification faite ici a été
+    // devancée par un autre appareil. Rien n'est jamais jeté — c'est ce qui rend le
+    // dernier-écrit-gagne acceptable ; l'utilisateur arbitre lui-même.
+    if (conflits.length > 0) {
+        html += `
+        <div class="bg-amber-50 border border-amber-200 rounded-xl p-5 fade-in">
+            <h3 class="text-sm font-bold text-amber-900 mb-1">⚠️ ${conflits.length} version(s) à arbitrer</h3>
+            <p class="text-xs text-amber-800 mb-3 leading-relaxed">
+                Ces modifications ont été faites sur cet appareil, mais un autre appareil avait
+                déjà enregistré une version plus récente. Rien n'est perdu : récupérez-les comme
+                fiches distinctes, ou écartez-les si elles ne servent plus.
+            </p>
+            <div class="flex flex-col gap-2">
+                ${conflits.map((c) => `
+                <div class="bg-white border border-amber-200 rounded-lg p-3 flex items-center justify-between gap-3 flex-wrap">
+                    <div class="text-xs">
+                        <span class="font-bold text-klimo-dark">${escapeHtml(c.clientName)}</span>
+                        <span class="text-gray-500"> — ${escapeHtml(c.zone)}</span>
+                    </div>
+                    <div class="flex gap-2">
+                        <button data-action="restore-conflict" data-id="${escapeHtml(c.id)}" class="text-[11px] font-bold text-white bg-amber-600 hover:bg-amber-700 px-2.5 py-1.5 rounded">Récupérer</button>
+                        <button data-action="dismiss-conflict" data-id="${escapeHtml(c.id)}" class="text-[11px] font-bold text-gray-500 hover:text-gray-700 px-2 py-1.5">Écarter</button>
+                    </div>
+                </div>`).join('')}
+            </div>
+        </div>`;
+    }
     groupes.forEach(({ clientName, configs }) => {
         let configsHtml = configs.map((cfg) => {
             const eqs = cfg.equipments || [];
@@ -222,7 +323,7 @@ function renderDashboard() {
                         <svg class="w-4 h-4 transition-transform group-open:rotate-180 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
                     </summary>
                     <div class="p-3 text-[11px] text-gray-700 flex flex-col gap-2">
-                        ${eqs.length > 0 ? `<div><div class="font-extrabold text-gray-400 uppercase tracking-wider text-[11px] mb-1">Matériel Proposé :</div>${eqs.map(e => `<div class="font-medium text-toshiba-dark">• ${escapeHtml(e)}</div>`).join('')}</div>` : ''}
+                        ${eqs.length > 0 ? `<div><div class="font-extrabold text-gray-400 uppercase tracking-wider text-[11px] mb-1">Matériel Proposé :</div>${eqs.map(e => `<div class="font-medium text-klimo-dark">• ${escapeHtml(e)}</div>`).join('')}</div>` : ''}
                         ${rds.length > 0 ? `<div><div class="font-extrabold text-gray-400 uppercase tracking-wider text-[11px] mb-1 mt-1">Bilan par Pièce :</div>${rds.map(r => `<div>• ${escapeHtml(r)}</div>`).join('')}</div>` : ''}
                     </div>
                 </details>`;
@@ -232,7 +333,7 @@ function renderDashboard() {
             <div class="flex justify-between items-start py-4 border-b border-gray-200 last:border-0 relative">
                 <div class="w-full pr-8">
                     <div class="flex items-center gap-2 mb-1">
-                        <span class="font-bold text-sm text-toshiba-dark">${escapeHtml(cfg.zone)}</span>
+                        <span class="font-bold text-sm text-klimo-dark">${escapeHtml(cfg.zone)}</span>
                         <span class="text-[11px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded font-bold uppercase">${escapeHtml(cfg.mode)}</span>
                         ${marqueRetiree ? `<span class="text-[11px] bg-amber-100 text-amber-800 border border-amber-200 px-1.5 py-0.5 rounded font-bold uppercase" title="Marque plus proposée sur ce poste : fiche consultable, non rechargeable">${escapeHtml(libelleMarque(cfg.brand))} — archivé</span>` : ''}
                     </div>
@@ -250,7 +351,7 @@ function renderDashboard() {
         html += `
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 fade-in">
             <div class="flex justify-between items-center mb-3">
-                <h3 class="text-lg font-bold text-toshiba-dark flex items-center gap-2">
+                <h3 class="text-lg font-bold text-klimo-dark flex items-center gap-2">
                     <svg class="w-5 h-5 text-gray-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"></path></svg>
                     ${escapeHtml(clientName)}
                 </h3>
@@ -273,6 +374,14 @@ function initDashboardEvents() {
         if (btn.dataset.action === 'delete-chantier') deleteChantier(btn.dataset.client);
         else if (btn.dataset.action === 'delete-config') deleteConfig(btn.dataset.id);
         else if (btn.dataset.action === 'reload-config') reloadConfig(btn.dataset.id);
+        else if (btn.dataset.action === 'restore-conflict') {
+            store.restoreConflict(btn.dataset.id);
+            renderDashboard();
+            planifierSync();
+        } else if (btn.dataset.action === 'dismiss-conflict') {
+            store.dismissConflict(btn.dataset.id);
+            renderDashboard();
+        }
     });
 
     // Sauvegarde / restauration : même délégation, hors de la liste puisque ces boutons
@@ -365,6 +474,7 @@ function deleteChantier(clientName) {
             afficherMessageSauvegarde("❌ Suppression impossible : le stockage local est indisponible.", false);
         }
         renderDashboard();
+        planifierSync();
     }
 }
 
@@ -373,6 +483,7 @@ function deleteConfig(id) {
         afficherMessageSauvegarde("❌ Suppression impossible : le stockage local est indisponible.", false);
     }
     renderDashboard();
+    planifierSync();
 }
 
 // Recharge une configuration sauvegardée dans le simulateur pour la modifier : marque,
@@ -557,6 +668,7 @@ function saveChantier() {
     clearDraft();
     state.loadedConfigId = null;
     document.getElementById('save-zone').value = '';
+    planifierSync();
     msgBox.innerHTML = "✅ Sauvegardé avec succès dans 'Mes Chantiers' !";
     msgBox.className = "mt-3 text-xs font-bold text-center text-green-600 block";
     populateClientDatalist();
@@ -584,6 +696,7 @@ function updateChantier() {
     }
 
     clearDraft();
+    planifierSync();
     msgBox.innerHTML = "✅ Configuration mise à jour.";
     msgBox.className = "mt-3 text-xs font-bold text-center text-green-600 block";
     populateClientDatalist();
@@ -951,7 +1064,7 @@ function renderResults() {
     const calc = state.currentCalc;
     if (!calc) { resultsContainer.innerHTML = ''; return; }
 
-    let html = `<h2 class="text-xl font-bold text-toshiba-dark flex items-center gap-2 mt-4"><span class="w-2 h-6 bg-[var(--brand-accent)] rounded-full"></span>Solutions recommandées</h2>`;
+    let html = `<h2 class="text-xl font-bold text-klimo-dark flex items-center gap-2 mt-4"><span class="w-2 h-6 bg-[var(--brand-accent)] rounded-full"></span>Solutions recommandées</h2>`;
     html += calc.besoinsHtml + calc.caniculeNote;
 
     let summaryParts = [];
@@ -1055,7 +1168,7 @@ function renderResults() {
             </button>
         </div>
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 mt-4 fade-in">
-            <h3 class="text-sm font-bold text-toshiba-dark flex items-center gap-2 mb-4 uppercase tracking-wide">
+            <h3 class="text-sm font-bold text-klimo-dark flex items-center gap-2 mb-4 uppercase tracking-wide">
                 <svg class="w-5 h-5 text-[var(--brand-accent)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
                 Enregistrer au Chantier
             </h3>
@@ -1117,7 +1230,7 @@ function exportPdf() {
     if (!s) return;
     const printArea = document.getElementById('print-area');
     printArea.innerHTML = `
-        <h1>ProSizer B2B — Fiche de dimensionnement</h1>
+        <h1>Klimo — Fiche de dimensionnement</h1>
         ${s.client ? `<p><strong>Client :</strong> ${escapeHtml(s.client)}</p>` : ''}
         ${s.zone ? `<p><strong>Zone :</strong> ${escapeHtml(s.zone)}</p>` : ''}
         <p><strong>Date :</strong> ${escapeHtml(s.dateStr)} — <strong>Marque :</strong> ${s.brandLabel} — <strong>Mode :</strong> ${s.modeLabel}</p>
@@ -1125,7 +1238,7 @@ function exportPdf() {
         <ul>${s.roomDetails.map(r => `<li>${escapeHtml(r)}</li>`).join('')}</ul>
         <h2>Équipements recommandés</h2>
         <ul>${s.equipments.map(e => `<li>${escapeHtml(e)}</li>`).join('')}</ul>
-        <p class="print-disclaimer">Dimensionnement indicatif généré par ProSizer B2B. À valider par un professionnel avant installation.</p>
+        <p class="print-disclaimer">Dimensionnement indicatif généré par Klimo. À valider par un professionnel avant installation.</p>
     `;
     window.print();
 }
@@ -1134,7 +1247,7 @@ function shareResults() {
     const s = buildResultSummaryLines();
     if (!s) return;
     const lines = [
-        'ProSizer B2B — Fiche de dimensionnement',
+        'Klimo — Fiche de dimensionnement',
         s.client ? `Client : ${s.client}` : null,
         s.zone ? `Zone : ${s.zone}` : null,
         `Marque : ${s.brandLabel} — Mode : ${s.modeLabel}`,
@@ -1148,9 +1261,9 @@ function shareResults() {
     const text = lines.join('\n');
 
     if (navigator.share) {
-        navigator.share({ title: 'ProSizer B2B — Dimensionnement', text }).catch(() => {});
+        navigator.share({ title: 'Klimo — Dimensionnement', text }).catch(() => {});
     } else {
-        const subject = encodeURIComponent(`ProSizer B2B — Dimensionnement${s.client ? ' — ' + s.client : ''}`);
+        const subject = encodeURIComponent(`Klimo — Dimensionnement${s.client ? ' — ' + s.client : ''}`);
         const body = encodeURIComponent(text);
         window.location.href = `mailto:?subject=${subject}&body=${body}`;
     }
@@ -1286,7 +1399,7 @@ function renderMultiRoomsGuide(roomsData, group) {
 
     return `
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 mb-4 fade-in">
-        <h3 class="text-sm font-bold text-toshiba-dark flex items-center gap-2 mb-1 uppercase tracking-wide">
+        <h3 class="text-sm font-bold text-klimo-dark flex items-center gap-2 mb-1 uppercase tracking-wide">
             <svg class="w-5 h-5 text-[var(--brand-accent)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
             Guide de sélection des unités intérieures
         </h3>
@@ -1413,7 +1526,7 @@ function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = fals
         <div class="flex justify-between items-start gap-4 relative z-10">
             <div class="flex-grow">
                 <div class="text-[11px] font-black uppercase text-[var(--brand-accent)] mb-1 tracking-widest">${badgeText}</div>
-                <h3 class="text-lg font-extrabold text-toshiba-dark leading-tight">${mainTitle}</h3>
+                <h3 class="text-lg font-extrabold text-klimo-dark leading-tight">${mainTitle}</h3>
                 <p class="text-xs font-mono text-gray-500 mt-1">${subtitle}</p>
                 ${renderTvaBadge(tvaInfo)}
                 ${chargeInfo ? renderChargeBadge(chargeInfo.reqFroid, chargeInfo.reqChaud, froid, chaud) : ''}

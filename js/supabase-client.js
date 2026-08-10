@@ -64,6 +64,69 @@ export async function checkSession() {
     return { ok: true, session: data.session };
 }
 
+// --- Transport de synchronisation ---------------------------------------------------
+// Implémente le contrat attendu par createSync() (js/sync.js) : push(rows) / pull(seq, n),
+// chacun rendant { ok, error?, serverDateMs? }. `serverDateMs` provient de l'en-tête HTTP
+// `Date` et alimente la correction de dérive d'horloge — il est renseigné dès que le serveur
+// a répondu, y compris quand l'opération elle-même a échoué.
+//
+// Le client Supabase n'expose pas les en-têtes de réponse : on lit l'heure serveur par une
+// requête HEAD légère sur l'API REST, sans authentification métier ni corps de réponse.
+async function lireHeureServeur() {
+    try {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/`, {
+            method: 'HEAD',
+            headers: { apikey: SUPABASE_ANON_KEY }
+        });
+        const d = res.headers.get('date');
+        return d ? Date.parse(d) : null;
+    } catch (e) {
+        return null;
+    }
+}
+
+export function createSupabaseTransport() {
+    return {
+        async push(rows) {
+            if (!supabaseConfigured()) return { ok: false, error: { nonConfigure: true } };
+            if (!rows.length) return { ok: true };
+            try {
+                const client = await getClient();
+                // `owner` et `seq` sont volontairement absents des lignes envoyées : le
+                // trigger serveur les impose (voir sql/001_schema.sql), ce qui rend une
+                // écriture dans le compte d'autrui impossible à formuler.
+                const { error } = await client.from('configurations').upsert(rows, { onConflict: 'id' });
+                const serverDateMs = await lireHeureServeur();
+                if (error) return { ok: false, error, serverDateMs };
+                return { ok: true, serverDateMs };
+            } catch (e) {
+                return { ok: false, error: e };
+            }
+        },
+
+        async pull(sinceSeq, limit) {
+            if (!supabaseConfigured()) return { ok: false, error: { nonConfigure: true } };
+            try {
+                const client = await getClient();
+                // Le filtre porte sur `seq`, jamais sur un horodatage : un curseur horodaté
+                // se casse sur l'ordre de validation des transactions (voir sql/001_schema.sql).
+                // La RLS restreint déjà les lignes au propriétaire — pas de filtre `owner` ici.
+                const { data, error } = await client
+                    .from('configurations')
+                    .select('*')
+                    .gt('seq', sinceSeq)
+                    .order('seq', { ascending: true })
+                    .limit(limit);
+                const serverDateMs = await lireHeureServeur();
+                if (error) return { ok: false, error, serverDateMs };
+                return { ok: true, rows: data || [], serverDateMs };
+            } catch (e) {
+                return { ok: false, error: e };
+            }
+        }
+    };
+}
+
 // Dégrade toujours vers l'abonnement Toshiba seul plutôt que d'échouer bruyamment : une
 // ligne `entitlements` absente ou une panne réseau ne doit jamais empêcher l'usage local.
 export async function fetchEntitlements(userId) {

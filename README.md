@@ -1,7 +1,10 @@
-# ProSizer B2B
+# Klimo
 
-Outil de dimensionnement B2B pour la sélection de climatisations Toshiba et Panasonic
-(froid/chaud), sous forme de **PWA** (Progressive Web App) installable sur mobile et desktop.
+Outil de dimensionnement pour la sélection de climatisations (froid/chaud), sous forme de
+**PWA** (Progressive Web App) installable sur mobile et desktop. Le catalogue couvre Toshiba
+et Panasonic ; les marques visibles pour un compte donné sont contrôlées par ses droits
+(`js/marques.js`, `js/account.js`) — Panasonic reste dans le code sans être exposé tant
+qu'aucun compte ne l'autorise.
 
 L'application est un site 100% statique : pas d'étape de build, pas de dépendances à installer
 pour la faire tourner. `index.html` ne contient que le balisage ; la logique est répartie en
@@ -97,6 +100,28 @@ Le dépôt est prêt pour un déploiement continu :
 4. **Deploy site**.
 
 Chaque `git push` sur la branche par défaut redéploie automatiquement le site.
+
+### Vitrine et pages légales (`site/`)
+
+`site/` est un second site statique indépendant — la vitrine (page d'accueil, tarif, CGV,
+mentions légales, confidentialité), séparée de l'application pour une raison précise : elle
+doit vivre sur `klimo.fr`, tandis que l'application doit rester à la **racine** de
+`app.klimo.fr` pour ne jamais changer la portée (`scope`) de son service worker ni casser une
+installation déjà faite sur l'appareil d'un client. Un découpage par sous-dossier
+(`klimo.fr/app`) aurait cet effet de bord ; le sous-domaine l'évite.
+
+Pour la mise en ligne, créer un **second site Netlify** à partir du même dépôt :
+
+1. Sur Netlify → **Add new site** → **Import an existing project**, même dépôt GitHub.
+2. **Base directory** : `site` (Netlify y trouve alors `site/netlify.toml`).
+3. Aucune commande de build, répertoire de publication `.` (relatif à `site/`).
+4. Une fois le nom de domaine réservé, brancher `klimo.fr` sur ce site et
+   `app.klimo.fr` sur le premier (celui qui sert déjà `index.html` à la racine).
+
+Avant de rendre `site/` public : les pages `mentions-legales.html`, `cgv.html` et
+`confidentialite.html` contiennent des rubriques `[à compléter]` (SIRET, adresse) et un
+encart signalant ce qui manque — les CGV en particulier ne doivent pas être publiées sans
+relecture par un professionnel du droit (voir le plan de mise sur le marché).
 
 ## Technologies
 

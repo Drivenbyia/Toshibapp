@@ -39,7 +39,7 @@ function renderOverlayContent(erreur) {
 
     if (status === 'authenticated' || status === 'stale') {
         zone.innerHTML = `
-            <h2 class="text-lg font-bold text-toshiba-dark mb-1">Compte</h2>
+            <h2 class="text-lg font-bold text-klimo-dark mb-1">Compte</h2>
             <p class="text-sm text-gray-500 mb-4">${echapper(account.getUserEmail() || '')}</p>
             ${status === 'stale' ? `
             <p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2.5 mb-4">
@@ -55,14 +55,14 @@ function renderOverlayContent(erreur) {
 
     if (!supabaseConfigured()) {
         zone.innerHTML = `
-            <h2 class="text-lg font-bold text-toshiba-dark mb-1">Connexion</h2>
+            <h2 class="text-lg font-bold text-klimo-dark mb-1">Connexion</h2>
             <p class="text-sm text-gray-600 mb-4">La connexion aux comptes n'est pas encore configurée sur ce poste.</p>
             <button data-action="close-overlay" class="w-full bg-gray-800 hover:bg-black text-white font-bold py-2.5 rounded-lg text-sm">Fermer</button>`;
         return;
     }
 
     zone.innerHTML = `
-        <h2 class="text-lg font-bold text-toshiba-dark mb-1">Connexion</h2>
+        <h2 class="text-lg font-bold text-klimo-dark mb-1">Connexion</h2>
         ${status === 'revoked' ? `
         <p class="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg p-2.5 mb-3">
             Votre session a expiré. Reconnectez-vous, ou continuez sans compte : vos chantiers

@@ -1,7 +1,7 @@
-// Service worker réel de ProSizer B2B, servi en same-origin (contrairement à l'ancienne
+// Service worker réel de Klimo, servi en same-origin (contrairement à l'ancienne
 // version enregistrée depuis une blob: URL, que les navigateurs refusent silencieusement).
-const CACHE_VERSION = 'v4';
-const CACHE_NAME = `prosizer-${CACHE_VERSION}`;
+const CACHE_VERSION = 'v5';
+const CACHE_NAME = `klimo-${CACHE_VERSION}`;
 const PRECACHE_URLS = [
     './',
     './index.html',
@@ -13,7 +13,9 @@ const PRECACHE_URLS = [
     './js/marques.js',
     './js/kv.js',
     './js/migration.js',
+    './js/reconcile.js',
     './js/store.js',
+    './js/sync.js',
     './js/config.js',
     './js/account.js',
     './js/auth-ui.js',
