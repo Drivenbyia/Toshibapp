@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Klimo — Dimensionnement climatisation pour installateurs</title>
+    <meta name="description" content="Klimo calcule le bilan thermique pièce par pièce et propose le matériel adapté, hors-ligne, avec des fiches synchronisées entre vos appareils.">
+    <meta name="theme-color" content="#0F766E">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%230F766E'/%3E%3Cpath d='M4 7h16v2H4V7zm4 4h8v2H8v-2zm-4 4h16v2H4v-2z' fill='%23ffffff'/%3E%3C/svg%3E">
+    <link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+
+    <header class="site-nav">
+        <div class="wrap">
+            <div class="brand">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M2 7h20v2H2V7zm4 4h12v2H6v-2zm-4 4h20v2H2v-2z"/></svg>
+                Klimo
+            </div>
+            <nav class="links">
+                <a class="navlink" href="#comment">Comment ça marche</a>
+                <a class="navlink" href="#tarif">Tarif</a>
+                <a class="navlink" href="#faq">Questions</a>
+                <a class="btn" href="#contact">Demander une démo</a>
+            </nav>
+        </div>
+    </header>
+
+    <section class="hero">
+        <div class="wrap hero-grid">
+            <div>
+                <span class="eyebrow">Pour installateurs frigoristes</span>
+                <h1>Le dimensionnement qui tient dans une camionnette</h1>
+                <p class="lead">
+                    Klimo calcule le bilan thermique pièce par pièce, propose le matériel adapté à votre
+                    catalogue, et sort une fiche client — même sans réseau, dans un vide sanitaire ou une
+                    cave.
+                </p>
+                <div class="actions">
+                    <a class="btn" href="#contact">Demander une démo</a>
+                    <a class="btn btn-ghost" href="#comment">Comment ça marche</a>
+                </div>
+            </div>
+
+            <div class="readout" id="readout">
+                <span class="tick-bl"></span><span class="tick-br"></span>
+                <div class="readout-head">
+                    <span class="room">Salon — RDC</span>
+                    <span class="brand-tag">Toshiba</span>
+                </div>
+                <div class="readout-row"><span>Surface</span><span class="v">24 m²</span></div>
+                <div class="readout-row"><span>Isolation</span><span class="v">RT 2012</span></div>
+                <div class="readout-row"><span>Exposition</span><span class="v">Sud, 3 baies</span></div>
+                <div class="readout-result">
+                    <span class="kw"><span id="kw-value">0.0</span> <small>kW</small></span>
+                    <span class="tva">TVA 5,5 %</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="comment" class="surface">
+        <div class="wrap">
+            <span class="eyebrow">Le principe</span>
+            <h2 class="section-title" style="margin-top:0.75rem;">Trois étapes, une fiche prête à envoyer</h2>
+            <p class="section-lead">Pas de formation nécessaire : c'est la même logique qu'un relevé de chantier, juste plus rapide.</p>
+            <div class="steps">
+                <div class="step">
+                    <h3>Renseignez la pièce</h3>
+                    <p>Surface, isolation, exposition, altitude — les paramètres que vous relevez déjà sur place.</p>
+                </div>
+                <div class="step">
+                    <h3>Klimo calcule et propose</h3>
+                    <p>Bilan thermique complet et sélection dans votre catalogue, avec la TVA applicable.</p>
+                </div>
+                <div class="step">
+                    <h3>Envoyez la fiche</h3>
+                    <p>Export PDF ou partage direct — le client repart avec un document, pas une estimation à l'oral.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="fonctionnalites">
+        <div class="wrap">
+            <span class="eyebrow">Ce qu'il fait</span>
+            <h2 class="section-title" style="margin-top:0.75rem;">Fait pour le terrain, pas pour un bureau d'études</h2>
+            <p class="section-lead">Rapide à remplir, lisible sur téléphone, et qui ne dépend d'aucun réseau.</p>
+            <div class="grid-3">
+                <div class="card">
+                    <h3>Bilan thermique réel</h3>
+                    <p>Isolation, altitude, orientation, vitrage : le calcul tient compte du bâti, pas d'un simple ratio au m².</p>
+                </div>
+                <div class="card">
+                    <h3>Fonctionne hors-ligne</h3>
+                    <p>Calcul, sauvegarde et export PDF marchent sans réseau — le vide sanitaire n'attend pas la 4G.</p>
+                </div>
+                <div class="card">
+                    <h3>Synchronisé entre appareils</h3>
+                    <p>Téléphone sur chantier, tablette au bureau : vos chantiers se retrouvent à jour partout.</p>
+                </div>
+                <div class="card">
+                    <h3>Fiche client en un clic</h3>
+                    <p>Export PDF ou partage direct, avec le matériel recommandé et le détail par pièce.</p>
+                </div>
+                <div class="card">
+                    <h3>TVA calculée automatiquement</h3>
+                    <p>Éligibilité 5,5 % ou 20 % appliquée selon le dossier, affichée sur chaque solution.</p>
+                </div>
+                <div class="card">
+                    <h3>Vos données, votre compte</h3>
+                    <p>Chaque installateur a son espace, isolé des autres. Rien n'est partagé entre comptes.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="tarif" class="surface">
+        <div class="wrap">
+            <span class="eyebrow">Tarif</span>
+            <h2 class="section-title" style="margin-top:0.75rem;">Un prix, sans surprise</h2>
+            <p class="section-lead">Pas d'engagement long, pas de frais cachés.</p>
+            <div class="price-card">
+                <div class="amount">49 €<span> / mois</span></div>
+                <ul>
+                    <li>Accès complet à l'outil de dimensionnement</li>
+                    <li>Chantiers synchronisés entre vos appareils</li>
+                    <li>Export PDF illimité</li>
+                    <li>Fonctionne hors-ligne</li>
+                    <li>Support par email</li>
+                </ul>
+                <a class="btn" href="#contact" style="width:100%;justify-content:center;">Demander une démo</a>
+            </div>
+            <p class="price-note">Tarif de lancement — nous contacter pour les conditions en cours.</p>
+        </div>
+    </section>
+
+    <section id="faq">
+        <div class="wrap">
+            <span class="eyebrow">Questions fréquentes</span>
+            <h2 class="section-title" style="margin-top:0.75rem;">Avant de se décider</h2>
+            <div class="faq">
+                <details>
+                    <summary>Et si je n'ai pas de réseau sur le chantier ?</summary>
+                    <p>Le calcul, l'enregistrement et l'export PDF fonctionnent entièrement hors-ligne. La synchronisation entre vos appareils reprend automatiquement dès que le réseau revient — rien n'est perdu entre-temps.</p>
+                </details>
+                <details>
+                    <summary>Qui peut voir mes chantiers ?</summary>
+                    <p>Personne d'autre que vous. Chaque compte est isolé : aucun autre installateur, même client de Klimo, n'a accès à vos données.</p>
+                </details>
+                <details>
+                    <summary>Faut-il changer mes habitudes de travail ?</summary>
+                    <p>Non. Klimo reprend les mêmes informations qu'un relevé de chantier classique — surface, isolation, exposition. Il n'y a rien à apprendre de nouveau.</p>
+                </details>
+                <details>
+                    <summary>Le matériel proposé correspond-il à mon fournisseur ?</summary>
+                    <p>Le catalogue est configuré par compte selon les marques que vous posez réellement. Écrivez-nous si vous travaillez avec plusieurs constructeurs.</p>
+                </details>
+                <details>
+                    <summary>Puis-je essayer avant de m'engager ?</summary>
+                    <p>Les comptes sont créés à la main, sur demande — pas d'inscription en libre-service. Écrivez-nous pour une démonstration sur un de vos dossiers réels.</p>
+                </details>
+            </div>
+        </div>
+    </section>
+
+    <section id="contact" class="surface">
+        <div class="wrap" style="text-align:center;">
+            <h2 class="section-title" style="margin:0 auto 0.75rem;">On en parle ?</h2>
+            <p class="section-lead" style="margin:0 auto 1.75rem;">
+                Quelques minutes suffisent pour voir si Klimo correspond à votre façon de travailler.
+            </p>
+            <a class="btn" href="mailto:ducom.thomas@gmail.com?subject=Klimo%20%E2%80%94%20demande%20de%20d%C3%A9mo">
+                Écrire un email
+            </a>
+        </div>
+    </section>
+
+    <footer class="site-footer">
+        <div class="wrap">
+            <div>© 2026 Klimo. Tous droits réservés.</div>
+            <nav>
+                <a href="mentions-legales.html">Mentions légales</a>
+                <a href="cgv.html">CGV</a>
+                <a href="confidentialite.html">Confidentialité</a>
+            </nav>
+        </div>
+    </footer>
+
+    <script>
+        // Lecture du panneau d'exemple : un petit décompte jusqu'à la valeur réelle, une seule
+        // fois au chargement — un geste, pas une animation permanente.
+        (function () {
+            var target = 2.5;
+            var el = document.getElementById('kw-value');
+            if (!el) return;
+            if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+                el.textContent = target.toFixed(1);
+                return;
+            }
+            var start = null;
+            var duration = 900;
+            function tick(ts) {
+                if (!start) start = ts;
+                var p = Math.min(1, (ts - start) / duration);
+                el.textContent = (target * p).toFixed(1);
+                if (p < 1) requestAnimationFrame(tick);
+            }
+            requestAnimationFrame(tick);
+        })();
+    </script>
+
+</body>
+</html>

@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Confidentialité — Klimo</title>
+    <meta name="theme-color" content="#0F766E">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%230F766E'/%3E%3Cpath d='M4 7h16v2H4V7zm4 4h8v2H8v-2zm-4 4h16v2H4v-2z' fill='%23ffffff'/%3E%3C/svg%3E">
+    <link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+
+    <header class="site-nav">
+        <div class="wrap">
+            <a class="brand" href="index.html" style="text-decoration:none;">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M2 7h20v2H2V7zm4 4h12v2H6v-2zm-4 4h20v2H2v-2z"/></svg>
+                Klimo
+            </a>
+            <nav class="links">
+                <a class="navlink" href="index.html#comment">Comment ça marche</a>
+                <a class="navlink" href="index.html#tarif">Tarif</a>
+                <a class="navlink" href="index.html#faq">Questions</a>
+                <a class="btn" href="index.html#contact">Demander une démo</a>
+            </nav>
+        </div>
+    </header>
+
+    <div class="wrap">
+        <article class="legal">
+            <h1>Confidentialité et données personnelles</h1>
+            <p class="legal-updated">Décrit l'architecture réelle du service — identité de l'éditeur à compléter</p>
+
+            <div class="todo">
+                <strong>À compléter avant publication</strong>
+                Le fonctionnement technique décrit ci-dessous reflète l'application réelle. Il manque
+                l'identité du responsable de traitement (voir <a href="mentions-legales.html">mentions
+                légales</a>) et la confirmation de la région d'hébergement Supabase retenue
+                (Francfort ou Paris).
+            </div>
+
+            <h2>Responsable du traitement</h2>
+            <p>[Nom commercial / raison sociale] — voir <a href="mentions-legales.html">mentions légales</a>.</p>
+
+            <h2>Quelles données sont traitées</h2>
+            <p>
+                Un chantier saisi dans Klimo contient : un nom de client, une désignation de zone, et
+                les caractéristiques techniques du logement (surface, isolation, exposition) nécessaires
+                au calcul. Aucune donnée bancaire ne transite par l'application.
+            </p>
+
+            <h2>Où vivent ces données</h2>
+            <p>
+                Tant qu'aucun compte n'est connecté, les chantiers restent uniquement sur l'appareil de
+                l'utilisateur (stockage local du navigateur) — rien n'est envoyé à un serveur.
+            </p>
+            <p>
+                Une fois un compte créé, les chantiers sont également synchronisés vers une base de
+                données hébergée par Supabase, en Union européenne. Chaque compte est isolé des autres
+                par des règles d'accès appliquées côté serveur : un installateur ne peut pas consulter
+                les chantiers d'un autre compte.
+            </p>
+
+            <h2>Combien de temps</h2>
+            <p>
+                Les données sont conservées tant que le compte est actif. Un chantier supprimé par
+                l'utilisateur est marqué comme supprimé et n'apparaît plus dans l'application ; il
+                cesse d'être accessible même s'il reste temporairement en base le temps de propager la
+                suppression aux autres appareils du compte.
+            </p>
+
+            <h2>Qui y a accès</h2>
+            <p>
+                L'éditeur de Klimo, pour la maintenance du service. Aucune donnée n'est vendue ni
+                partagée avec un tiers à des fins commerciales. L'hébergeur (Supabase) traite les
+                données pour le compte de l'éditeur, dans le cadre strict de l'hébergement.
+            </p>
+
+            <h2>Cookies et mesure d'audience</h2>
+            <p>
+                L'application n'utilise aucun cookie de suivi ni outil de mesure d'audience tiers. Le
+                stockage local du navigateur sert uniquement à faire fonctionner l'application
+                hors-ligne (chantiers, brouillon en cours, session de connexion).
+            </p>
+
+            <h2>Vos droits</h2>
+            <p>
+                Conformément au RGPD, vous disposez d'un droit d'accès, de rectification et de
+                suppression de vos données. Pour l'exercer, écrivez à
+                <a href="mailto:ducom.thomas@gmail.com">ducom.thomas@gmail.com</a>. Un export complet
+                de vos chantiers au format JSON est également disponible à tout moment depuis
+                l'application, sans avoir à en faire la demande.
+            </p>
+        </article>
+    </div>
+
+    <footer class="site-footer">
+        <div class="wrap">
+            <div>© 2026 Klimo. Tous droits réservés.</div>
+            <nav>
+                <a href="mentions-legales.html">Mentions légales</a>
+                <a href="cgv.html">CGV</a>
+                <a href="confidentialite.html">Confidentialité</a>
+            </nav>
+        </div>
+    </footer>
+
+</body>
+</html>
