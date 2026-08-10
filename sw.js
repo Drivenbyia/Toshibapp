@@ -10,6 +10,7 @@ const PRECACHE_URLS = [
     './js/data.js',
     './js/calcul.js',
     './js/sauvegarde.js',
+    './js/marques.js',
     './js/app.js',
     './icons/icon-192.png',
     './icons/icon-512.png',

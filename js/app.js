@@ -17,6 +17,9 @@ import {
     formeChantiersValide, sauvegardeValide, fusionnerChantiers, construireSauvegarde,
     compterChantiers
 } from './sauvegarde.js';
+import {
+    marqueAutorisee, marqueParDefaut, resoudreMarque, libelleMarque, selecteurMarqueVisible
+} from './marques.js';
 
 // --- STATE ---
 let state = {
@@ -41,6 +44,10 @@ function defaultRoom(id) {
 // dur : une marque masquée (bouton absent du DOM) doit laisser cette fonction intacte,
 // alors qu'un getElementById manquant la faisait planter sur un `null`.
 function setBrand(brand) {
+    // Garde unique : couvre du même coup les deux chemins de restauration (chantier
+    // sauvegardé et brouillon), qui passaient jusqu'ici la marque enregistrée sans la
+    // valider et pouvaient ainsi ressusciter une marque masquée.
+    brand = resoudreMarque(brand);
     state.brand = brand;
     const colors = BRAND_ACCENTS[brand];
     document.documentElement.style.setProperty('--brand-accent', colors.accent);
@@ -63,9 +70,22 @@ function initApp() {
         deptSelect.appendChild(opt);
     });
     updateClimateInfo();
+    initSelecteurMarque();
     renderRooms();
     initDashboardEvents();
     restoreDraftIfAny();
+}
+
+// Retire du DOM les boutons des marques non proposées, et masque la section entière quand
+// il n'en reste qu'une : afficher un choix unique et non actionnable n'aide personne.
+function initSelecteurMarque() {
+    document.querySelectorAll('[data-brand]').forEach((btn) => {
+        if (!marqueAutorisee(btn.dataset.brand)) btn.remove();
+    });
+    const section = document.getElementById('brand-section');
+    if (section && !selecteurMarqueVisible()) section.classList.add('hidden');
+
+    setBrand(marqueParDefaut());
 }
 
 // --- DASHBOARD & LOCALSTORAGE LOGIC ---
@@ -185,6 +205,9 @@ function renderDashboard() {
         let configsHtml = data.configurations.map((cfg, i) => {
             const eqs = cfg.equipments || [];
             const rds = cfg.roomDetails || [];
+            // Enregistré sous une marque qui n'est plus proposée : consultable, mais pas
+            // rechargeable — le recalcul porterait sur un autre catalogue (cf. reloadConfig).
+            const marqueRetiree = cfg.brand && !marqueAutorisee(cfg.brand);
 
             let detailsHtml = '';
             if (eqs.length > 0 || rds.length > 0) {
@@ -210,13 +233,14 @@ function renderDashboard() {
                     <div class="flex items-center gap-2 mb-1">
                         <span class="font-bold text-sm text-toshiba-dark">${escapeHtml(cfg.zone)}</span>
                         <span class="text-[11px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded font-bold uppercase">${escapeHtml(cfg.mode)}</span>
+                        ${marqueRetiree ? `<span class="text-[11px] bg-amber-100 text-amber-800 border border-amber-200 px-1.5 py-0.5 rounded font-bold uppercase" title="Marque plus proposée sur ce poste : fiche consultable, non rechargeable">${escapeHtml(libelleMarque(cfg.brand))} — archivé</span>` : ''}
                     </div>
                     <p class="text-xs text-[var(--brand-accent)] font-bold uppercase tracking-tight">${escapeHtml(cfg.resultStr)}</p>
                     ${detailsHtml}
                     <p class="text-[11px] text-gray-400 mt-2 font-medium">${escapeHtml(cfg.date)}</p>
                 </div>
                 <div class="absolute right-0 top-3 flex items-center gap-1">
-                    <button data-action="reload-config" data-client="${escapeHtml(client)}" data-index="${i}" class="text-gray-300 hover:text-[var(--brand-accent)] p-2" title="Recharger cette configuration pour la modifier"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg></button>
+                    ${marqueRetiree ? '' : `<button data-action="reload-config" data-client="${escapeHtml(client)}" data-index="${i}" class="text-gray-300 hover:text-[var(--brand-accent)] p-2" title="Recharger cette configuration pour la modifier"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg></button>`}
                     <button data-action="delete-config" data-client="${escapeHtml(client)}" data-index="${i}" class="text-gray-300 hover:text-red-500 p-2" title="Supprimer cette zone"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
                 </div>
             </div>
@@ -378,9 +402,20 @@ function reloadConfig(clientName, index) {
         return;
     }
 
+    // Refus AVANT toute bascule d'écran. Sans ce garde, setBrand ramènerait silencieusement
+    // la marque sur celle par défaut, puis calculate() relancerait le dimensionnement
+    // contre un AUTRE catalogue et afficherait un matériel différent sous le même intitulé
+    // client / zone : un devis faux qui a toutes les apparences du juste.
+    if (cfg.brand && !marqueAutorisee(cfg.brand)) {
+        alert(`Cette configuration a été enregistrée en ${libelleMarque(cfg.brand)}, marque qui n'est plus proposée sur ce poste.\n\n`
+            + `Elle ne peut pas être rechargée : le recalcul porterait sur un autre catalogue et proposerait un matériel différent. `
+            + `Le détail reste consultable dans la fiche du chantier.`);
+        return;
+    }
+
     toggleDashboard(false);
 
-    setBrand(cfg.brand || 'toshiba');
+    setBrand(cfg.brand || marqueParDefaut());
     applyBuildingParams(cfg.params);
 
     state.mode = cfg.mode === 'multi' ? 'multi' : 'mono';
@@ -459,7 +494,7 @@ function restoreDraftIfAny() {
     // Un brouillon sans la moindre surface saisie n'a rien à restaurer.
     if (!draft.rooms.some(r => r.surface)) return;
 
-    setBrand(draft.brand || 'toshiba');
+    setBrand(draft.brand || marqueParDefaut());
     applyBuildingParams(draft.params);
     state.mode = draft.mode === 'multi' ? 'multi' : 'mono';
     state.usage = draft.usage === 'froid_seul' ? 'froid_seul' : 'reversible';
@@ -1125,7 +1160,7 @@ function renderBesoinsCard(reqs, isMulti = false, roomsData = []) {
 
 // Contenu factuel de la fiche gamme (idéal pour / plus / moins / wifi). Réutilisé en mono (dépliant) et en multi (chips par pièce).
 function gammeGuideContent(gammeName) {
-    const g = GAMMES_INFO[state.brand][gammeName];
+    const g = GAMMES_INFO[state.brand]?.[gammeName];
     if (!g) return '';
     const wifiColor = g.wifi === 'De série' ? 'text-green-600' : 'text-amber-600';
     return `
@@ -1141,7 +1176,7 @@ function gammeGuideContent(gammeName) {
 
 // Fiche "carte d'identité" de la gamme, dépliable sous la carte résultat. Retourne '' si gamme inconnue.
 function renderGammeGuide(gammeName) {
-    const g = GAMMES_INFO[state.brand][gammeName];
+    const g = GAMMES_INFO[state.brand]?.[gammeName];
     if (!g) return '';
     return `
     <details class="mt-4 pt-3 border-t border-gray-100 group/guide">
