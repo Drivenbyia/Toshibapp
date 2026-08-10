@@ -1,6 +1,6 @@
 // Service worker réel de ProSizer B2B, servi en same-origin (contrairement à l'ancienne
 // version enregistrée depuis une blob: URL, que les navigateurs refusent silencieusement).
-const CACHE_VERSION = 'v3';
+const CACHE_VERSION = 'v4';
 const CACHE_NAME = `prosizer-${CACHE_VERSION}`;
 const PRECACHE_URLS = [
     './',
@@ -9,6 +9,8 @@ const PRECACHE_URLS = [
     './assets/tailwind.css',
     './js/data.js',
     './js/calcul.js',
+    './js/sauvegarde.js',
+    './js/marques.js',
     './js/app.js',
     './icons/icon-192.png',
     './icons/icon-512.png',
@@ -35,6 +37,16 @@ self.addEventListener('fetch', (event) => {
     const req = event.request;
     if (req.method !== 'GET') return;
 
+    // Requêtes vers une autre origine (API de synchronisation) : on ne répond pas, le
+    // navigateur les exécute normalement — ni lecture ni écriture de cache.
+    //
+    // Sans ce garde, la branche « assets statiques » plus bas s'appliquait à TOUTE requête
+    // GET malgré son commentaire, avec deux conséquences : des données distantes servies
+    // depuis le cache indéfiniment (`cached || network`), et surtout des réponses
+    // authentifiées recopiées dans un Cache Storage partagé, où elles survivaient à la
+    // déconnexion.
+    if (new URL(req.url).origin !== self.location.origin) return;
+
     // Document HTML : réseau d'abord, cache en secours hors-ligne. Évite de rester bloqué
     // sur une version périmée de l'app tant que la connexion fonctionne (le service worker
     // ignore sinon le Cache-Control: must-revalidate défini par netlify.toml).
@@ -55,9 +67,14 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
         caches.match(req).then((cached) => {
             const network = fetch(req).then((res) => {
-                if (res.ok) caches.open(CACHE_NAME).then((cache) => cache.put(req, res.clone()));
+                // `type === 'basic'` = same-origin non opaque. Redondant avec le garde
+                // d'origine ci-dessus, et c'est voulu : si quelqu'un le supprime un jour,
+                // rien d'authentifié n'atterrit pour autant dans le cache.
+                if (res.ok && res.type === 'basic') {
+                    caches.open(CACHE_NAME).then((cache) => cache.put(req, res.clone()));
+                }
                 return res;
-            }).catch(() => cached);
+            }).catch(() => cached || new Response('', { status: 504, statusText: 'Offline' }));
             return cached || network;
         })
     );

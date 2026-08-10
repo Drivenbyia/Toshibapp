@@ -83,6 +83,14 @@ export const BRAND_ACCENTS = {
     panasonic: { accent: '#0046AD', accentDark: '#003174' }
 };
 
+// Libellés d'affichage. Registre unique : jusqu'ici le libellé était déduit par un ternaire
+// binaire (`brand === 'toshiba' ? 'Toshiba' : 'Panasonic'`), qui affichait « Panasonic »
+// pour toute valeur inattendue — y compris une marque restaurée d'un ancien chantier.
+export const BRAND_LABELS = {
+    toshiba: 'Toshiba',
+    panasonic: 'Panasonic'
+};
+
 // --- CATALOGUES MATÉRIEL ---
 
 export const CATALOGS = {
