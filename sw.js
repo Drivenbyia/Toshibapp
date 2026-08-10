@@ -9,6 +9,7 @@ const PRECACHE_URLS = [
     './assets/tailwind.css',
     './js/data.js',
     './js/calcul.js',
+    './js/sauvegarde.js',
     './js/app.js',
     './icons/icon-192.png',
     './icons/icon-512.png',

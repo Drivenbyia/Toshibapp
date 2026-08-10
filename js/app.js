@@ -13,6 +13,10 @@ import {
     getGroupTvaInfo, trierMonosParTva,
     findGroupeEquilibre, estGroupeDesequilibre, ratioPieceDominante, pieceDominante
 } from './calcul.js';
+import {
+    formeChantiersValide, sauvegardeValide, fusionnerChantiers, construireSauvegarde,
+    compterChantiers
+} from './sauvegarde.js';
 
 // --- STATE ---
 let state = {
@@ -86,19 +90,55 @@ function escapeHtml(str) {
     return String(str).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 }
 
-// Accès localStorage protégés : Safari navigation privée / quota dépassé lèvent une
-// exception sur getItem/setItem, ce qui plantait l'écran Dashboard sans message.
-function loadChantiers() {
+const CHANTIERS_KEY = 'toshiba_chantiers';
+
+// Mode dégradé : renseigné dès qu'une lecture échoue, remis à zéro par une lecture saine.
+// Tant qu'il est actif, toute écriture est refusée (voir persistChantiers).
+let stockageDegrade = null;
+
+// Lecture à résultat typé. « Absent » et « illisible » ne doivent surtout pas se
+// confondre : si getItem lève (Safari navigation privée, quota, stockage corrompu) alors
+// que setItem fonctionne, les traiter pareil fait écraser les chantiers existants par la
+// sauvegarde suivante — une perte silencieuse et définitive.
+function readChantiers() {
+    let brut;
     try {
-        return JSON.parse(localStorage.getItem('toshiba_chantiers') || '{}');
+        brut = localStorage.getItem(CHANTIERS_KEY);
     } catch (e) {
-        console.warn('Lecture des chantiers impossible :', e);
-        return {};
+        return { ok: false, raison: 'illisible', erreur: e };
     }
-}
-function persistChantiers(chantiers) {
+    if (brut === null || brut === '') return { ok: true, valeur: {} };
+
+    let analyse;
     try {
-        localStorage.setItem('toshiba_chantiers', JSON.stringify(chantiers));
+        analyse = JSON.parse(brut);
+    } catch (e) {
+        return { ok: false, raison: 'corrompu', erreur: e };
+    }
+    if (!formeChantiersValide(analyse)) return { ok: false, raison: 'corrompu' };
+    return { ok: true, valeur: analyse };
+}
+
+function loadChantiers() {
+    const res = readChantiers();
+    if (res.ok) {
+        stockageDegrade = null;
+        return res.valeur;
+    }
+    stockageDegrade = res.raison;
+    console.warn('Lecture des chantiers impossible :', res.raison, res.erreur || '');
+    return {};
+}
+
+function persistChantiers(chantiers) {
+    // Refus d'écrire par-dessus des données qu'on n'a pas su relire : c'est exactement le
+    // scénario où l'on détruirait l'unique copie du fichier chantiers de l'utilisateur.
+    if (stockageDegrade) {
+        console.warn('Écriture refusée : stockage en mode dégradé (' + stockageDegrade + ')');
+        return false;
+    }
+    try {
+        localStorage.setItem(CHANTIERS_KEY, JSON.stringify(chantiers));
         return true;
     } catch (e) {
         console.warn('Sauvegarde des chantiers impossible :', e);
@@ -110,6 +150,29 @@ function renderDashboard() {
     const list = document.getElementById('chantiers-list');
     const chantiers = loadChantiers();
     const clients = Object.keys(chantiers);
+
+    // Un stockage illisible affichait « Aucun chantier enregistré » : le message le plus
+    // rassurant possible au pire moment. On dit ce qui se passe, et on annonce que rien
+    // ne sera écrit tant que la situation dure.
+    if (stockageDegrade) {
+        list.innerHTML = `
+        <div class="p-5 bg-red-50 border border-red-200 rounded-xl text-sm text-red-800">
+            <p class="font-bold mb-1">⚠️ Chantiers illisibles sur cet appareil</p>
+            <p class="text-xs leading-relaxed">
+                ${stockageDegrade === 'illisible'
+                    ? "Le navigateur refuse l'accès au stockage local (navigation privée, ou espace saturé)."
+                    : "Les données enregistrées sont corrompues et n'ont pas pu être relues."}
+                Vos chantiers ne sont <strong>pas perdus pour autant</strong> : par précaution,
+                l'application n'écrira plus rien tant que ce message est affiché, afin de ne pas
+                remplacer la sauvegarde existante.
+            </p>
+            <p class="text-xs leading-relaxed mt-2">
+                Essayez de rouvrir l'application dans une fenêtre normale (hors navigation privée),
+                ou restaurez une sauvegarde avec le bouton ci-dessus.
+            </p>
+        </div>`;
+        return;
+    }
 
     if (clients.length === 0) {
         list.innerHTML = `<div class="p-8 bg-gray-50 text-center text-gray-500 rounded-xl border border-gray-200 border-dashed italic">Aucun chantier enregistré pour le moment.</div>`;
@@ -187,13 +250,105 @@ function initDashboardEvents() {
         else if (btn.dataset.action === 'delete-config') deleteConfig(client, parseInt(btn.dataset.index, 10));
         else if (btn.dataset.action === 'reload-config') reloadConfig(client, parseInt(btn.dataset.index, 10));
     });
+
+    // Sauvegarde / restauration : même délégation, hors de la liste puisque ces boutons
+    // survivent aux reconstructions de #chantiers-list.
+    document.getElementById('dashboard-actions').addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-action]');
+        if (!btn) return;
+        if (btn.dataset.action === 'export-chantiers') exportChantiers();
+        else if (btn.dataset.action === 'import-chantiers') document.getElementById('import-file').click();
+    });
+    document.getElementById('import-file').addEventListener('change', importChantiers);
+}
+
+// --- SAUVEGARDE / RESTAURATION DE FICHIER ---
+// Tant que les chantiers ne vivent que dans le localStorage d'un appareil, un cache vidé
+// ou une tablette changée les emporte entièrement. Ces deux boutons sont le seul filet
+// avant la synchronisation, et ils ne dépendent d'aucune infrastructure.
+// La logique pure (validation, fusion, déduplication) vit dans js/sauvegarde.js.
+
+function afficherMessageSauvegarde(texte, succes) {
+    const box = document.getElementById('backup-msg');
+    if (!box) return;
+    box.textContent = texte;
+    box.className = `text-xs font-bold ${succes ? 'text-green-600' : 'text-red-500'}`;
+}
+
+function exportChantiers() {
+    const res = readChantiers();
+    if (!res.ok) {
+        afficherMessageSauvegarde("❌ Chantiers illisibles : sauvegarde impossible depuis cet appareil.", false);
+        return;
+    }
+    const nbClients = Object.keys(res.valeur).length;
+    if (nbClients === 0) {
+        afficherMessageSauvegarde("Aucun chantier à sauvegarder pour le moment.", false);
+        return;
+    }
+
+    const contenu = JSON.stringify(construireSauvegarde(res.valeur, new Date()), null, 2);
+    const url = URL.createObjectURL(new Blob([contenu], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `chantiers-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+
+    const { configs } = compterChantiers(res.valeur);
+    afficherMessageSauvegarde(`✅ ${nbClients} client(s), ${configs} zone(s) sauvegardés dans un fichier.`, true);
+}
+
+async function importChantiers(event) {
+    const input = event.target;
+    const fichier = input.files && input.files[0];
+    if (!fichier) return;
+    input.value = '';   // permet de réimporter le même fichier ensuite
+
+    let charge;
+    try {
+        charge = JSON.parse(await fichier.text());
+    } catch (e) {
+        afficherMessageSauvegarde("❌ Fichier illisible : ce n'est pas un fichier de sauvegarde valide.", false);
+        return;
+    }
+    if (!sauvegardeValide(charge)) {
+        afficherMessageSauvegarde("❌ Ce fichier n'est pas une sauvegarde de chantiers.", false);
+        return;
+    }
+
+    const actuel = readChantiers();
+    if (!actuel.ok) {
+        afficherMessageSauvegarde("❌ Chantiers actuels illisibles : restauration refusée pour ne rien écraser.", false);
+        return;
+    }
+
+    const { chantiers, ajoutes, ignores } = fusionnerChantiers(actuel.valeur, charge.chantiers);
+    if (!persistChantiers(chantiers)) {
+        afficherMessageSauvegarde("❌ Restauration impossible : le stockage local est indisponible ou plein.", false);
+        return;
+    }
+
+    renderDashboard();
+    populateClientDatalist();
+    afficherMessageSauvegarde(
+        `✅ ${ajoutes} zone(s) restaurée(s)` + (ignores ? `, ${ignores} déjà présente(s).` : '.'),
+        true
+    );
 }
 
 function deleteChantier(clientName) {
     if (confirm(`Supprimer définitivement le chantier ${clientName} ?`)) {
         let chantiers = loadChantiers();
         delete chantiers[clientName];
-        persistChantiers(chantiers);
+        // Le booléen de persistChantiers était ignoré ici : un effacement refusé par le
+        // stockage se réaffichait comme réussi, jusqu'au prochain rechargement où le
+        // chantier « supprimé » réapparaissait.
+        if (!persistChantiers(chantiers)) {
+            afficherMessageSauvegarde("❌ Suppression impossible : le stockage local est indisponible.", false);
+        }
         renderDashboard();
     }
 }
@@ -203,7 +358,9 @@ function deleteConfig(clientName, index) {
     if (!chantiers[clientName]) return;
     chantiers[clientName].configurations.splice(index, 1);
     if (chantiers[clientName].configurations.length === 0) delete chantiers[clientName];
-    persistChantiers(chantiers);
+    if (!persistChantiers(chantiers)) {
+        afficherMessageSauvegarde("❌ Suppression impossible : le stockage local est indisponible.", false);
+    }
     renderDashboard();
 }
 

@@ -218,6 +218,20 @@
             </h2>
             <button onclick="toggleDashboard(false)" class="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm font-bold hover:bg-gray-300 transition-colors">Fermer</button>
         </div>
+
+        <!-- Sauvegarde locale : seul filet contre la perte de données tant que les
+             chantiers ne vivent que dans le stockage de cet appareil. -->
+        <div id="dashboard-actions" class="flex flex-wrap items-center gap-2 -mt-2">
+            <button data-action="export-chantiers" class="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-2 rounded-lg text-xs font-bold transition-colors" title="Télécharger un fichier contenant tous vos chantiers">
+                💾 Sauvegarder mes chantiers
+            </button>
+            <button data-action="import-chantiers" class="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-2 rounded-lg text-xs font-bold transition-colors" title="Restaurer des chantiers depuis un fichier de sauvegarde">
+                📂 Restaurer une sauvegarde
+            </button>
+            <input type="file" id="import-file" accept="application/json,.json" class="hidden">
+        </div>
+        <p id="backup-msg" class="text-xs font-bold" aria-live="polite"></p>
+
         <div id="chantiers-list" class="flex flex-col gap-4 pb-10"></div>
     </main>
 
