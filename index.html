@@ -102,14 +102,14 @@
         </div>
 
         <!-- Brand Selector -->
-        <section class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 fade-in">
+        <section id="brand-section" class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 fade-in">
             <h2 class="text-lg font-semibold text-toshiba-dark flex items-center gap-2 mb-4">
                 <span class="w-2 h-6 bg-[var(--brand-accent)] rounded-full"></span>
                 Marque
             </h2>
             <div class="flex p-1 bg-gray-100 rounded-lg">
-                <button id="btn-brand-toshiba" onclick="setBrand('toshiba')" class="flex-1 py-2 text-sm font-bold rounded-md shadow-sm bg-white text-[var(--brand-accent)] transition-all">Toshiba</button>
-                <button id="btn-brand-panasonic" onclick="setBrand('panasonic')" class="flex-1 py-2 text-sm font-bold rounded-md text-gray-500 transition-all">Panasonic</button>
+                <button id="btn-brand-toshiba" data-brand="toshiba" onclick="setBrand('toshiba')" class="flex-1 py-2 text-sm font-bold rounded-md shadow-sm bg-white text-[var(--brand-accent)] transition-all">Toshiba</button>
+                <button id="btn-brand-panasonic" data-brand="panasonic" onclick="setBrand('panasonic')" class="flex-1 py-2 text-sm font-bold rounded-md text-gray-500 transition-all">Panasonic</button>
             </div>
         </section>
 

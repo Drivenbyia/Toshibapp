@@ -3,7 +3,7 @@
 // module qui touche au DOM, à localStorage ou à l'état applicatif.
 import {
     CATALOGS, GAMMES_INFO, TVA_RULES, DEPARTMENTS, tBaseMatrix, tBaseEteMatrix,
-    BRAND_ACCENTS, CONSIGNE_REFERENCE, COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD,
+    BRAND_ACCENTS, BRAND_LABELS, CONSIGNE_REFERENCE, COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD,
     SEUIL_SOUS_CHARGE, SEUIL_DESEQUILIBRE_GROUPE
 } from './data.js';
 import {
@@ -33,13 +33,18 @@ function defaultRoom(id) {
     return { id, nom: '', surface: '', height: 2.5, emplacement: 'plain_pied', orientation: 'mixte', vitrage: 'moyen', protection: 'stores_int', occupants: '', expositionMurs: 4 };
 }
 
+// Les boutons de marque sont retrouvés par leur attribut `data-brand` et non par un id en
+// dur : une marque masquée (bouton absent du DOM) doit laisser cette fonction intacte,
+// alors qu'un getElementById manquant la faisait planter sur un `null`.
 function setBrand(brand) {
     state.brand = brand;
     const colors = BRAND_ACCENTS[brand];
     document.documentElement.style.setProperty('--brand-accent', colors.accent);
     document.documentElement.style.setProperty('--brand-accent-dark', colors.accentDark);
-    document.getElementById('btn-brand-toshiba').className = `flex-1 py-2 text-sm font-bold rounded-md transition-all ${brand === 'toshiba' ? 'shadow-sm bg-white text-[var(--brand-accent)]' : 'text-gray-500'}`;
-    document.getElementById('btn-brand-panasonic').className = `flex-1 py-2 text-sm font-bold rounded-md transition-all ${brand === 'panasonic' ? 'shadow-sm bg-white text-[var(--brand-accent)]' : 'text-gray-500'}`;
+    document.querySelectorAll('[data-brand]').forEach((btn) => {
+        const actif = btn.dataset.brand === brand;
+        btn.className = `flex-1 py-2 text-sm font-bold rounded-md transition-all ${actif ? 'shadow-sm bg-white text-[var(--brand-accent)]' : 'text-gray-500'}`;
+    });
     state.currentCalc = null;
     document.getElementById('results-container').innerHTML = '';
 }
@@ -855,7 +860,7 @@ function buildResultSummaryLines() {
     const dateStr = new Date().toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
     return {
         client, zone, dateStr,
-        brandLabel: state.brand === 'toshiba' ? 'Toshiba' : 'Panasonic',
+        brandLabel: BRAND_LABELS[state.brand] || state.brand,
         modeLabel: calc.mode === 'mono' ? 'Monosplit' : 'Multisplit',
         roomDetails: calc.roomDetails || [],
         equipments: state.lastResultData.equipments || []
