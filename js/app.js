@@ -14,12 +14,15 @@ import {
     findGroupeEquilibre, estGroupeDesequilibre, ratioPieceDominante, pieceDominante
 } from './calcul.js';
 import {
-    formeChantiersValide, sauvegardeValide, fusionnerChantiers, construireSauvegarde,
-    compterChantiers
+    sauvegardeValide, construireSauvegarde, compterChantiers
 } from './sauvegarde.js';
 import {
-    marqueAutorisee, marqueParDefaut, resoudreMarque, libelleMarque, selecteurMarqueVisible
+    MARQUES_ACTIVES, marqueAutorisee, marqueParDefaut, resoudreMarque, libelleMarque,
+    selecteurMarqueVisible
 } from './marques.js';
+import { store } from './store.js';
+import { init as initAccount, subscribe as subscribeAccount, getBrandsOverride } from './account.js';
+import { initAuthUi } from './auth-ui.js';
 
 // --- STATE ---
 let state = {
@@ -33,8 +36,21 @@ let state = {
     lastResultData: null,
     currentCalc: null,
     // Solution choisie par l'utilisateur parmi les options proposées (mono / dédiés multi / gammes UI du groupe / groupe extérieur)
-    selection: { mono: 0, dedicated: {}, group: {}, groupChoice: 0 }
+    selection: { mono: 0, dedicated: {}, group: {}, groupChoice: 0 },
+    // Identifiant du chantier sauvegardé actuellement chargé (via reloadConfig), ou null pour
+    // une saisie neuve. Permet de proposer une mise à jour en place plutôt qu'un doublon
+    // systématique. Remis à null par calculate() ; posé par reloadConfig() une fois le calcul
+    // relancé, pour ne pas être écrasé par cette remise à zéro.
+    loadedConfigId: null
 };
+
+// Résout la liste de marques effective : la surcharge du compte connecté si elle existe,
+// sinon la constante locale de js/marques.js. `getBrandsOverride()` renvoie `null` pour un
+// appareil jamais connecté — comportement inchangé par rapport au lot précédent, aucun
+// utilisateur local existant n'est cassé par l'arrivée des comptes.
+function marquesActives() {
+    return getBrandsOverride() || MARQUES_ACTIVES;
+}
 
 function defaultRoom(id) {
     return { id, nom: '', surface: '', height: 2.5, emplacement: 'plain_pied', orientation: 'mixte', vitrage: 'moyen', protection: 'stores_int', occupants: '', expositionMurs: 4 };
@@ -46,8 +62,9 @@ function defaultRoom(id) {
 function setBrand(brand) {
     // Garde unique : couvre du même coup les deux chemins de restauration (chantier
     // sauvegardé et brouillon), qui passaient jusqu'ici la marque enregistrée sans la
-    // valider et pouvaient ainsi ressusciter une marque masquée.
-    brand = resoudreMarque(brand);
+    // valider et pouvaient ainsi ressusciter une marque masquée. Passe par marquesActives()
+    // pour tenir compte des droits du compte connecté, s'il y en a un.
+    brand = resoudreMarque(brand, marquesActives());
     state.brand = brand;
     const colors = BRAND_ACCENTS[brand];
     document.documentElement.style.setProperty('--brand-accent', colors.accent);
@@ -61,6 +78,14 @@ function setBrand(brand) {
 }
 
 function initApp() {
+    // Avant tout rendu : charge le magasin, migrant depuis l'ancien stockage si besoin (voir
+    // js/store.js). Purement local et hors-ligne — aucune raison que ça échoue sans réseau.
+    store.init();
+    // Restaure la session depuis le cache local (aucun réseau ici), puis vérifie en
+    // arrière-plan sans jamais bloquer ce premier rendu — voir js/account.js. Les données
+    // locales s'affichent avant même de savoir quoi que ce soit de l'authentification.
+    initAccount();
+
     const deptSelect = document.getElementById('deptSelect');
     Object.keys(DEPARTMENTS).sort().forEach(code => {
         const opt = document.createElement('option');
@@ -73,19 +98,36 @@ function initApp() {
     initSelecteurMarque();
     renderRooms();
     initDashboardEvents();
+    initAuthUi();
+    subscribeAccount(onAccountChange);
     restoreDraftIfAny();
 }
 
-// Retire du DOM les boutons des marques non proposées, et masque la section entière quand
-// il n'en reste qu'une : afficher un choix unique et non actionnable n'aide personne.
+// Rejoue le sélecteur de marque quand l'état du compte change (connexion, déconnexion,
+// droits rafraîchis). Sans effet si un calcul est déjà en cours à l'écran : initSelecteurMarque
+// appelle setBrand(), qui efface les résultats affichés — se connecter en cours de saisie ne
+// doit pas faire disparaître un travail non enregistré. La mise à jour s'applique au
+// prochain calcul ou au prochain chargement.
+function onAccountChange() {
+    if (!state.currentCalc) initSelecteurMarque();
+}
+
+// Masque (sans les retirer du DOM — voir setBrand) les boutons des marques non autorisées,
+// et l'ensemble du sélecteur quand il n'en reste qu'une : un choix à une seule option
+// n'aide personne. Rejouable sans effet de bord — initApp() comme onAccountChange()
+// l'appellent — c'est ce qui permet à la connexion de faire réapparaître une marque en
+// cours de session sans redémarrer l'application.
 function initSelecteurMarque() {
+    const actives = marquesActives();
     document.querySelectorAll('[data-brand]').forEach((btn) => {
-        if (!marqueAutorisee(btn.dataset.brand)) btn.remove();
+        btn.classList.toggle('hidden', !actives.includes(btn.dataset.brand));
     });
     const section = document.getElementById('brand-section');
-    if (section && !selecteurMarqueVisible()) section.classList.add('hidden');
+    if (section) section.classList.toggle('hidden', !selecteurMarqueVisible(actives));
 
-    setBrand(marqueParDefaut());
+    // Conserve le choix de marque en cours s'il reste valide, plutôt que de forcer la
+    // marque par défaut à chaque rafraîchissement.
+    setBrand(actives.includes(state.brand) ? state.brand : marqueParDefaut(actives));
 }
 
 // --- DASHBOARD & LOCALSTORAGE LOGIC ---
@@ -110,76 +152,35 @@ function escapeHtml(str) {
     return String(str).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 }
 
-const CHANTIERS_KEY = 'toshiba_chantiers';
-
-// Mode dégradé : renseigné dès qu'une lecture échoue, remis à zéro par une lecture saine.
-// Tant qu'il est actif, toute écriture est refusée (voir persistChantiers).
-let stockageDegrade = null;
-
-// Lecture à résultat typé. « Absent » et « illisible » ne doivent surtout pas se
-// confondre : si getItem lève (Safari navigation privée, quota, stockage corrompu) alors
-// que setItem fonctionne, les traiter pareil fait écraser les chantiers existants par la
-// sauvegarde suivante — une perte silencieuse et définitive.
-function readChantiers() {
-    let brut;
-    try {
-        brut = localStorage.getItem(CHANTIERS_KEY);
-    } catch (e) {
-        return { ok: false, raison: 'illisible', erreur: e };
-    }
-    if (brut === null || brut === '') return { ok: true, valeur: {} };
-
-    let analyse;
-    try {
-        analyse = JSON.parse(brut);
-    } catch (e) {
-        return { ok: false, raison: 'corrompu', erreur: e };
-    }
-    if (!formeChantiersValide(analyse)) return { ok: false, raison: 'corrompu' };
-    return { ok: true, valeur: analyse };
-}
-
-function loadChantiers() {
-    const res = readChantiers();
-    if (res.ok) {
-        stockageDegrade = null;
-        return res.valeur;
-    }
-    stockageDegrade = res.raison;
-    console.warn('Lecture des chantiers impossible :', res.raison, res.erreur || '');
-    return {};
-}
-
-function persistChantiers(chantiers) {
-    // Refus d'écrire par-dessus des données qu'on n'a pas su relire : c'est exactement le
-    // scénario où l'on détruirait l'unique copie du fichier chantiers de l'utilisateur.
-    if (stockageDegrade) {
-        console.warn('Écriture refusée : stockage en mode dégradé (' + stockageDegrade + ')');
-        return false;
-    }
-    try {
-        localStorage.setItem(CHANTIERS_KEY, JSON.stringify(chantiers));
-        return true;
-    } catch (e) {
-        console.warn('Sauvegarde des chantiers impossible :', e);
-        return false;
-    }
+// Groupe une liste de configurations (déjà triées par le magasin, savedAt décroissant) par
+// client, en préservant l'ordre de première apparition — donc les clients les plus récemment
+// actifs en tête, sans logique de tri séparée à maintenir ici.
+function grouperParClient(configs) {
+    const index = new Map();
+    const groupes = [];
+    configs.forEach((cfg) => {
+        if (!index.has(cfg.clientName)) {
+            index.set(cfg.clientName, groupes.length);
+            groupes.push({ clientName: cfg.clientName, configs: [] });
+        }
+        groupes[index.get(cfg.clientName)].configs.push(cfg);
+    });
+    return groupes;
 }
 
 function renderDashboard() {
     const list = document.getElementById('chantiers-list');
-    const chantiers = loadChantiers();
-    const clients = Object.keys(chantiers);
+    const degrade = store.isDegraded();
 
-    // Un stockage illisible affichait « Aucun chantier enregistré » : le message le plus
-    // rassurant possible au pire moment. On dit ce qui se passe, et on annonce que rien
-    // ne sera écrit tant que la situation dure.
-    if (stockageDegrade) {
+    // Un stockage illisible affichait auparavant « Aucun chantier enregistré » : le message
+    // le plus rassurant possible au pire moment. On dit ce qui se passe, et on annonce que
+    // rien ne sera écrit tant que la situation dure.
+    if (degrade) {
         list.innerHTML = `
         <div class="p-5 bg-red-50 border border-red-200 rounded-xl text-sm text-red-800">
             <p class="font-bold mb-1">⚠️ Chantiers illisibles sur cet appareil</p>
             <p class="text-xs leading-relaxed">
-                ${stockageDegrade === 'illisible'
+                ${degrade === 'illisible'
                     ? "Le navigateur refuse l'accès au stockage local (navigation privée, ou espace saturé)."
                     : "Les données enregistrées sont corrompues et n'ont pas pu être relues."}
                 Vos chantiers ne sont <strong>pas perdus pour autant</strong> : par précaution,
@@ -194,20 +195,20 @@ function renderDashboard() {
         return;
     }
 
-    if (clients.length === 0) {
+    const groupes = grouperParClient(store.listConfigs());
+    if (groupes.length === 0) {
         list.innerHTML = `<div class="p-8 bg-gray-50 text-center text-gray-500 rounded-xl border border-gray-200 border-dashed italic">Aucun chantier enregistré pour le moment.</div>`;
         return;
     }
 
     let html = '';
-    clients.forEach(client => {
-        const data = chantiers[client];
-        let configsHtml = data.configurations.map((cfg, i) => {
+    groupes.forEach(({ clientName, configs }) => {
+        let configsHtml = configs.map((cfg) => {
             const eqs = cfg.equipments || [];
             const rds = cfg.roomDetails || [];
             // Enregistré sous une marque qui n'est plus proposée : consultable, mais pas
             // rechargeable — le recalcul porterait sur un autre catalogue (cf. reloadConfig).
-            const marqueRetiree = cfg.brand && !marqueAutorisee(cfg.brand);
+            const marqueRetiree = cfg.brand && !marqueAutorisee(cfg.brand, marquesActives());
 
             let detailsHtml = '';
             if (eqs.length > 0 || rds.length > 0) {
@@ -240,8 +241,8 @@ function renderDashboard() {
                     <p class="text-[11px] text-gray-400 mt-2 font-medium">${escapeHtml(cfg.date)}</p>
                 </div>
                 <div class="absolute right-0 top-3 flex items-center gap-1">
-                    ${marqueRetiree ? '' : `<button data-action="reload-config" data-client="${escapeHtml(client)}" data-index="${i}" class="text-gray-300 hover:text-[var(--brand-accent)] p-2" title="Recharger cette configuration pour la modifier"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg></button>`}
-                    <button data-action="delete-config" data-client="${escapeHtml(client)}" data-index="${i}" class="text-gray-300 hover:text-red-500 p-2" title="Supprimer cette zone"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
+                    ${marqueRetiree ? '' : `<button data-action="reload-config" data-id="${escapeHtml(cfg.id)}" class="text-gray-300 hover:text-[var(--brand-accent)] p-2" title="Recharger cette configuration pour la modifier"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg></button>`}
+                    <button data-action="delete-config" data-id="${escapeHtml(cfg.id)}" class="text-gray-300 hover:text-red-500 p-2" title="Supprimer cette zone"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
                 </div>
             </div>
         `}).join('');
@@ -251,9 +252,9 @@ function renderDashboard() {
             <div class="flex justify-between items-center mb-3">
                 <h3 class="text-lg font-bold text-toshiba-dark flex items-center gap-2">
                     <svg class="w-5 h-5 text-gray-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"></path></svg>
-                    ${escapeHtml(client)}
+                    ${escapeHtml(clientName)}
                 </h3>
-                <button data-action="delete-chantier" data-client="${escapeHtml(client)}" class="text-[11px] font-bold text-red-500 hover:text-white border border-red-200 hover:bg-red-500 hover:border-red-500 transition-colors px-2 py-1 rounded">SUPPRIMER TOUT</button>
+                <button data-action="delete-chantier" data-client="${escapeHtml(clientName)}" class="text-[11px] font-bold text-red-500 hover:text-white border border-red-200 hover:bg-red-500 hover:border-red-500 transition-colors px-2 py-1 rounded">SUPPRIMER TOUT</button>
             </div>
             <div class="bg-gray-50 rounded-lg px-4 border border-gray-100">
                 ${configsHtml}
@@ -269,10 +270,9 @@ function initDashboardEvents() {
     document.getElementById('chantiers-list').addEventListener('click', (e) => {
         const btn = e.target.closest('[data-action]');
         if (!btn) return;
-        const client = btn.dataset.client;
-        if (btn.dataset.action === 'delete-chantier') deleteChantier(client);
-        else if (btn.dataset.action === 'delete-config') deleteConfig(client, parseInt(btn.dataset.index, 10));
-        else if (btn.dataset.action === 'reload-config') reloadConfig(client, parseInt(btn.dataset.index, 10));
+        if (btn.dataset.action === 'delete-chantier') deleteChantier(btn.dataset.client);
+        else if (btn.dataset.action === 'delete-config') deleteConfig(btn.dataset.id);
+        else if (btn.dataset.action === 'reload-config') reloadConfig(btn.dataset.id);
     });
 
     // Sauvegarde / restauration : même délégation, hors de la liste puisque ces boutons
@@ -300,18 +300,18 @@ function afficherMessageSauvegarde(texte, succes) {
 }
 
 function exportChantiers() {
-    const res = readChantiers();
-    if (!res.ok) {
+    if (store.isDegraded()) {
         afficherMessageSauvegarde("❌ Chantiers illisibles : sauvegarde impossible depuis cet appareil.", false);
         return;
     }
-    const nbClients = Object.keys(res.valeur).length;
+    const blob = store.exportLegacyBlob();
+    const nbClients = Object.keys(blob).length;
     if (nbClients === 0) {
         afficherMessageSauvegarde("Aucun chantier à sauvegarder pour le moment.", false);
         return;
     }
 
-    const contenu = JSON.stringify(construireSauvegarde(res.valeur, new Date()), null, 2);
+    const contenu = JSON.stringify(construireSauvegarde(blob, new Date()), null, 2);
     const url = URL.createObjectURL(new Blob([contenu], { type: 'application/json' }));
     const a = document.createElement('a');
     a.href = url;
@@ -321,7 +321,7 @@ function exportChantiers() {
     a.remove();
     URL.revokeObjectURL(url);
 
-    const { configs } = compterChantiers(res.valeur);
+    const { configs } = compterChantiers(blob);
     afficherMessageSauvegarde(`✅ ${nbClients} client(s), ${configs} zone(s) sauvegardés dans un fichier.`, true);
 }
 
@@ -342,19 +342,12 @@ async function importChantiers(event) {
         afficherMessageSauvegarde("❌ Ce fichier n'est pas une sauvegarde de chantiers.", false);
         return;
     }
-
-    const actuel = readChantiers();
-    if (!actuel.ok) {
+    if (store.isDegraded()) {
         afficherMessageSauvegarde("❌ Chantiers actuels illisibles : restauration refusée pour ne rien écraser.", false);
         return;
     }
 
-    const { chantiers, ajoutes, ignores } = fusionnerChantiers(actuel.valeur, charge.chantiers);
-    if (!persistChantiers(chantiers)) {
-        afficherMessageSauvegarde("❌ Restauration impossible : le stockage local est indisponible ou plein.", false);
-        return;
-    }
-
+    const { ajoutes, ignores } = store.importLegacyBlob(charge.chantiers);
     renderDashboard();
     populateClientDatalist();
     afficherMessageSauvegarde(
@@ -365,24 +358,18 @@ async function importChantiers(event) {
 
 function deleteChantier(clientName) {
     if (confirm(`Supprimer définitivement le chantier ${clientName} ?`)) {
-        let chantiers = loadChantiers();
-        delete chantiers[clientName];
-        // Le booléen de persistChantiers était ignoré ici : un effacement refusé par le
-        // stockage se réaffichait comme réussi, jusqu'au prochain rechargement où le
-        // chantier « supprimé » réapparaissait.
-        if (!persistChantiers(chantiers)) {
+        // Le retour de softDeleteByClient était ignoré dans l'ancienne version : un effacement
+        // refusé par le stockage se réaffichait comme réussi, jusqu'au prochain rechargement
+        // où le chantier « supprimé » réapparaissait.
+        if (!store.softDeleteByClient(clientName)) {
             afficherMessageSauvegarde("❌ Suppression impossible : le stockage local est indisponible.", false);
         }
         renderDashboard();
     }
 }
 
-function deleteConfig(clientName, index) {
-    let chantiers = loadChantiers();
-    if (!chantiers[clientName]) return;
-    chantiers[clientName].configurations.splice(index, 1);
-    if (chantiers[clientName].configurations.length === 0) delete chantiers[clientName];
-    if (!persistChantiers(chantiers)) {
+function deleteConfig(id) {
+    if (!store.softDelete(id)) {
         afficherMessageSauvegarde("❌ Suppression impossible : le stockage local est indisponible.", false);
     }
     renderDashboard();
@@ -392,12 +379,11 @@ function deleteConfig(clientName, index) {
 // paramètres bâtiment, pièces et sélection utilisateur sont restaurés à l'identique, puis
 // le calcul est relancé. Avant ce correctif, un chantier n'était consultable qu'en lecture
 // seule (texte figé) : toute variante demandée par le client obligeait à tout ressaisir.
-function reloadConfig(clientName, index) {
-    const chantiers = loadChantiers();
-    const cfg = chantiers[clientName] && chantiers[clientName].configurations[index];
+function reloadConfig(id) {
+    const cfg = store.getConfig(id);
     if (!cfg) return;
 
-    if (!cfg.rooms || !cfg.rooms.length) {
+    if (cfg.legacyIncomplete) {
         alert("Cette configuration a été enregistrée avec une version antérieure de l'outil et ne contient pas assez d'informations pour être rechargée automatiquement.");
         return;
     }
@@ -406,7 +392,7 @@ function reloadConfig(clientName, index) {
     // la marque sur celle par défaut, puis calculate() relancerait le dimensionnement
     // contre un AUTRE catalogue et afficherait un matériel différent sous le même intitulé
     // client / zone : un devis faux qui a toutes les apparences du juste.
-    if (cfg.brand && !marqueAutorisee(cfg.brand)) {
+    if (cfg.brand && !marqueAutorisee(cfg.brand, marquesActives())) {
         alert(`Cette configuration a été enregistrée en ${libelleMarque(cfg.brand)}, marque qui n'est plus proposée sur ce poste.\n\n`
             + `Elle ne peut pas être rechargée : le recalcul porterait sur un autre catalogue et proposerait un matériel différent. `
             + `Le détail reste consultable dans la fiche du chantier.`);
@@ -415,7 +401,7 @@ function reloadConfig(clientName, index) {
 
     toggleDashboard(false);
 
-    setBrand(cfg.brand || marqueParDefaut());
+    setBrand(cfg.brand || marqueParDefaut(marquesActives()));
     applyBuildingParams(cfg.params);
 
     state.mode = cfg.mode === 'multi' ? 'multi' : 'mono';
@@ -425,7 +411,10 @@ function reloadConfig(clientName, index) {
     updateUsageButtons(state.usage);
     renderRooms();
 
-    calculate();
+    calculate();   // remet state.loadedConfigId à null au passage : on le repose donc juste après,
+                   // AVANT le second renderResults() ci-dessous, sans quoi le bouton de mise à
+                   // jour ne serait pas encore éligible au moment où ce rendu-là a lieu.
+    state.loadedConfigId = id;
     if (cfg.selection) {
         state.selection = JSON.parse(JSON.stringify(cfg.selection));
         renderResults();
@@ -433,15 +422,14 @@ function reloadConfig(clientName, index) {
 
     const clientEl = document.getElementById('save-client');
     const zoneEl = document.getElementById('save-zone');
-    if (clientEl) clientEl.value = clientName;
+    if (clientEl) clientEl.value = cfg.clientName;
     if (zoneEl) zoneEl.value = cfg.zone || '';
 }
 
 function populateClientDatalist() {
     const dl = document.getElementById('client-list');
     if (!dl) return;
-    const chantiers = loadChantiers();
-    dl.innerHTML = Object.keys(chantiers).map(c => `<option value="${escapeHtml(c)}">`).join('');
+    dl.innerHTML = store.listClientNames().map(c => `<option value="${escapeHtml(c)}">`).join('');
 }
 
 // Paramètres bâtiment courants (isolation, localisation, consigne), lus depuis le DOM.
@@ -471,7 +459,8 @@ function applyBuildingParams(params) {
 // Autosave de la saisie en cours (pas encore enregistrée dans "Mes Chantiers") : un onglet
 // mobile tué en arrière-plan, ou un appel qui interrompt la saisie, ne doit pas faire perdre
 // 5 pièces déjà remplies. Sauvegarde silencieuse à chaque modification, restaurée au chargement.
-const DRAFT_KEY = 'toshiba_prosizer_draft';
+const DRAFT_KEY = 'klimo:v2:local:draft';
+const DRAFT_KEY_LEGACY = 'toshiba_prosizer_draft';
 function persistDraft() {
     try {
         localStorage.setItem(DRAFT_KEY, JSON.stringify({
@@ -484,17 +473,26 @@ function persistDraft() {
     } catch (e) { /* stockage indisponible : tant pis, pas de brouillon */ }
 }
 function clearDraft() {
-    try { localStorage.removeItem(DRAFT_KEY); } catch (e) { /* ignoré */ }
+    try {
+        localStorage.removeItem(DRAFT_KEY);
+        localStorage.removeItem(DRAFT_KEY_LEGACY);
+    } catch (e) { /* ignoré */ }
 }
+// Lit la nouvelle clé, et à défaut l'ancienne une seule fois (renommage sans migration
+// dédiée : un brouillon est une saisie éphémère non encore validée, la perte d'un brouillon
+// en cours dans le pire cas est sans commune mesure avec celle d'un chantier enregistré).
+// La prochaine sauvegarde écrit sous la nouvelle clé, achevant la bascule.
 function restoreDraftIfAny() {
     let draft;
-    try { draft = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null'); }
-    catch (e) { return; }
+    try {
+        const brut = localStorage.getItem(DRAFT_KEY) || localStorage.getItem(DRAFT_KEY_LEGACY);
+        draft = JSON.parse(brut || 'null');
+    } catch (e) { return; }
     if (!draft || !draft.rooms || !draft.rooms.length) return;
     // Un brouillon sans la moindre surface saisie n'a rien à restaurer.
     if (!draft.rooms.some(r => r.surface)) return;
 
-    setBrand(draft.brand || marqueParDefaut());
+    setBrand(draft.brand || marqueParDefaut(marquesActives()));
     applyBuildingParams(draft.params);
     state.mode = draft.mode === 'multi' ? 'multi' : 'mono';
     state.usage = draft.usage === 'froid_seul' ? 'froid_seul' : 'reversible';
@@ -517,6 +515,27 @@ function startNewCalcul() {
     if (banner) banner.classList.add('hidden');
 }
 
+// Capture l'état courant du calcul dans la forme que le magasin attend pour `body` — factorisé
+// car saveChantier() (toujours un ajout) et updateChantier() (mise à jour explicite) en ont
+// besoin à l'identique.
+function captureCorpsChantier() {
+    return {
+        mode: state.mode,
+        brand: state.brand,
+        usage: state.usage,
+        resultStr: state.lastResultData.summaryText,
+        equipments: state.lastResultData.equipments,
+        roomDetails: state.lastResultData.roomDetails,
+        params: captureBuildingParams(),
+        rooms: JSON.parse(JSON.stringify(state.rooms)),
+        selection: JSON.parse(JSON.stringify(state.selection))
+    };
+}
+
+// Chemin par défaut, toujours un ajout : un nouveau dimensionnement devient un identifiant
+// neuf, qui ne peut structurellement pas entrer en conflit avec un autre appareil. La mise à
+// jour en place reste un geste explicite, séparé (voir updateChantier), pour ne jamais
+// écraser une fiche par accident.
 function saveChantier() {
     const client = document.getElementById('save-client').value.trim();
     const zone = document.getElementById('save-zone').value.trim();
@@ -528,33 +547,53 @@ function saveChantier() {
         return;
     }
 
-    let chantiers = loadChantiers();
-    if (!chantiers[client]) chantiers[client] = { configurations: [] };
-
-    chantiers[client].configurations.push({
-        zone: zone,
-        mode: state.mode,
-        brand: state.brand,
-        usage: state.usage,
-        resultStr: state.lastResultData.summaryText,
-        equipments: state.lastResultData.equipments,
-        roomDetails: state.lastResultData.roomDetails,
-        params: captureBuildingParams(),
-        rooms: JSON.parse(JSON.stringify(state.rooms)),
-        selection: JSON.parse(JSON.stringify(state.selection)),
-        date: new Date().toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-    });
-
-    if (!persistChantiers(chantiers)) {
+    const id = store.saveConfig({ clientName: client, zone, body: captureCorpsChantier() });
+    if (id === null) {
         msgBox.innerHTML = "❌ Échec de la sauvegarde (stockage local indisponible ou plein).";
         msgBox.className = "mt-3 text-xs font-bold text-center text-red-500 block";
         return;
     }
 
+    clearDraft();
+    state.loadedConfigId = null;
     document.getElementById('save-zone').value = '';
     msgBox.innerHTML = "✅ Sauvegardé avec succès dans 'Mes Chantiers' !";
     msgBox.className = "mt-3 text-xs font-bold text-center text-green-600 block";
     populateClientDatalist();
+}
+
+// Met à jour en place la fiche chargée par reloadConfig(), plutôt que d'empiler un doublon.
+// N'apparaît dans l'interface que lorsqu'une fiche est effectivement chargée (state.loadedConfigId).
+function updateChantier() {
+    if (!state.loadedConfigId) return;
+    const client = document.getElementById('save-client').value.trim();
+    const zone = document.getElementById('save-zone').value.trim();
+    const msgBox = document.getElementById('save-msg');
+
+    if (!client || !zone) {
+        msgBox.innerHTML = "Veuillez remplir le Client et la Zone.";
+        msgBox.className = "mt-3 text-xs font-bold text-center text-red-500 block";
+        return;
+    }
+
+    const ok = store.updateConfig(state.loadedConfigId, { clientName: client, zone, body: captureCorpsChantier() });
+    if (!ok) {
+        msgBox.innerHTML = "❌ Échec de la mise à jour (stockage local indisponible, ou fiche introuvable).";
+        msgBox.className = "mt-3 text-xs font-bold text-center text-red-500 block";
+        return;
+    }
+
+    clearDraft();
+    msgBox.innerHTML = "✅ Configuration mise à jour.";
+    msgBox.className = "mt-3 text-xs font-bold text-center text-green-600 block";
+    populateClientDatalist();
+}
+
+// Abandonne la fiche chargée sans la modifier : repart sur un enregistrement neuf au prochain
+// « Sauvegarder » plutôt que de continuer à proposer une mise à jour.
+function oublierConfigChargee() {
+    state.loadedConfigId = null;
+    renderResults();
 }
 
 // --- LECTURE DES PARAMÈTRES DEPUIS LE DOM (ponts vers le module de calcul pur) ---
@@ -800,8 +839,11 @@ function calculate() {
         ? `<div class="p-2.5 bg-cyan-50 border border-cyan-200 text-cyan-900 rounded-lg text-[11px] font-medium text-center mb-4 -mt-2">❄️ Froid seul : la sélection ignore le besoin chauffage (affiché à titre indicatif ci-dessous). Les machines proposées restent des PAC réversibles standard.</div>`
         : '';
 
-    // Reset des choix utilisateur à chaque nouveau calcul.
+    // Reset des choix utilisateur à chaque nouveau calcul. loadedConfigId aussi : un calcul
+    // fraîchement lancé n'est plus l'édition d'une fiche existante, sauf si reloadConfig() le
+    // repose juste après avoir appelé calculate() pour recharger une configuration.
     state.selection = { mono: 0, dedicated: {}, group: {}, groupChoice: 0 };
+    state.loadedConfigId = null;
 
     if (state.mode === 'mono') {
         const req = getRequiredKw(state.rooms[0].surface, state.rooms[0].height, state.rooms[0]);
@@ -1017,6 +1059,11 @@ function renderResults() {
                 <svg class="w-5 h-5 text-[var(--brand-accent)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
                 Enregistrer au Chantier
             </h3>
+            ${state.loadedConfigId ? `
+            <div class="mb-4 p-2.5 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-800 flex items-center justify-between gap-2 flex-wrap">
+                <span>🔄 Configuration chargée — vous pouvez la mettre à jour au lieu d'en créer une nouvelle.</span>
+                <button onclick="oublierConfigChargee()" class="text-blue-600 hover:text-blue-800 font-bold underline whitespace-nowrap">Nouvelle fiche</button>
+            </div>` : ''}
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                 <div>
                     <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">Nom du Client / Projet</label>
@@ -1028,9 +1075,15 @@ function renderResults() {
                     <input type="text" id="save-zone" placeholder="Ex: RDC, Étage, Salon..." class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                 </div>
             </div>
-            <button onclick="saveChantier()" class="w-full bg-gray-800 hover:bg-black text-white font-bold py-3 rounded-lg shadow transition-colors flex justify-center items-center gap-2 text-sm">
-                💾 Sauvegarder
-            </button>
+            <div class="flex flex-col sm:flex-row gap-3">
+                <button onclick="saveChantier()" class="flex-1 bg-gray-800 hover:bg-black text-white font-bold py-3 rounded-lg shadow transition-colors flex justify-center items-center gap-2 text-sm">
+                    💾 Enregistrer comme nouvelle fiche
+                </button>
+                ${state.loadedConfigId ? `
+                <button onclick="updateChantier()" class="flex-1 bg-[var(--brand-accent)] hover:opacity-90 text-white font-bold py-3 rounded-lg shadow transition-colors flex justify-center items-center gap-2 text-sm">
+                    🔄 Mettre à jour cette fiche
+                </button>` : ''}
+            </div>
             <div id="save-msg" class="mt-2 text-xs font-bold text-center hidden"></div>
         </div>
         `;
@@ -1420,9 +1473,10 @@ if ('serviceWorker' in navigator) {
 // explicite pour continuer à fonctionner sans réécrire toute la gestion d'événements en
 // délégation. Liste figée = fonctions effectivement référencées depuis des attributs HTML.
 Object.assign(window, {
-    addRoom, calculate, duplicateRoom, exportPdf, persistDraft, removeRoom, saveChantier,
-    selectGroupGamme, setBrand, setMode, setUsage, shareResults, startNewCalcul, toggleCustomCoef,
-    toggleDashboard, updateClimateInfo, updateRoom, selectDedicated, selectGroup, selectMono
+    addRoom, calculate, duplicateRoom, exportPdf, oublierConfigChargee, persistDraft, removeRoom,
+    saveChantier, selectGroupGamme, setBrand, setMode, setUsage, shareResults, startNewCalcul,
+    toggleCustomCoef, toggleDashboard, updateChantier, updateClimateInfo, updateRoom,
+    selectDedicated, selectGroup, selectMono
 });
 
 window.onload = initApp;
