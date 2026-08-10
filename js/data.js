@@ -1,4 +1,4 @@
-// Données et constantes de l'application ProSizer B2B : catalogues matériel, coefficients
+// Données et constantes de l'application Klimo : catalogues matériel, coefficients
 // physiques du modèle de calcul, base TVA, et référentiels climatiques par département.
 // Module sans dépendance : ne lit jamais le DOM, ne modifie jamais d'état applicatif.
 
@@ -75,13 +75,6 @@ export const SEUIL_SOUS_CHARGE_ESCALADE = 0.4;
 // on retient toutes les références dont la puissance froid nominale reste à +15% max de la plus
 // petite solution valide, plutôt qu'un choix unique imposé.
 export const TOLERANCE_EQUIVALENCE = 1.15;
-
-// Rouge Toshiba légèrement désaturé (#E01A1A au lieu de #FF0000 pur) : contraste ~4.85:1 sur
-// blanc contre ~4:1 pour le rouge pur, sous le seuil AA de 4.5:1 pour du texte normal.
-export const BRAND_ACCENTS = {
-    toshiba: { accent: '#E01A1A', accentDark: '#B01515' },
-    panasonic: { accent: '#0046AD', accentDark: '#003174' }
-};
 
 // Libellés d'affichage. Registre unique : jusqu'ici le libellé était déduit par un ternaire
 // binaire (`brand === 'toshiba' ? 'Toshiba' : 'Panasonic'`), qui affichait « Panasonic »

@@ -1,4 +1,4 @@
-// Fonctions de calcul de ProSizer B2B — bilan thermique et sélection matériel.
+// Fonctions de calcul de Klimo — bilan thermique et sélection matériel.
 // Module de fonctions PURES : aucun accès au DOM, aucune lecture/écriture d'état applicatif.
 // Toutes les entrées (climat, coefficients, marque...) sont passées en paramètres explicites,
 // ce qui les rend testables indépendamment de l'interface (voir tests/calcul.test.mjs).

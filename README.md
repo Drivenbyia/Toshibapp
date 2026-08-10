@@ -1,7 +1,10 @@
-# ProSizer B2B
+# Klimo
 
-Outil de dimensionnement B2B pour la sélection de climatisations Toshiba et Panasonic
-(froid/chaud), sous forme de **PWA** (Progressive Web App) installable sur mobile et desktop.
+Outil de dimensionnement pour la sélection de climatisations (froid/chaud), sous forme de
+**PWA** (Progressive Web App) installable sur mobile et desktop. Le catalogue couvre Toshiba
+et Panasonic ; les marques visibles pour un compte donné sont contrôlées par ses droits
+(`js/marques.js`, `js/account.js`) — Panasonic reste dans le code sans être exposé tant
+qu'aucun compte ne l'autorise.
 
 L'application est un site 100% statique : pas d'étape de build, pas de dépendances à installer
 pour la faire tourner. `index.html` ne contient que le balisage ; la logique est répartie en

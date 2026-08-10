@@ -1,7 +1,7 @@
 {
-  "name": "prosizer-b2b",
+  "name": "klimo",
   "private": true,
-  "description": "Outil de dimensionnement B2B Toshiba / Panasonic — PWA statique, aucune étape de build pour le déploiement.",
+  "description": "Klimo — dimensionnement de climatisation pour installateurs (Toshiba actif, Panasonic conservé en réserve) — PWA statique, aucune étape de build pour le déploiement.",
   "scripts": {
     "test": "node --test \"tests/**/*.test.mjs\""
   }

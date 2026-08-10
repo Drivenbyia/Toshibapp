@@ -1,9 +1,9 @@
-// Application ProSizer B2B : état, rendu DOM et gestionnaires d'événements.
+// Application Klimo : état, rendu DOM et gestionnaires d'événements.
 // Importe les données (data.js) et les fonctions de calcul pures (calcul.js) ; c'est le seul
 // module qui touche au DOM, à localStorage ou à l'état applicatif.
 import {
     CATALOGS, GAMMES_INFO, TVA_RULES, DEPARTMENTS, tBaseMatrix, tBaseEteMatrix,
-    BRAND_ACCENTS, BRAND_LABELS, CONSIGNE_REFERENCE, COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD,
+    BRAND_LABELS, CONSIGNE_REFERENCE, COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD,
     SEUIL_SOUS_CHARGE, SEUIL_DESEQUILIBRE_GROUPE
 } from './data.js';
 import {
@@ -67,9 +67,9 @@ function setBrand(brand) {
     // pour tenir compte des droits du compte connecté, s'il y en a un.
     brand = resoudreMarque(brand, marquesActives());
     state.brand = brand;
-    const colors = BRAND_ACCENTS[brand];
-    document.documentElement.style.setProperty('--brand-accent', colors.accent);
-    document.documentElement.style.setProperty('--brand-accent-dark', colors.accentDark);
+    // L'accent visuel est celui de Klimo, fixe, jamais celui du constructeur choisi (voir
+    // --brand-accent dans index.html) : l'app doit rester identifiable comme l'outil de
+    // l'installateur, pas comme le configurateur d'un fabricant.
     document.querySelectorAll('[data-brand]').forEach((btn) => {
         const actif = btn.dataset.brand === brand;
         btn.className = `flex-1 py-2 text-sm font-bold rounded-md transition-all ${actif ? 'shadow-sm bg-white text-[var(--brand-accent)]' : 'text-gray-500'}`;
@@ -292,7 +292,7 @@ function renderDashboard() {
                 ${conflits.map((c) => `
                 <div class="bg-white border border-amber-200 rounded-lg p-3 flex items-center justify-between gap-3 flex-wrap">
                     <div class="text-xs">
-                        <span class="font-bold text-toshiba-dark">${escapeHtml(c.clientName)}</span>
+                        <span class="font-bold text-klimo-dark">${escapeHtml(c.clientName)}</span>
                         <span class="text-gray-500"> — ${escapeHtml(c.zone)}</span>
                     </div>
                     <div class="flex gap-2">
@@ -323,7 +323,7 @@ function renderDashboard() {
                         <svg class="w-4 h-4 transition-transform group-open:rotate-180 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
                     </summary>
                     <div class="p-3 text-[11px] text-gray-700 flex flex-col gap-2">
-                        ${eqs.length > 0 ? `<div><div class="font-extrabold text-gray-400 uppercase tracking-wider text-[11px] mb-1">Matériel Proposé :</div>${eqs.map(e => `<div class="font-medium text-toshiba-dark">• ${escapeHtml(e)}</div>`).join('')}</div>` : ''}
+                        ${eqs.length > 0 ? `<div><div class="font-extrabold text-gray-400 uppercase tracking-wider text-[11px] mb-1">Matériel Proposé :</div>${eqs.map(e => `<div class="font-medium text-klimo-dark">• ${escapeHtml(e)}</div>`).join('')}</div>` : ''}
                         ${rds.length > 0 ? `<div><div class="font-extrabold text-gray-400 uppercase tracking-wider text-[11px] mb-1 mt-1">Bilan par Pièce :</div>${rds.map(r => `<div>• ${escapeHtml(r)}</div>`).join('')}</div>` : ''}
                     </div>
                 </details>`;
@@ -333,7 +333,7 @@ function renderDashboard() {
             <div class="flex justify-between items-start py-4 border-b border-gray-200 last:border-0 relative">
                 <div class="w-full pr-8">
                     <div class="flex items-center gap-2 mb-1">
-                        <span class="font-bold text-sm text-toshiba-dark">${escapeHtml(cfg.zone)}</span>
+                        <span class="font-bold text-sm text-klimo-dark">${escapeHtml(cfg.zone)}</span>
                         <span class="text-[11px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded font-bold uppercase">${escapeHtml(cfg.mode)}</span>
                         ${marqueRetiree ? `<span class="text-[11px] bg-amber-100 text-amber-800 border border-amber-200 px-1.5 py-0.5 rounded font-bold uppercase" title="Marque plus proposée sur ce poste : fiche consultable, non rechargeable">${escapeHtml(libelleMarque(cfg.brand))} — archivé</span>` : ''}
                     </div>
@@ -351,7 +351,7 @@ function renderDashboard() {
         html += `
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 fade-in">
             <div class="flex justify-between items-center mb-3">
-                <h3 class="text-lg font-bold text-toshiba-dark flex items-center gap-2">
+                <h3 class="text-lg font-bold text-klimo-dark flex items-center gap-2">
                     <svg class="w-5 h-5 text-gray-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"></path></svg>
                     ${escapeHtml(clientName)}
                 </h3>
@@ -1064,7 +1064,7 @@ function renderResults() {
     const calc = state.currentCalc;
     if (!calc) { resultsContainer.innerHTML = ''; return; }
 
-    let html = `<h2 class="text-xl font-bold text-toshiba-dark flex items-center gap-2 mt-4"><span class="w-2 h-6 bg-[var(--brand-accent)] rounded-full"></span>Solutions recommandées</h2>`;
+    let html = `<h2 class="text-xl font-bold text-klimo-dark flex items-center gap-2 mt-4"><span class="w-2 h-6 bg-[var(--brand-accent)] rounded-full"></span>Solutions recommandées</h2>`;
     html += calc.besoinsHtml + calc.caniculeNote;
 
     let summaryParts = [];
@@ -1168,7 +1168,7 @@ function renderResults() {
             </button>
         </div>
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 mt-4 fade-in">
-            <h3 class="text-sm font-bold text-toshiba-dark flex items-center gap-2 mb-4 uppercase tracking-wide">
+            <h3 class="text-sm font-bold text-klimo-dark flex items-center gap-2 mb-4 uppercase tracking-wide">
                 <svg class="w-5 h-5 text-[var(--brand-accent)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
                 Enregistrer au Chantier
             </h3>
@@ -1230,7 +1230,7 @@ function exportPdf() {
     if (!s) return;
     const printArea = document.getElementById('print-area');
     printArea.innerHTML = `
-        <h1>ProSizer B2B — Fiche de dimensionnement</h1>
+        <h1>Klimo — Fiche de dimensionnement</h1>
         ${s.client ? `<p><strong>Client :</strong> ${escapeHtml(s.client)}</p>` : ''}
         ${s.zone ? `<p><strong>Zone :</strong> ${escapeHtml(s.zone)}</p>` : ''}
         <p><strong>Date :</strong> ${escapeHtml(s.dateStr)} — <strong>Marque :</strong> ${s.brandLabel} — <strong>Mode :</strong> ${s.modeLabel}</p>
@@ -1238,7 +1238,7 @@ function exportPdf() {
         <ul>${s.roomDetails.map(r => `<li>${escapeHtml(r)}</li>`).join('')}</ul>
         <h2>Équipements recommandés</h2>
         <ul>${s.equipments.map(e => `<li>${escapeHtml(e)}</li>`).join('')}</ul>
-        <p class="print-disclaimer">Dimensionnement indicatif généré par ProSizer B2B. À valider par un professionnel avant installation.</p>
+        <p class="print-disclaimer">Dimensionnement indicatif généré par Klimo. À valider par un professionnel avant installation.</p>
     `;
     window.print();
 }
@@ -1247,7 +1247,7 @@ function shareResults() {
     const s = buildResultSummaryLines();
     if (!s) return;
     const lines = [
-        'ProSizer B2B — Fiche de dimensionnement',
+        'Klimo — Fiche de dimensionnement',
         s.client ? `Client : ${s.client}` : null,
         s.zone ? `Zone : ${s.zone}` : null,
         `Marque : ${s.brandLabel} — Mode : ${s.modeLabel}`,
@@ -1261,9 +1261,9 @@ function shareResults() {
     const text = lines.join('\n');
 
     if (navigator.share) {
-        navigator.share({ title: 'ProSizer B2B — Dimensionnement', text }).catch(() => {});
+        navigator.share({ title: 'Klimo — Dimensionnement', text }).catch(() => {});
     } else {
-        const subject = encodeURIComponent(`ProSizer B2B — Dimensionnement${s.client ? ' — ' + s.client : ''}`);
+        const subject = encodeURIComponent(`Klimo — Dimensionnement${s.client ? ' — ' + s.client : ''}`);
         const body = encodeURIComponent(text);
         window.location.href = `mailto:?subject=${subject}&body=${body}`;
     }
@@ -1399,7 +1399,7 @@ function renderMultiRoomsGuide(roomsData, group) {
 
     return `
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 mb-4 fade-in">
-        <h3 class="text-sm font-bold text-toshiba-dark flex items-center gap-2 mb-1 uppercase tracking-wide">
+        <h3 class="text-sm font-bold text-klimo-dark flex items-center gap-2 mb-1 uppercase tracking-wide">
             <svg class="w-5 h-5 text-[var(--brand-accent)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
             Guide de sélection des unités intérieures
         </h3>
@@ -1526,7 +1526,7 @@ function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = fals
         <div class="flex justify-between items-start gap-4 relative z-10">
             <div class="flex-grow">
                 <div class="text-[11px] font-black uppercase text-[var(--brand-accent)] mb-1 tracking-widest">${badgeText}</div>
-                <h3 class="text-lg font-extrabold text-toshiba-dark leading-tight">${mainTitle}</h3>
+                <h3 class="text-lg font-extrabold text-klimo-dark leading-tight">${mainTitle}</h3>
                 <p class="text-xs font-mono text-gray-500 mt-1">${subtitle}</p>
                 ${renderTvaBadge(tvaInfo)}
                 ${chargeInfo ? renderChargeBadge(chargeInfo.reqFroid, chargeInfo.reqChaud, froid, chaud) : ''}
