@@ -85,12 +85,22 @@
             
             <div class="flex items-center gap-3">
                 <div class="text-[11px] sm:text-xs font-semibold text-gray-500 bg-gray-100 px-2 py-1 rounded hidden sm:block">V18 - FROID PHYSIQUE</div>
+                <button id="account-badge" data-status="anonymous" class="text-[11px] sm:text-xs font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 px-2.5 py-1.5 rounded-full transition-colors max-w-[9rem] truncate" title="Compte">Se connecter</button>
                 <button onclick="toggleDashboard(true)" class="flex items-center justify-center p-2 rounded-full bg-gray-100 text-gray-600 hover:bg-[var(--brand-accent)] hover:text-white transition-colors" title="Mes Chantiers">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
                 </button>
             </div>
         </div>
     </header>
+
+    <!-- ==== VUE : COMPTE ==== -->
+    <!-- Écran de connexion, jamais bloquant : "Continuer sans compte" reste disponible dans
+         tous les états sauf déjà connecté. Voir js/auth-ui.js. -->
+    <div id="auth-overlay" class="hidden fixed inset-0 bg-black/40 z-[60] items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 fade-in">
+            <div id="auth-overlay-content"></div>
+        </div>
+    </div>
 
     <!-- ==== VUE 1 : SIMULATEUR ==== -->
     <main id="app-main" class="flex-grow max-w-3xl mx-auto w-full px-4 py-6 flex flex-col gap-6">

@@ -17,9 +17,12 @@ import {
     sauvegardeValide, construireSauvegarde, compterChantiers
 } from './sauvegarde.js';
 import {
-    marqueAutorisee, marqueParDefaut, resoudreMarque, libelleMarque, selecteurMarqueVisible
+    MARQUES_ACTIVES, marqueAutorisee, marqueParDefaut, resoudreMarque, libelleMarque,
+    selecteurMarqueVisible
 } from './marques.js';
 import { store } from './store.js';
+import { init as initAccount, subscribe as subscribeAccount, getBrandsOverride } from './account.js';
+import { initAuthUi } from './auth-ui.js';
 
 // --- STATE ---
 let state = {
@@ -41,6 +44,14 @@ let state = {
     loadedConfigId: null
 };
 
+// Résout la liste de marques effective : la surcharge du compte connecté si elle existe,
+// sinon la constante locale de js/marques.js. `getBrandsOverride()` renvoie `null` pour un
+// appareil jamais connecté — comportement inchangé par rapport au lot précédent, aucun
+// utilisateur local existant n'est cassé par l'arrivée des comptes.
+function marquesActives() {
+    return getBrandsOverride() || MARQUES_ACTIVES;
+}
+
 function defaultRoom(id) {
     return { id, nom: '', surface: '', height: 2.5, emplacement: 'plain_pied', orientation: 'mixte', vitrage: 'moyen', protection: 'stores_int', occupants: '', expositionMurs: 4 };
 }
@@ -51,8 +62,9 @@ function defaultRoom(id) {
 function setBrand(brand) {
     // Garde unique : couvre du même coup les deux chemins de restauration (chantier
     // sauvegardé et brouillon), qui passaient jusqu'ici la marque enregistrée sans la
-    // valider et pouvaient ainsi ressusciter une marque masquée.
-    brand = resoudreMarque(brand);
+    // valider et pouvaient ainsi ressusciter une marque masquée. Passe par marquesActives()
+    // pour tenir compte des droits du compte connecté, s'il y en a un.
+    brand = resoudreMarque(brand, marquesActives());
     state.brand = brand;
     const colors = BRAND_ACCENTS[brand];
     document.documentElement.style.setProperty('--brand-accent', colors.accent);
@@ -69,6 +81,10 @@ function initApp() {
     // Avant tout rendu : charge le magasin, migrant depuis l'ancien stockage si besoin (voir
     // js/store.js). Purement local et hors-ligne — aucune raison que ça échoue sans réseau.
     store.init();
+    // Restaure la session depuis le cache local (aucun réseau ici), puis vérifie en
+    // arrière-plan sans jamais bloquer ce premier rendu — voir js/account.js. Les données
+    // locales s'affichent avant même de savoir quoi que ce soit de l'authentification.
+    initAccount();
 
     const deptSelect = document.getElementById('deptSelect');
     Object.keys(DEPARTMENTS).sort().forEach(code => {
@@ -82,19 +98,36 @@ function initApp() {
     initSelecteurMarque();
     renderRooms();
     initDashboardEvents();
+    initAuthUi();
+    subscribeAccount(onAccountChange);
     restoreDraftIfAny();
 }
 
-// Retire du DOM les boutons des marques non proposées, et masque la section entière quand
-// il n'en reste qu'une : afficher un choix unique et non actionnable n'aide personne.
+// Rejoue le sélecteur de marque quand l'état du compte change (connexion, déconnexion,
+// droits rafraîchis). Sans effet si un calcul est déjà en cours à l'écran : initSelecteurMarque
+// appelle setBrand(), qui efface les résultats affichés — se connecter en cours de saisie ne
+// doit pas faire disparaître un travail non enregistré. La mise à jour s'applique au
+// prochain calcul ou au prochain chargement.
+function onAccountChange() {
+    if (!state.currentCalc) initSelecteurMarque();
+}
+
+// Masque (sans les retirer du DOM — voir setBrand) les boutons des marques non autorisées,
+// et l'ensemble du sélecteur quand il n'en reste qu'une : un choix à une seule option
+// n'aide personne. Rejouable sans effet de bord — initApp() comme onAccountChange()
+// l'appellent — c'est ce qui permet à la connexion de faire réapparaître une marque en
+// cours de session sans redémarrer l'application.
 function initSelecteurMarque() {
+    const actives = marquesActives();
     document.querySelectorAll('[data-brand]').forEach((btn) => {
-        if (!marqueAutorisee(btn.dataset.brand)) btn.remove();
+        btn.classList.toggle('hidden', !actives.includes(btn.dataset.brand));
     });
     const section = document.getElementById('brand-section');
-    if (section && !selecteurMarqueVisible()) section.classList.add('hidden');
+    if (section) section.classList.toggle('hidden', !selecteurMarqueVisible(actives));
 
-    setBrand(marqueParDefaut());
+    // Conserve le choix de marque en cours s'il reste valide, plutôt que de forcer la
+    // marque par défaut à chaque rafraîchissement.
+    setBrand(actives.includes(state.brand) ? state.brand : marqueParDefaut(actives));
 }
 
 // --- DASHBOARD & LOCALSTORAGE LOGIC ---
@@ -175,7 +208,7 @@ function renderDashboard() {
             const rds = cfg.roomDetails || [];
             // Enregistré sous une marque qui n'est plus proposée : consultable, mais pas
             // rechargeable — le recalcul porterait sur un autre catalogue (cf. reloadConfig).
-            const marqueRetiree = cfg.brand && !marqueAutorisee(cfg.brand);
+            const marqueRetiree = cfg.brand && !marqueAutorisee(cfg.brand, marquesActives());
 
             let detailsHtml = '';
             if (eqs.length > 0 || rds.length > 0) {
@@ -359,7 +392,7 @@ function reloadConfig(id) {
     // la marque sur celle par défaut, puis calculate() relancerait le dimensionnement
     // contre un AUTRE catalogue et afficherait un matériel différent sous le même intitulé
     // client / zone : un devis faux qui a toutes les apparences du juste.
-    if (cfg.brand && !marqueAutorisee(cfg.brand)) {
+    if (cfg.brand && !marqueAutorisee(cfg.brand, marquesActives())) {
         alert(`Cette configuration a été enregistrée en ${libelleMarque(cfg.brand)}, marque qui n'est plus proposée sur ce poste.\n\n`
             + `Elle ne peut pas être rechargée : le recalcul porterait sur un autre catalogue et proposerait un matériel différent. `
             + `Le détail reste consultable dans la fiche du chantier.`);
@@ -368,7 +401,7 @@ function reloadConfig(id) {
 
     toggleDashboard(false);
 
-    setBrand(cfg.brand || marqueParDefaut());
+    setBrand(cfg.brand || marqueParDefaut(marquesActives()));
     applyBuildingParams(cfg.params);
 
     state.mode = cfg.mode === 'multi' ? 'multi' : 'mono';
@@ -459,7 +492,7 @@ function restoreDraftIfAny() {
     // Un brouillon sans la moindre surface saisie n'a rien à restaurer.
     if (!draft.rooms.some(r => r.surface)) return;
 
-    setBrand(draft.brand || marqueParDefaut());
+    setBrand(draft.brand || marqueParDefaut(marquesActives()));
     applyBuildingParams(draft.params);
     state.mode = draft.mode === 'multi' ? 'multi' : 'mono';
     state.usage = draft.usage === 'froid_seul' ? 'froid_seul' : 'reversible';
