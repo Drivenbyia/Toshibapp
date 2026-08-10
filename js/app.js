@@ -21,8 +21,9 @@ import {
     selecteurMarqueVisible
 } from './marques.js';
 import { store } from './store.js';
-import { init as initAccount, subscribe as subscribeAccount, getBrandsOverride } from './account.js';
+import { init as initAccount, subscribe as subscribeAccount, getBrandsOverride, getStatus as getAuthStatus } from './account.js';
 import { initAuthUi } from './auth-ui.js';
+import { createSync } from './sync.js';
 
 // --- STATE ---
 let state = {
@@ -101,6 +102,17 @@ function initApp() {
     initAuthUi();
     subscribeAccount(onAccountChange);
     restoreDraftIfAny();
+
+    // Déclencheurs de synchronisation. Chacun sort immédiatement si aucun compte n'est en
+    // jeu (voir planifierSync) — un utilisateur en mode local n'émet jamais de requête.
+    renderSyncBadge();
+    planifierSync();
+    window.addEventListener('online', planifierSync);
+    // Retour au premier plan : le cas le plus fréquent sur mobile, où l'onglet est gelé
+    // pendant des heures puis rouvert sur le chantier suivant.
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') planifierSync();
+    });
 }
 
 // Rejoue le sélecteur de marque quand l'état du compte change (connexion, déconnexion,
@@ -110,6 +122,65 @@ function initApp() {
 // prochain calcul ou au prochain chargement.
 function onAccountChange() {
     if (!state.currentCalc) initSelecteurMarque();
+    planifierSync();
+}
+
+// --- SYNCHRONISATION ---------------------------------------------------------------
+// Construite paresseusement : tant que personne ne s'est connecté, aucun module réseau
+// n'est chargé et aucune requête n'est émise — l'application reste exactement aussi
+// hors-ligne qu'avant l'arrivée des comptes.
+let sync = null;
+let syncPrete = null;
+
+async function obtenirSync() {
+    if (sync) return sync;
+    if (!syncPrete) {
+        syncPrete = (async () => {
+            const { createSupabaseTransport } = await import('./supabase-client.js');
+            sync = createSync({ store, transport: createSupabaseTransport() });
+            sync.subscribe(renderSyncBadge);
+            return sync;
+        })();
+    }
+    return syncPrete;
+}
+
+// Ne synchronise que si un compte est réellement en jeu. Un utilisateur en mode local pur
+// n'émet jamais rien : la synchro est un service rendu au compte, pas une condition d'usage.
+async function planifierSync() {
+    const statut = getAuthStatus();
+    if (statut !== 'authenticated' && statut !== 'stale') return;
+    const s = await obtenirSync();
+    await s.run();
+    renderSyncBadge();
+    renderDashboard();
+}
+
+function renderSyncBadge() {
+    const badge = document.getElementById('sync-badge');
+    if (!badge) return;
+    const statut = getAuthStatus();
+    if (statut !== 'authenticated' && statut !== 'stale') { badge.classList.add('hidden'); return; }
+
+    const etat = sync ? sync.getState() : { phase: 'idle', pending: 0 };
+    const enAttente = etat.pending || 0;
+    badge.classList.remove('hidden');
+
+    if (etat.phase === 'pushing' || etat.phase === 'pulling') {
+        badge.textContent = 'Synchro…';
+        badge.className = 'text-[11px] font-semibold text-gray-500 bg-gray-100 px-2 py-1 rounded';
+    } else if (etat.phase === 'offline') {
+        // Jamais d'invite de connexion ici : hors-ligne est un état de fonctionnement normal,
+        // pas une erreur à corriger. On informe, on ne réclame rien.
+        badge.textContent = enAttente ? `Hors ligne — ${enAttente} en attente` : 'Hors ligne';
+        badge.className = 'text-[11px] font-semibold text-amber-800 bg-amber-100 px-2 py-1 rounded';
+    } else if (enAttente) {
+        badge.textContent = `${enAttente} en attente`;
+        badge.className = 'text-[11px] font-semibold text-amber-800 bg-amber-100 px-2 py-1 rounded';
+    } else {
+        badge.textContent = 'À jour';
+        badge.className = 'text-[11px] font-semibold text-green-700 bg-green-50 px-2 py-1 rounded';
+    }
 }
 
 // Masque (sans les retirer du DOM — voir setBrand) les boutons des marques non autorisées,
@@ -196,12 +267,42 @@ function renderDashboard() {
     }
 
     const groupes = grouperParClient(store.listConfigs());
-    if (groupes.length === 0) {
+    const conflits = store.listConflicts();
+
+    if (groupes.length === 0 && conflits.length === 0) {
         list.innerHTML = `<div class="p-8 bg-gray-50 text-center text-gray-500 rounded-xl border border-gray-200 border-dashed italic">Aucun chantier enregistré pour le moment.</div>`;
         return;
     }
 
     let html = '';
+
+    // Versions rétrogradées par la synchronisation : une modification faite ici a été
+    // devancée par un autre appareil. Rien n'est jamais jeté — c'est ce qui rend le
+    // dernier-écrit-gagne acceptable ; l'utilisateur arbitre lui-même.
+    if (conflits.length > 0) {
+        html += `
+        <div class="bg-amber-50 border border-amber-200 rounded-xl p-5 fade-in">
+            <h3 class="text-sm font-bold text-amber-900 mb-1">⚠️ ${conflits.length} version(s) à arbitrer</h3>
+            <p class="text-xs text-amber-800 mb-3 leading-relaxed">
+                Ces modifications ont été faites sur cet appareil, mais un autre appareil avait
+                déjà enregistré une version plus récente. Rien n'est perdu : récupérez-les comme
+                fiches distinctes, ou écartez-les si elles ne servent plus.
+            </p>
+            <div class="flex flex-col gap-2">
+                ${conflits.map((c) => `
+                <div class="bg-white border border-amber-200 rounded-lg p-3 flex items-center justify-between gap-3 flex-wrap">
+                    <div class="text-xs">
+                        <span class="font-bold text-toshiba-dark">${escapeHtml(c.clientName)}</span>
+                        <span class="text-gray-500"> — ${escapeHtml(c.zone)}</span>
+                    </div>
+                    <div class="flex gap-2">
+                        <button data-action="restore-conflict" data-id="${escapeHtml(c.id)}" class="text-[11px] font-bold text-white bg-amber-600 hover:bg-amber-700 px-2.5 py-1.5 rounded">Récupérer</button>
+                        <button data-action="dismiss-conflict" data-id="${escapeHtml(c.id)}" class="text-[11px] font-bold text-gray-500 hover:text-gray-700 px-2 py-1.5">Écarter</button>
+                    </div>
+                </div>`).join('')}
+            </div>
+        </div>`;
+    }
     groupes.forEach(({ clientName, configs }) => {
         let configsHtml = configs.map((cfg) => {
             const eqs = cfg.equipments || [];
@@ -273,6 +374,14 @@ function initDashboardEvents() {
         if (btn.dataset.action === 'delete-chantier') deleteChantier(btn.dataset.client);
         else if (btn.dataset.action === 'delete-config') deleteConfig(btn.dataset.id);
         else if (btn.dataset.action === 'reload-config') reloadConfig(btn.dataset.id);
+        else if (btn.dataset.action === 'restore-conflict') {
+            store.restoreConflict(btn.dataset.id);
+            renderDashboard();
+            planifierSync();
+        } else if (btn.dataset.action === 'dismiss-conflict') {
+            store.dismissConflict(btn.dataset.id);
+            renderDashboard();
+        }
     });
 
     // Sauvegarde / restauration : même délégation, hors de la liste puisque ces boutons
@@ -365,6 +474,7 @@ function deleteChantier(clientName) {
             afficherMessageSauvegarde("❌ Suppression impossible : le stockage local est indisponible.", false);
         }
         renderDashboard();
+        planifierSync();
     }
 }
 
@@ -373,6 +483,7 @@ function deleteConfig(id) {
         afficherMessageSauvegarde("❌ Suppression impossible : le stockage local est indisponible.", false);
     }
     renderDashboard();
+    planifierSync();
 }
 
 // Recharge une configuration sauvegardée dans le simulateur pour la modifier : marque,
@@ -557,6 +668,7 @@ function saveChantier() {
     clearDraft();
     state.loadedConfigId = null;
     document.getElementById('save-zone').value = '';
+    planifierSync();
     msgBox.innerHTML = "✅ Sauvegardé avec succès dans 'Mes Chantiers' !";
     msgBox.className = "mt-3 text-xs font-bold text-center text-green-600 block";
     populateClientDatalist();
@@ -584,6 +696,7 @@ function updateChantier() {
     }
 
     clearDraft();
+    planifierSync();
     msgBox.innerHTML = "✅ Configuration mise à jour.";
     msgBox.className = "mt-3 text-xs font-bold text-center text-green-600 block";
     populateClientDatalist();

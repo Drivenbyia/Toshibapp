@@ -1,0 +1,47 @@
+# Anti-veille du projet Supabase.
+#
+# Un projet sur l'offre gratuite se met en veille après 7 jours sans activité base, et met
+# ~30 s à se réveiller. Un artisan parti deux semaines en congés rouvrirait donc
+# l'application sur une attente de 30 s. Ce ping périodique l'évite pour un coût nul.
+#
+# ⚠️ À activer une fois le projet Supabase créé : renseigner les secrets de dépôt
+#    SUPABASE_URL et SUPABASE_ANON_KEY (Settings → Secrets and variables → Actions).
+#    Tant qu'ils sont absents, le job se termine proprement sans échouer — inutile de
+#    faire rougir le dépôt pour une infrastructure qui n'existe pas encore.
+#
+# Devient superflu le jour du passage à l'offre payante (pas de mise en veille) : ce
+# fichier pourra alors être supprimé.
+
+name: Supabase keep-alive
+
+on:
+  schedule:
+    # Toutes les 48 h — largement sous le seuil de 7 jours, sans pinger inutilement.
+    - cron: '0 6 */2 * *'
+  workflow_dispatch:        # déclenchement manuel, pour vérifier la configuration
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping de l'API REST
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
+            echo "Secrets Supabase non configurés — rien à faire pour l'instant."
+            exit 0
+          fi
+          # HEAD sur la racine REST : compte comme activité, sans lire ni écrire la moindre
+          # donnée métier. La RLS interdit de toute façon tout accès sans session.
+          code=$(curl -s -o /dev/null -w '%{http_code}' -I \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            "$SUPABASE_URL/rest/v1/")
+          echo "Réponse HTTP : $code"
+          # 2xx et 4xx signifient tous deux « le projet répond », ce qui est le seul but ici.
+          # Seule une absence de réponse (000) ou une erreur serveur doit alerter.
+          case "$code" in
+            2*|4*) exit 0 ;;
+            *) echo "::error::Projet Supabase injoignable (code $code)"; exit 1 ;;
+          esac

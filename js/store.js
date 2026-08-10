@@ -1,8 +1,12 @@
 // Magasin des chantiers : identifiants stables, horodatages, pierres tombales, file d'attente
-// de synchronisation (posée mais jamais vidée à ce stade — la synchro arrive à une étape
-// ultérieure). Remplace la carte imbriquée { <nomClient>: { configurations: [...] } } adressée
-// par nom + position, qui empêchait toute mise à jour en place et tout croisement fiable entre
-// appareils.
+// de synchronisation. Remplace la carte imbriquée { <nomClient>: { configurations: [...] } }
+// adressée par nom + position, qui empêchait toute mise à jour en place et tout croisement
+// fiable entre appareils.
+//
+// Ce module ignore totalement l'existence du réseau : il expose une file d'attente et un
+// unique point d'entrée privilégié (applyRemote) ; c'est js/sync.js qui vide la file et
+// réinjecte les changements distants. La synchronisation reste ainsi supprimable sans
+// toucher au magasin, et le magasin testable sans backend.
 //
 // `createStore(kv)` prend un adaptateur de stockage en paramètre — jamais `localStorage`
 // directement — précisément pour rester testable avec un faux magasin en mémoire (voir
@@ -17,6 +21,7 @@
 import { formeChantiersValide, fusionnerChantiers } from './sauvegarde.js';
 import { migrateV1ToV2, formatDateDisplay } from './migration.js';
 import { kvGet, kvSet } from './kv.js';
+import { stampNow } from './reconcile.js';
 
 const LEGACY_KEY = 'toshiba_chantiers';
 const NAMESPACE = 'klimo:v2:local';
@@ -27,15 +32,48 @@ function now() { return new Date().toISOString(); }
 function newId() { return crypto.randomUUID(); }
 
 function magasinVide() {
-    return { schema: 2, configs: {}, outbox: [], cursor: { seq: 0 }, device: { id: newId(), clockOffsetMs: 0 } };
+    return {
+        schema: 2, configs: {}, outbox: [], cursor: { seq: 0 },
+        device: { id: newId(), clockOffsetMs: 0, highestSeenMs: null },
+        // Versions locales non poussées rétrogradées par la réconciliation (voir
+        // js/reconcile.js) : jamais jetées, l'utilisateur arbitre à la main.
+        conflicts: []
+    };
 }
 
 function formeV2Valide(v) {
     return Boolean(v) && typeof v === 'object' && v.configs !== null && typeof v.configs === 'object';
 }
 
+// Les magasins v2 écrits avant l'arrivée de la synchronisation n'ont ni `conflicts` ni
+// `device.highestSeenMs` : on complète à la lecture plutôt que d'imposer une migration de
+// schéma pour deux champs additifs.
+function normaliserV2(v) {
+    return {
+        ...v,
+        outbox: Array.isArray(v.outbox) ? v.outbox : [],
+        cursor: v.cursor || { seq: 0 },
+        conflicts: Array.isArray(v.conflicts) ? v.conflicts : [],
+        device: { id: newId(), clockOffsetMs: 0, highestSeenMs: null, ...(v.device || {}) }
+    };
+}
+
 export function createStore(kv) {
     let data = null;
+
+    // Horodatage d'écriture corrigé du décalage serveur observé, puis bridé pour qu'une
+    // horloge d'appareil aberrante ne puisse pas gagner tous les conflits (voir
+    // js/reconcile.js). Sans aucune synchronisation encore effectuée, le décalage vaut 0 et
+    // le comportement est strictement celui d'un `new Date().toISOString()`.
+    function nowSync() {
+        const d = (data && data.device) || {};
+        return stampNow({
+            localNowMs: Date.now(),
+            clockOffsetMs: d.clockOffsetMs ?? 0,
+            highestSeenMs: d.highestSeenMs ?? null
+        });
+    }
+
     // Renseigné dès que le chargement initial échoue ('illisible' : accès refusé ; 'corrompu' :
     // JSON invalide ou forme inattendue). Tant qu'il est actif, toute écriture est refusée — le
     // même principe que le filet de sécurité de l'étape précédente, désormais au bon niveau.
@@ -66,7 +104,7 @@ export function createStore(kv) {
                 data = magasinVide();
                 return;
             }
-            data = nouveau.value;
+            data = normaliserV2(nouveau.value);
             return;
         }
         if (nouveau.reason === 'illisible') {
@@ -170,7 +208,7 @@ export function createStore(kv) {
     function saveConfig({ clientName, zone, body }) {
         if (stockageDegrade) return null;
         const id = newId();
-        const t = now();
+        const t = nowSync();
         const next = structuredClone(data);
         next.configs[id] = {
             id, clientName, zone, body,
@@ -192,7 +230,7 @@ export function createStore(kv) {
         c.clientName = clientName;
         c.zone = zone;
         c.body = body;
-        c.updatedAt = now();
+        c.updatedAt = nowSync();
         c.rev += 1;
         next.outbox.push({ op: 'upsert', id, rev: c.rev });
         return commit(next);
@@ -205,7 +243,7 @@ export function createStore(kv) {
 
         const next = structuredClone(data);
         const c = next.configs[id];
-        c.deletedAt = now();
+        c.deletedAt = nowSync();
         c.rev += 1;
         next.outbox.push({ op: 'delete', id, rev: c.rev });
         return commit(next);
@@ -217,7 +255,7 @@ export function createStore(kv) {
         let touche = false;
         Object.values(next.configs).forEach((c) => {
             if (c.clientName === clientName && !c.deletedAt) {
-                c.deletedAt = now();
+                c.deletedAt = nowSync();
                 c.rev += 1;
                 next.outbox.push({ op: 'delete', id: c.id, rev: c.rev });
                 touche = true;
@@ -268,10 +306,135 @@ export function createStore(kv) {
         return () => listeners.delete(fn);
     }
 
+    // --- Surface de synchronisation ---------------------------------------------------
+    // Ces accesseurs existent pour js/sync.js seulement. store.js continue d'ignorer
+    // totalement l'existence du réseau : il expose une file d'attente, sync.js la vide et
+    // réinjecte les changements distants par le seul applyRemote(). C'est ce qui garde le
+    // magasin testable sans backend — et la synchronisation supprimable sans y toucher.
+
+    // Enregistrement interne brut (avec rev/syncedRev), y compris supprimé — la
+    // réconciliation a besoin de voir les pierres tombales, contrairement à getConfig().
+    function getRaw(id) { return data.configs[id]; }
+
+    // File coalescée : une entrée par identifiant, portant l'état courant. Plusieurs
+    // modifications successives hors-ligne ne poussent qu'une fois, l'état final.
+    function getPending() {
+        if (stockageDegrade) return [];
+        const ids = new Set(data.outbox.map((e) => e.id));
+        const sortie = [];
+        ids.forEach((id) => {
+            const c = data.configs[id];
+            if (c) sortie.push({ id, rev: c.rev, record: c });
+        });
+        return sortie;
+    }
+
+    // `rev` est la révision RÉELLEMENT poussée, pas la révision courante : si l'utilisateur
+    // a modifié l'enregistrement pendant l'aller-retour réseau, sa nouvelle modification
+    // doit rester en attente plutôt que d'être marquée synchronisée par erreur.
+    function markPushed(entrees) {
+        if (stockageDegrade) return false;
+        const next = structuredClone(data);
+        entrees.forEach(({ id, rev }) => {
+            const c = next.configs[id];
+            if (c && c.syncedRev < rev) c.syncedRev = rev;
+            next.outbox = next.outbox.filter((e) => !(e.id === id && e.rev <= rev));
+        });
+        return commit(next);
+    }
+
+    // Applique les décisions produites par reconcile(). Point d'entrée unique et privilégié
+    // pour tout ce qui vient du serveur.
+    function applyRemote(decisions) {
+        if (stockageDegrade) return false;
+        const next = structuredClone(data);
+
+        decisions.forEach(({ remote, decision }) => {
+            if (decision.action === 'keep_local') return;
+
+            if (decision.conflict) {
+                // Le perdant est conservé, jamais jeté : c'est ce qui rend le
+                // dernier-écrit-gagne acceptable.
+                next.conflicts.push({
+                    id: newId(), originalId: decision.conflict.id,
+                    clientName: decision.conflict.clientName, zone: decision.conflict.zone,
+                    body: decision.conflict.body, updatedAt: decision.conflict.updatedAt,
+                    detectedAt: now()
+                });
+            }
+
+            const ancien = next.configs[remote.id];
+            const revSuivante = (ancien ? ancien.rev : 0) + 1;
+            next.configs[remote.id] = {
+                id: remote.id, clientName: remote.clientName, zone: remote.zone,
+                body: remote.body,
+                savedAt: remote.savedAt, createdAt: remote.createdAt,
+                updatedAt: remote.updatedAt, deletedAt: remote.deletedAt,
+                // L'enregistrement devient propre : rev === syncedRev, donc plus rien à
+                // pousser pour lui.
+                rev: revSuivante, syncedRev: revSuivante,
+                legacy: ancien ? ancien.legacy : null,
+                legacyIncomplete: ancien ? ancien.legacyIncomplete : false
+            };
+            // Toute entrée de file résiduelle pour cet identifiant est caduque : ses
+            // modifications viennent d'être soit adoptées, soit rétrogradées en conflit.
+            next.outbox = next.outbox.filter((e) => e.id !== remote.id);
+
+            if (Number.isFinite(Date.parse(remote.updatedAt))) {
+                const vu = Date.parse(remote.updatedAt);
+                if (!next.device.highestSeenMs || vu > next.device.highestSeenMs) {
+                    next.device.highestSeenMs = vu;
+                }
+            }
+        });
+
+        return commit(next);
+    }
+
+    function getCursor() { return (data.cursor && data.cursor.seq) || 0; }
+    function setCursor(seq) {
+        if (stockageDegrade) return false;
+        const next = structuredClone(data);
+        next.cursor = { seq };
+        return commit(next);
+    }
+
+    function getClockState() {
+        const d = data.device || {};
+        return { offsetMs: d.clockOffsetMs ?? 0, highestSeenMs: d.highestSeenMs ?? null };
+    }
+    function setClockState({ offsetMs, highestSeenMs }) {
+        if (stockageDegrade) return false;
+        const next = structuredClone(data);
+        next.device = { ...next.device, clockOffsetMs: offsetMs, highestSeenMs };
+        return commit(next);
+    }
+
+    function listConflicts() { return (data.conflicts || []).slice(); }
+    function dismissConflict(conflictId) {
+        if (stockageDegrade) return false;
+        const next = structuredClone(data);
+        next.conflicts = (next.conflicts || []).filter((c) => c.id !== conflictId);
+        return commit(next);
+    }
+    // Restaure une version rétrogradée comme un nouvel enregistrement à part entière : la
+    // récupération ne réécrit jamais par-dessus le gagnant, elle crée une fiche distincte
+    // que l'utilisateur compare puis nettoie lui-même.
+    function restoreConflict(conflictId) {
+        const c = (data.conflicts || []).find((x) => x.id === conflictId);
+        if (!c) return null;
+        const id = saveConfig({ clientName: c.clientName, zone: `${c.zone} (version de cet appareil)`, body: c.body });
+        if (id) dismissConflict(conflictId);
+        return id;
+    }
+
     return {
         init, isDegraded, listConfigs, getConfig, listClientNames,
         saveConfig, updateConfig, softDelete, softDeleteByClient,
-        exportLegacyBlob, importLegacyBlob, subscribe
+        exportLegacyBlob, importLegacyBlob, subscribe,
+        getRaw, getPending, markPushed, applyRemote,
+        getCursor, setCursor, getClockState, setClockState,
+        listConflicts, dismissConflict, restoreConflict
     };
 }
 
