@@ -370,6 +370,22 @@ export const GAMMES_INFO = {
 // (éligibilité par référence — série GP éligible avec Wifi, série GM non éligible), et le groupe
 // multisplit RAS-2M60S4AVG-ND (éligible, réservé aux UI « ND » : Haori ND, Shorai Curve ND).
 //
+// Suffixes de millésime commercial à retirer d'une référence de GROUPE EXTÉRIEUR pour la
+// comparer à la liste `groupesEligibles` du tableau constructeur ci-dessous (voir
+// normaliserReferenceGroupe, calcul.js). Nomenclature spécifique à chaque marque : n'existe que
+// pour les marques où l'écart entre la référence catalogue et la référence tableau constructeur
+// est documenté. Une marque absente de cette table compare ses références telles quelles, sans
+// aucun retrait — c'est le choix sûr par défaut.
+export const SUFFIXES_MILLESIME_GROUPE = {
+    toshiba: [/-E\d*(\/ET)?$/i, /-ND$/i]
+};
+
+// Date de dernière vérification du dispositif fiscal ci-dessous face au tableau constructeur
+// source (voir le commentaire de sourcing plus haut). Affichée à l'écran à côté des pastilles
+// TVA : un dispositif fiscal est par nature révisable, et rien n'indiquait jusqu'ici depuis
+// quand ces règles étaient valables.
+export const TVA_DATE_VERIFICATION = '2026-02-19';
+
 // Uniquement disponible pour la marque Toshiba : aucune donnée d'éligibilité officielle communiquée pour Panasonic.
 export const TVA_RULES = {
   toshiba: {

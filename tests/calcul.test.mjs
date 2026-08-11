@@ -712,8 +712,8 @@ describe('TVA 5,5% (Toshiba) — multisplit : la règle change', () => {
     });
 
     test('suffixe de millésime ignoré : RAS-5M34G3AVG-E/ET (catalogue) = -E1 (tableau)', () => {
-        assert.equal(normaliserReferenceGroupe('RAS-5M34G3AVG-E/ET'), 'RAS-5M34G3AVG');
-        assert.equal(normaliserReferenceGroupe('RAS-5M34G3AVG-E1'), 'RAS-5M34G3AVG');
+        assert.equal(normaliserReferenceGroupe('RAS-5M34G3AVG-E/ET', 'toshiba'), 'RAS-5M34G3AVG');
+        assert.equal(normaliserReferenceGroupe('RAS-5M34G3AVG-E1', 'toshiba'), 'RAS-5M34G3AVG');
         assert.equal(getGroupTvaInfo('RAS-5M34G3AVG-E/ET', 'toshiba').statut, 'eligible');
     });
 
@@ -749,6 +749,67 @@ describe('TVA 5,5% (Toshiba) — multisplit : la règle change', () => {
 
     test('référence de groupe absente (null) : "à vérifier" plutôt qu\'une promesse de 5,5%', () => {
         assert.equal(getTvaInfo('Shorai Edge', 'RAS-10J2AVSG-E1 / RAS-B10G3KVSG-E', 'multiUi', 'toshiba').statut, 'a_verifier');
+    });
+});
+
+// L'extraction du code taille et la normalisation de référence de groupe étaient toutes deux
+// verrouillées sur la nomenclature Toshiba (préfixe "RAS-" + 2 chiffres, suffixes "-E"/"-ND").
+// Pour toute autre marque, la regex ne matchait jamais et les deux gardes `if (taille && ...)`
+// de getTvaInfo étaient sautées : TOUTE référence de cette marque atterrissait sur "a_verifier",
+// y compris une taille qu'un futur tableau constructeur désignerait explicitement comme non
+// éligible. Ces tests ajoutent une marque fictive à la nomenclature délibérément différente
+// (aucun "RAS-", aucun suffixe "-E") pour prouver que plus aucune regex ne conditionne le
+// résultat — la taille est désormais résolue depuis le catalogue lui-même.
+describe('Généricité multi-marques (extraction taille, normalisation référence)', () => {
+    const MARQUE_FICTIVE = 'marque-test-generique';
+
+    // Nomenclature volontairement exotique : espaces, minuscules, aucun tiret — rien qui puisse
+    // matcher /RAS-(\d{2})/ ni aucun autre motif Toshiba par accident.
+    CATALOGS[MARQUE_FICTIVE] = {
+        monosplits: [
+            { gamme: 'Alpha', reference_ensemble: 'ZX 100 alpha unit', puissance_froid_kw: 2.2, puissance_chaud_kw: 2.6 },
+            { gamme: 'Alpha', reference_ensemble: 'ZX 200 alpha unit', puissance_froid_kw: 3.8, puissance_chaud_kw: 4.1 }
+        ],
+        multisplits_groupes_exterieurs: []
+    };
+    UI_SIZE_TABLES[MARQUE_FICTIVE] = [
+        { code: 'petit', froidMax: 2.2, chaudMax: 2.6 },
+        { code: 'grand', froidMax: 3.8, chaudMax: 4.1 }
+    ];
+
+    test('getUiSizeForKw résout la bonne taille sans dépendre d\'un format de référence', () => {
+        assert.equal(getUiSizeForKw(2.2, 2.6, MARQUE_FICTIVE), 'petit');
+        assert.equal(getUiSizeForKw(3.8, 4.1, MARQUE_FICTIVE), 'grand');
+    });
+
+    test('getTvaInfo dégrade sur "aucune base TVA" pour une marque inconnue du dispositif, sans planter', () => {
+        assert.equal(getTvaInfo('Alpha', 'ZX 100 alpha unit', 'mono', MARQUE_FICTIVE), null);
+    });
+
+    test('normaliserReferenceGroupe ne retire AUCUN suffixe pour une marque hors SUFFIXES_MILLESIME_GROUPE', () => {
+        // Même chaîne, comportement délibérément différent selon la marque : "-E1" est un
+        // suffixe de millésime CHEZ TOSHIBA, retiré pour la comparaison au tableau constructeur.
+        // Pour la marque fictive, "-E1" pourrait tout aussi bien désigner une révision matérielle
+        // distincte — sans entrée dans SUFFIXES_MILLESIME_GROUPE, rien n'est retiré, et c'est le
+        // comportement sûr : appliquer la règle Toshiba par défaut à une nomenclature inconnue
+        // ferait glisser l'éligibilité TVA d'une machine à une autre, en silence.
+        assert.equal(normaliserReferenceGroupe('ZX-900-E1', MARQUE_FICTIVE), 'ZX-900-E1');
+        assert.equal(normaliserReferenceGroupe('ZX-900-E1', 'toshiba'), 'ZX-900', 'chez Toshiba, "-E1" est bien un suffixe de millésime retiré');
+    });
+
+    test('une référence inconnue du catalogue dégrade sur "a_verifier", jamais une TypeError', () => {
+        // Simule une entrée TVA_RULES qui existerait pour cette marque : même dans ce cas, une
+        // référence absente du catalogue (faute de frappe, gamme retirée) ne doit jamais faire
+        // planter le calcul — seulement renvoyer une taille introuvable.
+        assert.doesNotThrow(() => getTvaInfo('Alpha', 'référence qui n\'existe pas', 'mono', MARQUE_FICTIVE));
+    });
+
+    // Nettoyage : ces clés ne doivent pas fuiter vers les autres tests du fichier (CATALOGS et
+    // UI_SIZE_TABLES sont des singletons partagés, importés une seule fois par tout le module).
+    test('nettoyage de la marque fictive', () => {
+        delete CATALOGS[MARQUE_FICTIVE];
+        delete UI_SIZE_TABLES[MARQUE_FICTIVE];
+        assert.equal(CATALOGS[MARQUE_FICTIVE], undefined);
     });
 });
 

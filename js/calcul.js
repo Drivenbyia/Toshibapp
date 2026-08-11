@@ -3,7 +3,7 @@
 // Toutes les entrées (climat, coefficients, marque...) sont passées en paramètres explicites,
 // ce qui les rend testables indépendamment de l'interface (voir tests/calcul.test.mjs).
 import {
-    CATALOGS, UI_SIZE_TABLES, TVA_RULES,
+    CATALOGS, UI_SIZE_TABLES, TVA_RULES, SUFFIXES_MILLESIME_GROUPE,
     APPORTS_INTERNES, CHARGE_TOITURE_PALIERS, RAYONNEMENT_VITRAGE, RATIO_VITRAGE, FC_PROTECTION,
     G_VITRAGE_PALIERS, COEF_INERTIE_SOLAIRE, OCCUPANT_W, COEF_RELANCE, COEF_G_DEFAUT, PART_VENTILATION_G,
     CONSIGNE_REFERENCE, ABATTEMENT_CANICULE_SEUIL_BAS, ABATTEMENT_CANICULE_SEUIL_HAUT,
@@ -386,16 +386,44 @@ export function getRoomEligibleGammes(room, allowedGammes, brand) {
     return [...new Set(sols.map(s => s.gamme))];
 }
 
-// Extrait le code taille Toshiba (ex: "18" dans "RAS-18E2AVG-E") depuis une référence d'unité extérieure.
-export function extractTailleCode(reference) {
-    const m = reference.match(/RAS-(\d{2})/);
-    return m ? m[1] : null;
+// Code taille (ex: "18") d'une référence monosplit, résolu depuis le CATALOGUE plutôt que
+// parsé dans la chaîne de référence. C'est la différence qui rend cette fonction générique par
+// marque : l'ancienne version filtrait sur /RAS-(\d{2})/, une nomenclature strictement Toshiba
+// (le préfixe "RAS-" suivi de deux chiffres). Pour toute autre marque, la regex ne matchait
+// jamais et retombait sur `null` — et dans getTvaInfo, les deux gardes `if (taille && ...)`
+// étant alors sautées, TOUTE référence de cette marque atterrissait silencieusement sur
+// `a_verifier`, y compris celles qu'un futur tableau constructeur désignerait explicitement
+// comme non éligibles.
+//
+// Le catalogue porte déjà tout ce qu'il faut pour retrouver la taille sans parser quoi que ce
+// soit : chaque entrée monosplit a ses puissances nominales, et UI_SIZE_TABLES (déjà par
+// marque, voir data.js) fait la correspondance puissance → code taille. getUiSizeForKw renvoie
+// alors exactement le palier de cette entrée, quelle que soit la convention de nommage du
+// constructeur.
+function tailleDepuisReference(referenceEnsemble, brand) {
+    const catalogue = CATALOGS[brand];
+    if (!catalogue) return null;
+    const entree = catalogue.monosplits.find(m => m.reference_ensemble === referenceEnsemble);
+    if (!entree) return null;
+    return getUiSizeForKw(entree.puissance_froid_kw, entree.puissance_chaud_kw, brand);
 }
 
-// Racine d'une référence de groupe extérieur, suffixe commercial de millésime retiré
-// (RAS-5M34G3AVG-E/ET et RAS-5M34G3AVG-E1 désignent la même machine) — voir TVA_RULES.multi.
-export function normaliserReferenceGroupe(reference) {
-    return String(reference || '').trim().toUpperCase().replace(/-E\d*(\/ET)?$/i, '').replace(/-ND$/i, '');
+// Suffixes de millésime commercial à ignorer pour faire correspondre une référence de groupe
+// extérieur du CATALOGUE (qui les porte, ex. "RAS-5M34G3AVG-E/ET") à celle citée par le
+// TABLEAU CONSTRUCTEUR d'éligibilité TVA (qui généralement ne les porte pas, ex.
+// "RAS-5M34G3AVG"). Par marque (SUFFIXES_MILLESIME_GROUPE, data.js) : une marque absente de
+// cette table n'a AUCUN suffixe retiré — la comparaison se fait alors sur la référence exacte.
+// C'est le comportement sûr par défaut : appliquer par erreur une règle de retrait taillée pour
+// la nomenclature Toshiba à une autre marque, où "-E" pourrait distinguer deux machines
+// différentes, ferait glisser l'éligibilité TVA de l'une à l'autre sans qu'aucune erreur ne
+// soit levée.
+export function normaliserReferenceGroupe(reference, brand) {
+    let ref = String(reference || '').trim().toUpperCase();
+    const suffixes = SUFFIXES_MILLESIME_GROUPE[brand];
+    if (suffixes) {
+        for (const regex of suffixes) ref = ref.replace(regex, '');
+    }
+    return ref;
 }
 
 // Détermine l'éligibilité TVA 5,5% d'une gamme/référence, pour la marque donnée.
@@ -418,14 +446,14 @@ export function getTvaInfo(gammeName, referenceEnsemble, context, brand, groupeR
         if (!multi) return null;
         // Groupe absent de la liste constructeur, ou unité intérieure hors des gammes couvertes :
         // le tableau ne tranche pas, on ne tranche pas non plus.
-        const groupeListe = multi.groupesEligibles.includes(normaliserReferenceGroupe(groupeReference));
+        const groupeListe = multi.groupesEligibles.includes(normaliserReferenceGroupe(groupeReference, brand));
         if (!groupeListe || !multi.gammesUi.includes(gammeName)) return resultat('a_verifier');
         return resultat('eligible', multi.wifiRequired);
     }
 
     const rule = rules.mono && rules.mono[gammeName];
     if (!rule) return null;
-    const taille = extractTailleCode(referenceEnsemble);
+    const taille = tailleDepuisReference(referenceEnsemble, brand);
     if (taille && rule.taillesNonEligibles.includes(taille)) return resultat('non_eligible');
     if (taille && rule.taillesEligibles.includes(taille)) return resultat('eligible', rule.wifiRequired);
     return resultat('a_verifier');
@@ -437,7 +465,7 @@ export function getTvaInfo(gammeName, referenceEnsemble, context, brand, groupeR
 export function getGroupTvaInfo(groupeReference, brand) {
     const multi = TVA_RULES[brand] && TVA_RULES[brand].multi;
     if (!multi) return null;
-    const eligible = multi.groupesEligibles.includes(normaliserReferenceGroupe(groupeReference));
+    const eligible = multi.groupesEligibles.includes(normaliserReferenceGroupe(groupeReference, brand));
     return {
         statut: eligible ? 'eligible' : 'a_verifier',
         eligible,
