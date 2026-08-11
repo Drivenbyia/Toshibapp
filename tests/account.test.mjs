@@ -90,6 +90,19 @@ describe('resolveBrands', () => {
         assert.deepEqual(resolveBrands('authenticated', {}), ['toshiba']);
         assert.deepEqual(resolveBrands('authenticated', { brands: 'toshiba' }), ['toshiba']);
     });
+
+    // Une faute de frappe en base ('Daikin' au lieu de 'daikin') ou une marque retirée du
+    // catalogue ne doivent jamais rendre l'application inutilisable : sans ce filtrage, la
+    // valeur traversait telle quelle jusqu'à CATALOGS[marque].monosplits, qui n'existe pas
+    // pour une clé mal saisie — TypeError au premier calcul, pour un client qui vient de payer.
+    test('une marque inconnue du catalogue (faute de frappe) est filtrée, pas transmise telle quelle', () => {
+        assert.deepEqual(resolveBrands('authenticated', { brands: ['Daikin'] }), ['toshiba'],
+            'aucune marque connue dans la liste -> repli complet sur toshiba');
+        assert.deepEqual(resolveBrands('authenticated', { brands: ['toshiba', 'daiken'] }), ['toshiba'],
+            'la faute de frappe est retirée, la marque connue reste');
+        assert.deepEqual(resolveBrands('authenticated', { brands: ['panasonic', 'daikin'] }), ['panasonic'],
+            'une marque connue mais non toshiba reste seule, sans repli forcé sur toshiba');
+    });
 });
 
 // Ces tests touchent le singleton exporté par account.js (comme l'application le fait) —

@@ -654,6 +654,14 @@ function restoreDraftIfAny() {
     // Un brouillon sans la moindre surface saisie n'a rien à restaurer.
     if (!draft.rooms.some(r => r.surface)) return;
 
+    // Contrairement à reloadConfig, on ne bloque jamais la restauration d'un brouillon : c'est
+    // une saisie non validée, la perdre serait pire que la recalculer sous une autre marque.
+    // Mais setBrand() coercerait silencieusement une marque non autorisée sans qu'on le
+    // détecte ici — et si une seule marque est active, la section marque est masquée : rien
+    // à l'écran n'indiquerait que la marque a changé sous les pièces déjà saisies. On calcule
+    // donc le décalage AVANT setBrand() pour pouvoir le dire dans la bannière.
+    const marqueAjustee = draft.brand && !marqueAutorisee(draft.brand, marquesActives());
+
     setBrand(draft.brand || marqueParDefaut(marquesActives()));
     applyBuildingParams(draft.params);
     state.mode = draft.mode === 'multi' ? 'multi' : 'mono';
@@ -665,6 +673,12 @@ function restoreDraftIfAny() {
     renderRooms();
 
     const banner = document.getElementById('draft-banner');
+    const bannerText = document.getElementById('draft-banner-text');
+    if (bannerText) {
+        bannerText.textContent = marqueAjustee
+            ? `📝 Saisie précédente restaurée — marque ajustée en ${libelleMarque(state.brand)} (${libelleMarque(draft.brand)} n'est plus proposée sur ce poste). Vérifiez le matériel avant d'enregistrer.`
+            : '📝 Saisie précédente restaurée.';
+    }
     if (banner) banner.classList.remove('hidden');
 }
 // Efface le brouillon et repart d'une saisie vierge (bouton de la bannière de reprise).

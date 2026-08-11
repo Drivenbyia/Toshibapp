@@ -6,6 +6,8 @@
 // ce lot. Aucune synchronisation de chantiers ici — hors périmètre (comptes et droits
 // seulement, voir le plan de mise sur le marché).
 
+import { MARQUES_CONNUES } from './marques.js';
+
 const SESSION_HINT_KEY = 'klimo:v2:auth:session_hint';
 const ENTITLEMENTS_KEY = 'klimo:v2:auth:entitlements';
 
@@ -37,12 +39,23 @@ export function nextAuthState(current, event) {
 // appareil jamais connecté, pour ne rien changer au comportement du lot précédent. Une
 // session avec des droits en cache renvoie ces droits même en `stale` : les droits déjà
 // obtenus s'appliquent hors-ligne, ils n'attendent pas une reconfirmation réseau.
+// Filtre les marques sur celles que le catalogue CONNAÎT réellement (MARQUES_CONNUES, dérivée
+// de BRAND_LABELS dans data.js) avant de les renvoyer. Sans ce filtre, une faute de frappe en
+// base ('Daikin' au lieu de 'daikin', ou une marque retirée du catalogue) traversait toute la
+// chaîne sans le moindre diagnostic : marqueAutorisee la validait (elle est bien dans la liste
+// reçue), setBrand l'acceptait, et le premier calcul plantait sur CATALOGS['Daikin'].monosplits
+// — une TypeError, pour un client qui vient de payer, sans qu'aucun message n'explique pourquoi.
+//
+// Une cellule Postgres mal saisie doit dégrader le compte vers son repli sûr, pas le rendre
+// inutilisable : si le filtrage ne laisse plus aucune marque valide, on retombe sur le même
+// ['toshiba'] que pour des droits absents ou vides.
 export function resolveBrands(status, cachedEntitlements) {
     if (status === 'anonymous') return null;
     if (!cachedEntitlements || !Array.isArray(cachedEntitlements.brands) || !cachedEntitlements.brands.length) {
         return ['toshiba'];
     }
-    return cachedEntitlements.brands;
+    const connues = cachedEntitlements.brands.filter((m) => MARQUES_CONNUES.includes(m));
+    return connues.length ? connues : ['toshiba'];
 }
 
 // --- État et orchestration ---
