@@ -4,7 +4,7 @@
 import {
     CATALOGS, GAMMES_INFO, TVA_RULES, DEPARTMENTS, tBaseMatrix, tBaseEteMatrix,
     BRAND_LABELS, CONSIGNE_REFERENCE, COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD,
-    SEUIL_SOUS_CHARGE, SEUIL_DESEQUILIBRE_GROUPE
+    SEUIL_SOUS_CHARGE, SEUIL_DESEQUILIBRE_GROUPE, TVA_DATE_VERIFICATION
 } from './data.js';
 import {
     occupantsParDefaut, resolveCoefG, getFacteurCanicule, getFacteurDeclassementChaud,
@@ -1708,15 +1708,27 @@ function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = fals
     </div>`;
 }
 
-// Pastilles HTML "TVA 5,5% / TVA 20% / TVA à vérifier" + mention Wifi si un module est nécessaire
-// pour en bénéficier. Le statut 'a_verifier' correspond à une référence absente du tableau
-// d'éligibilité Toshiba : l'outil ne promet pas 5,5% mais ne condamne pas non plus à 20%.
+// Pastilles HTML "TVA 5,5% / TVA 20% / TVA à vérifier / non renseignée" + mention Wifi si un
+// module est nécessaire pour en bénéficier. Le statut 'a_verifier' correspond à une référence
+// absente du tableau d'éligibilité DE LA MARQUE COURANTE (state.brand) : l'outil ne promet pas
+// 5,5% mais ne condamne pas non plus à 20%.
+//
+// `tvaInfo === null` est un cas DIFFÉRENT, distingué ici plutôt que confondu avec 'a_verifier' :
+// c'est la marque ENTIÈRE qui n'a aucun dispositif TVA renseigné (getTvaInfo/getGroupTvaInfo
+// retournent null quand TVA_RULES[brand] n'existe pas). Ce cas rendait jusqu'ici une chaîne
+// vide — aucune pastille du tout — qu'un commercial pressé lit « pas éligible », alors que
+// « non renseigné » et « non éligible » n'ont rien à voir. Toshiba affiche une pastille verte,
+// une future marque sans tableau doit afficher SA propre pastille grise plutôt que le silence.
 function renderTvaBadge(tvaInfo) {
-    if (!tvaInfo) return '';
+    if (!tvaInfo) {
+        return `<div class="flex flex-wrap gap-1.5 mt-2"><span class="inline-flex items-center gap-1 text-[11px] font-black px-2 py-1 rounded-full bg-gray-100 text-gray-500 border border-gray-200" title="Aucun dispositif d'éligibilité TVA renseigné pour ${escapeHtml(libelleMarque(state.brand))} dans cette version de l'outil — statut à vérifier auprès du fournisseur avant de facturer.">TVA non renseignée</span></div>`;
+    }
+    const marque = escapeHtml(libelleMarque(state.brand));
+    const dateVerif = new Date(TVA_DATE_VERIFICATION).toLocaleDateString('fr-FR');
     const badges = {
-        eligible:     `<span class="inline-flex items-center gap-1 text-[11px] font-black px-2 py-1 rounded-full bg-green-100 text-green-700 border border-green-300">TVA 5,5%</span>`,
-        non_eligible: `<span class="inline-flex items-center gap-1 text-[11px] font-black px-2 py-1 rounded-full bg-red-100 text-red-700 border border-red-300">TVA 20%</span>`,
-        a_verifier:   `<span class="inline-flex items-center gap-1 text-[11px] font-black px-2 py-1 rounded-full bg-gray-100 text-gray-600 border border-gray-300" title="Référence absente du tableau d'éligibilité Toshiba : à confirmer auprès du constructeur avant de facturer en 5,5%.">TVA à vérifier</span>`
+        eligible:     `<span class="inline-flex items-center gap-1 text-[11px] font-black px-2 py-1 rounded-full bg-green-100 text-green-700 border border-green-300" title="Éligibilité vérifiée face au tableau ${marque} le ${dateVerif}.">TVA 5,5%</span>`,
+        non_eligible: `<span class="inline-flex items-center gap-1 text-[11px] font-black px-2 py-1 rounded-full bg-red-100 text-red-700 border border-red-300" title="Éligibilité vérifiée face au tableau ${marque} le ${dateVerif}.">TVA 20%</span>`,
+        a_verifier:   `<span class="inline-flex items-center gap-1 text-[11px] font-black px-2 py-1 rounded-full bg-gray-100 text-gray-600 border border-gray-300" title="Référence absente du tableau d'éligibilité ${marque} (vérifié le ${dateVerif}) : à confirmer auprès du constructeur avant de facturer en 5,5%.">TVA à vérifier</span>`
     };
     const wifi = tvaInfo.wifiRequired
         ? `<span class="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200">📶 Module Wifi requis</span>`
@@ -1725,8 +1737,8 @@ function renderTvaBadge(tvaInfo) {
 }
 
 function tvaSuffixText(tvaInfo) {
-    if (!tvaInfo) return '';
-    const libelles = { eligible: 'TVA 5,5%', non_eligible: 'TVA 20%', a_verifier: 'TVA à vérifier (référence absente du tableau Toshiba)' };
+    if (!tvaInfo) return ` — TVA non renseignée pour ${libelleMarque(state.brand)}`;
+    const libelles = { eligible: 'TVA 5,5%', non_eligible: 'TVA 20%', a_verifier: `TVA à vérifier (référence absente du tableau ${libelleMarque(state.brand)})` };
     return ` — ${libelles[tvaInfo.statut] || libelles.a_verifier}${tvaInfo.wifiRequired ? ' (Module Wifi requis)' : ''}`;
 }
 
