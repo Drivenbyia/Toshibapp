@@ -13,6 +13,16 @@ import { BRAND_LABELS } from './data.js';
 
 export const MARQUES_ACTIVES = ['toshiba'];
 
+// Toutes les marques que le catalogue connaît, actives ou non — BRAND_LABELS liste déjà
+// exactement une entrée par marque catalogue (data.js), c'est donc la source de vérité pour
+// « quelles marques existent », indépendamment de celles autorisées pour un compte donné.
+//
+// Sert à générer le sélecteur de marque dans le DOM (voir genererBoutonsMarque, app.js) :
+// un bouton par marque connue, que initSelecteurMarque masque ensuite selon les droits du
+// compte. Sans ce registre, ajouter une marque exigeait d'écrire un <button data-brand="...">
+// à la main dans index.html en plus de renseigner ses données dans data.js.
+export const MARQUES_CONNUES = Object.keys(BRAND_LABELS);
+
 export function marqueAutorisee(marque, actives = MARQUES_ACTIVES) {
     return actives.includes(marque);
 }

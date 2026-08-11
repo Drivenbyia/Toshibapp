@@ -85,7 +85,7 @@
             </div>
             
             <div class="flex items-center gap-3">
-                <div class="text-[11px] sm:text-xs font-semibold text-gray-500 bg-gray-100 px-2 py-1 rounded hidden sm:block">V18 - FROID PHYSIQUE</div>
+                <div class="text-[11px] sm:text-xs font-semibold text-gray-500 bg-gray-100 px-2 py-1 rounded"><span class="sm:hidden">V18</span><span class="hidden sm:inline">V18 - FROID PHYSIQUE</span></div>
                 <span id="sync-badge" class="hidden text-[11px] font-semibold text-gray-500 bg-gray-100 px-2 py-1 rounded"></span>
                 <button id="account-badge" data-status="anonymous" class="text-[11px] sm:text-xs font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 px-2.5 py-1.5 rounded-full transition-colors max-w-[9rem] truncate" title="Compte">Se connecter</button>
                 <button onclick="toggleDashboard(true)" class="flex items-center justify-center p-2 rounded-full bg-gray-100 text-gray-600 hover:bg-[var(--brand-accent)] hover:text-white transition-colors" title="Mes Chantiers">
@@ -109,8 +109,8 @@
 
         <!-- Bannière de reprise de saisie (autosave) -->
         <div id="draft-banner" class="hidden p-3 bg-blue-50 border border-blue-200 text-blue-900 rounded-lg text-xs font-medium flex items-center justify-between gap-3 fade-in">
-            <span>📝 Saisie précédente restaurée.</span>
-            <button onclick="startNewCalcul()" class="text-[11px] font-bold text-blue-700 border border-blue-300 hover:bg-blue-100 px-2 py-1 rounded whitespace-nowrap">Nouveau calcul</button>
+            <span id="draft-banner-text">📝 Saisie précédente restaurée.</span>
+            <button onclick="startNewCalcul()" class="text-xs font-bold text-blue-700 border border-blue-300 hover:bg-blue-100 px-3 py-2.5 rounded whitespace-nowrap">Nouveau calcul</button>
         </div>
 
         <!-- Brand Selector -->
@@ -119,10 +119,10 @@
                 <span class="w-2 h-6 bg-[var(--brand-accent)] rounded-full"></span>
                 Marque
             </h2>
-            <div class="flex p-1 bg-gray-100 rounded-lg">
-                <button id="btn-brand-toshiba" data-brand="toshiba" onclick="setBrand('toshiba')" class="flex-1 py-2 text-sm font-bold rounded-md shadow-sm bg-white text-[var(--brand-accent)] transition-all">Toshiba</button>
-                <button id="btn-brand-panasonic" data-brand="panasonic" onclick="setBrand('panasonic')" class="flex-1 py-2 text-sm font-bold rounded-md text-gray-500 transition-all">Panasonic</button>
-            </div>
+            <!-- Boutons générés depuis MARQUES_CONNUES (js/marques.js) — voir
+                 genererBoutonsMarque() dans app.js. Ajouter une marque au catalogue suffit à
+                 lui faire un bouton ; ce fichier n'a plus à être touché. -->
+            <div id="brand-buttons" class="flex p-1 bg-gray-100 rounded-lg"></div>
         </section>
 
         <!-- Configuration Card -->
@@ -137,7 +137,7 @@
                     <div class="flex flex-col gap-2">
                         <label for="isolationCoef" class="text-xs font-bold uppercase text-gray-500 tracking-wider">Niveau d'Isolation (G)</label>
                         <div class="flex gap-2">
-                            <select id="isolationCoef" onchange="toggleCustomCoef(); updateClimateInfo(); persistDraft();" class="select-custom flex-grow p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all">
+                            <select id="isolationCoef" onchange="toggleCustomCoef(); updateClimateInfo(); persistDraft(); marquerResultatsObsoletes();" class="select-custom flex-grow p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all">
                                 <option value="2.0">Avant 1974 (Aucune isolation) - G: 2.0</option>
                                 <option value="1.2">1974 à 1988 (Isolation basique) - G: 1.2</option>
                                 <option value="1.1">1989 à 2000 (Années 90) - G: 1.1</option>
@@ -147,18 +147,18 @@
                                 <option value="3.0">Véranda (Très déperditif) - G: 3.0</option>
                                 <option value="custom">Saisie personnalisée...</option>
                             </select>
-                            <input type="number" id="customCoef" step="0.01" min="0.1" value="0.65" oninput="updateClimateInfo(); persistDraft();" class="hidden w-24 p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all" placeholder="Ex: 0.65">
+                            <input type="text" inputmode="decimal" id="customCoef" value="0.65" oninput="updateClimateInfo(); persistDraft(); marquerResultatsObsoletes();" class="hidden w-24 p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all" placeholder="Ex: 0.65">
                         </div>
                     </div>
 
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div class="flex flex-col gap-2">
                             <label for="deptSelect" class="text-xs font-bold uppercase text-[var(--brand-accent)] tracking-wider">Département</label>
-                            <select id="deptSelect" onchange="updateClimateInfo(); persistDraft();" class="select-custom p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all"></select>
+                            <select id="deptSelect" onchange="updateClimateInfo(); persistDraft(); marquerResultatsObsoletes();" class="select-custom p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all"></select>
                         </div>
                         <div class="flex flex-col gap-2">
                             <label for="altitude" class="text-xs font-bold uppercase text-[var(--brand-accent)] tracking-wider">Altitude</label>
-                            <select id="altitude" onchange="updateClimateInfo(); persistDraft();" class="select-custom p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all">
+                            <select id="altitude" onchange="updateClimateInfo(); persistDraft(); marquerResultatsObsoletes();" class="select-custom p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all">
                                 <option value="0 à 200m" selected>0 à 200m</option>
                                 <option value="200 à 400m">200 à 400m</option>
                                 <option value="400 à 600m">400 à 600m</option>
@@ -176,7 +176,7 @@
 
                     <div class="flex flex-col gap-2">
                         <label for="consigneInt" class="text-xs font-bold uppercase text-[var(--brand-accent)] tracking-wider">Consigne Intérieure Été</label>
-                        <select id="consigneInt" onchange="updateClimateInfo(); persistDraft();" class="select-custom p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all">
+                        <select id="consigneInt" onchange="updateClimateInfo(); persistDraft(); marquerResultatsObsoletes();" class="select-custom p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all">
                             <option value="25">25°C – Confort maximal</option>
                             <option value="26" selected>26°C – Standard (référence)</option>
                             <option value="27">27°C – Optimisé</option>
@@ -208,13 +208,22 @@
         <!-- Rooms Section -->
         <section id="rooms-container" class="flex flex-col gap-4 fade-in"></section>
 
-        <!-- Calculate Button -->
-        <button onclick="calculate()" class="w-full bg-[var(--brand-accent)] hover:bg-[var(--brand-accent-dark)] text-white font-bold py-4 rounded-xl shadow-lg transition-colors flex justify-center items-center gap-2 text-lg active:scale-95 transform transition">
+        <!-- Calculate Button : sticky pour rester atteignable en multisplit (jusqu'à 5 pièces à
+             faire défiler avant de l'atteindre autrement, sur mobile en particulier). -->
+        <button onclick="calculate()" class="sticky bottom-4 z-30 w-full bg-[var(--brand-accent)] hover:bg-[var(--brand-accent-dark)] text-white font-bold py-4 rounded-xl shadow-xl transition-colors flex justify-center items-center gap-2 text-lg active:scale-95 transform transition">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
             Rechercher les solutions
         </button>
 
         <!-- Results Section -->
+        <!-- Avertissement de péremption : les hypothèses (département, isolation, surfaces…) ont
+             changé depuis le dernier calcul, donc le matériel affiché plus bas ne correspond plus.
+             Signalé plutôt qu'effacé, pour ne pas faire disparaître un résultat sous les doigts. -->
+        <div id="stale-banner" class="hidden p-3 bg-amber-50 border border-amber-300 text-amber-900 rounded-lg text-xs font-bold flex items-center justify-between gap-3 fade-in" role="status">
+            <span>⚠️ Les hypothèses ont changé — les solutions ci-dessous ne sont plus à jour.</span>
+            <button onclick="calculate()" class="text-[11px] font-bold text-amber-900 border border-amber-400 hover:bg-amber-100 px-3 py-2 rounded whitespace-nowrap">Recalculer</button>
+        </div>
+
         <!-- Zone résultats : bordure/espacement distincts de la saisie au-dessus, pour que les
              solutions produites se lisent clairement comme la sortie de l'outil, pas un formulaire de plus. -->
         <section id="results-container" aria-live="polite" class="flex flex-col gap-4 pb-10 border-t-2 border-gray-200 pt-6"></section>

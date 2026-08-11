@@ -3,10 +3,11 @@
 // Toutes les entrées (climat, coefficients, marque...) sont passées en paramètres explicites,
 // ce qui les rend testables indépendamment de l'interface (voir tests/calcul.test.mjs).
 import {
-    CATALOGS, UI_SIZE_TABLES, TVA_RULES,
-    APPORTS_INTERNES, CHARGE_TOITURE, RAYONNEMENT_VITRAGE, RATIO_VITRAGE, FC_PROTECTION,
-    G_VITRAGE, COEF_INERTIE_SOLAIRE, OCCUPANT_W, COEF_RELANCE, COEF_G_DEFAUT,
-    CONSIGNE_REFERENCE, ZONES_CHAUDES, ABATTEMENT_CANICULE, DECLASSEMENT_CHAUD_PALIERS,
+    CATALOGS, UI_SIZE_TABLES, TVA_RULES, SUFFIXES_MILLESIME_GROUPE,
+    APPORTS_INTERNES, CHARGE_TOITURE_PALIERS, RAYONNEMENT_VITRAGE, RATIO_VITRAGE, FC_PROTECTION,
+    G_VITRAGE_PALIERS, COEF_INERTIE_SOLAIRE, OCCUPANT_W, COEF_RELANCE, COEF_G_DEFAUT, PART_VENTILATION_G,
+    CONSIGNE_REFERENCE, ABATTEMENT_CANICULE_SEUIL_BAS, ABATTEMENT_CANICULE_SEUIL_HAUT,
+    ABATTEMENT_CANICULE_MAX, DECLASSEMENT_CHAUD_PALIERS,
     TOLERANCE_EQUIVALENCE, SEUIL_DESEQUILIBRE_GROUPE, SEUIL_SOUS_CHARGE_ESCALADE
 } from './data.js';
 
@@ -15,18 +16,42 @@ export function occupantsParDefaut(surface) {
     return surface ? Math.max(1, Math.round(surface / 15)) : '';
 }
 
+// Lecture d'un nombre saisi au clavier, en acceptant la virgule décimale.
+//
+// Indispensable ici : les champs sont saisis par des artisans français, qui tapent « 2,5 »
+// pour une hauteur sous plafond. Les champs étaient en `type="number"`, dont la valeur est
+// une chaîne VIDE dès que le contenu n'est pas un nombre au format anglo-saxon — la virgule
+// n'atteignait donc même pas JavaScript. Une hauteur « 2,5 » devenait 0, le volume devenait 0,
+// et le besoin chaud s'affichait à 0.00 kW sans le moindre avertissement. Les champs sont
+// désormais en `type="text" inputmode="decimal"` (le pavé numérique reste proposé sur mobile)
+// et la normalisation se fait ici.
+//
+// Renvoie NaN sur une saisie non numérique, à charge de l'appelant de décider quoi en faire :
+// cette fonction ne choisit jamais de valeur de repli à la place du métier.
+export function parseNombreSaisi(valeur) {
+    if (typeof valeur === 'number') return valeur;
+    if (valeur === null || valeur === undefined) return NaN;
+    const normalise = String(valeur).trim().replace(',', '.');
+    if (normalise === '') return NaN;
+    return Number(normalise);
+}
+
 // Coefficient G résolu à partir de la sélection (valeur numérique ou "custom"), avec repli sur
 // la valeur par défaut si la saisie personnalisée est vide ou invalide (évite la propagation de
 // NaN dans tout le calcul).
 export function resolveCoefG(selectVal, customVal) {
-    const raw = selectVal === 'custom' ? parseFloat(customVal) : parseFloat(selectVal);
+    const raw = selectVal === 'custom' ? parseNombreSaisi(customVal) : parseNombreSaisi(selectVal);
     return Number.isFinite(raw) && raw > 0 ? raw : COEF_G_DEFAUT;
 }
 
-// Marge canicule : en zone chaude, la puissance froid catalogue (donnée à 35°C ext.) chute
-// réellement au-delà de 35°C (pointes 40-42°C).
-export function getFacteurCanicule(zone) {
-    return zone && ZONES_CHAUDES.includes(zone) ? ABATTEMENT_CANICULE : 1.0;
+// Marge canicule : la puissance froid catalogue (donnée à 35°C ext.) chute réellement au-delà
+// (pointes 40-42°C). Interpolée sur la température de base été elle-même plutôt que sur une
+// liste de zones — voir data.js pour la régression que ça corrige (zone F sans marge alors que
+// plus chaude que la zone B, qui en avait une).
+export function getFacteurCanicule(tBaseEte) {
+    if (!Number.isFinite(tBaseEte) || tBaseEte <= ABATTEMENT_CANICULE_SEUIL_BAS) return 1.0;
+    const t = Math.min(1, (tBaseEte - ABATTEMENT_CANICULE_SEUIL_BAS) / (ABATTEMENT_CANICULE_SEUIL_HAUT - ABATTEMENT_CANICULE_SEUIL_BAS));
+    return 1 + t * (ABATTEMENT_CANICULE_MAX - 1);
 }
 
 // Interpolation du ratio de capacité chaud restant à une température de base donnée, à partir
@@ -53,6 +78,37 @@ export function getFacteurDeclassementChaud(tBaseHiver) {
     return ratio > 0 ? 1 / ratio : 1;
 }
 
+// Interpolation linéaire générique sur une table de paliers { g, [cle]: valeur } triée par g
+// croissant, plafonnée en dehors (jamais extrapolée) : sous le premier palier, la valeur reste
+// à son minimum ; au-delà du dernier, à son maximum. Partagée par les deux grandeurs de
+// l'enveloppe qui suivent l'époque de construction (coefficient G) sans variation continue
+// propre : la surcharge toiture et le facteur solaire du vitrage.
+function interpolerSurG(coefG, paliers, cle) {
+    if (coefG <= paliers[0].g) return paliers[0][cle];
+    if (coefG >= paliers[paliers.length - 1].g) return paliers[paliers.length - 1][cle];
+    for (let i = 0; i < paliers.length - 1; i++) {
+        const a = paliers[i], b = paliers[i + 1];
+        if (coefG >= a.g && coefG <= b.g) {
+            const t = (coefG - a.g) / (b.g - a.g);
+            return a[cle] + t * (b[cle] - a[cle]);
+        }
+    }
+    return paliers[paliers.length - 1][cle];
+}
+
+// Surcharge toiture interpolée sur le coefficient G, à partir des paliers CHARGE_TOITURE_PALIERS
+// (voir data.js pour la discontinuité que ça corrige) : la charge ne devient pas négative pour
+// un G très bas, ni ne croît sans borne pour un G très élevé (véranda, G=3.0).
+export function interpolerChargeToiture(coefG) {
+    return interpolerSurG(coefG, CHARGE_TOITURE_PALIERS, 'charge');
+}
+
+// Facteur solaire du vitrage interpolé sur le coefficient G, à partir des paliers
+// G_VITRAGE_PALIERS (voir data.js pour la surestimation que ça corrige).
+export function interpolerGVitrage(coefG) {
+    return interpolerSurG(coefG, G_VITRAGE_PALIERS, 'gVitrage');
+}
+
 // Estimation indicative de l'impact de la consigne sur le besoin froid, sur un profil de pièce
 // type (20 m², vitrage moyen, protection stores, orientation mixte, plain-pied). Affichage
 // informatif uniquement : le poids réel de la consigne dépend de l'exposition solaire propre à
@@ -62,10 +118,9 @@ export function estimerEcartConsigne(consigne, coefG, tBaseEte) {
     function froidPour(c) {
         const volume = surfaceRef * heightRef;
         const deltaTEte = Math.max(0, tBaseEte - c);
-        const bandeIso = coefG <= 0.35 ? 'bonne' : (coefG <= 0.8 ? 'moyenne' : 'faible');
         const qEnveloppe = coefG * volume * deltaTEte;
-        const qToiture = CHARGE_TOITURE[bandeIso] * 0.5 * surfaceRef;
-        const qSolaire = RAYONNEMENT_VITRAGE.mixte * G_VITRAGE * FC_PROTECTION.stores_int * COEF_INERTIE_SOLAIRE * surfaceRef * RATIO_VITRAGE.moyen;
+        const qToiture = interpolerChargeToiture(coefG) * 0.5 * surfaceRef;
+        const qSolaire = RAYONNEMENT_VITRAGE.mixte * interpolerGVitrage(coefG) * FC_PROTECTION.stores_int * COEF_INERTIE_SOLAIRE * surfaceRef * RATIO_VITRAGE.moyen;
         const qInternesBase = APPORTS_INTERNES * surfaceRef;
         const qOccupants = occupantsParDefaut(surfaceRef) * OCCUPANT_W;
         return qEnveloppe + qToiture + qSolaire + qInternesBase + qOccupants;
@@ -92,9 +147,20 @@ export function getRequiredKw(surface, height, room, ctx) {
     const nbMursExt = Number.isFinite(expositionSaisie) ? Math.min(4, Math.max(1, expositionSaisie)) : 4;
     const ratioExposition = nbMursExt / 4;
 
+    // G capte à la fois la transmission par les parois ET le renouvellement d'air (voir plus
+    // bas) — mais seule la transmission dépend du nombre de murs extérieurs. Une pièce
+    // intérieure se ventile pareil qu'une pièce d'angle : appliquer ratioExposition à la
+    // totalité de G, comme avant ce correctif, réduisait aussi le débit d'air neuf, jusqu'à /4
+    // pour une pièce à un seul mur extérieur. On sépare donc G en deux parts (voir
+    // PART_VENTILATION_G, data.js) : la part ventilation reste à taux plein quelle que soit
+    // l'exposition, seule la part transmission est pondérée.
+    const gTransmission = coefG * (1 - PART_VENTILATION_G);
+    const gVentilation = coefG * PART_VENTILATION_G;
+    const gPondere = gTransmission * ratioExposition + gVentilation;
+
     // --- CHAUD : méthode déperditions (coefficient volumique G · V · ΔT) ---
     const deltaTChaud = 20 - tBaseHiver;
-    const deperditionsSeches = (volume * coefG * deltaTChaud * ratioExposition) / 1000;
+    const deperditionsSeches = (volume * gPondere * deltaTChaud) / 1000;
     const besoinChaud = deperditionsSeches * COEF_RELANCE;
 
     // --- FROID : bilan poste par poste (enveloppe + toiture + solaire + internes + occupants) ---
@@ -103,11 +169,9 @@ export function getRequiredKw(surface, height, room, ctx) {
     // toiture et les apports solaires par les vitrages, postes dominants du froid en été.
     const deltaTEte = Math.max(0, tBaseEte - consigne);
 
-    // Bande d'isolation dérivée du G (pour la surcharge toiture).
-    const bandeIso = coefG <= 0.35 ? 'bonne' : (coefG <= 0.8 ? 'moyenne' : 'faible');
-
-    // 1. Enveloppe : transmission des parois + air neuf (via G), pondérée par l'exposition.
-    const qEnveloppe = coefG * volume * deltaTEte * ratioExposition;   // W
+    // 1. Enveloppe : transmission des parois + air neuf (via G), pondérée par l'exposition
+    //    (voir gPondere ci-dessus — seule la part transmission de G varie avec l'exposition).
+    const qEnveloppe = gPondere * volume * deltaTEte;   // W
 
     // 2. Toiture : surcharge solaire si la pièce est sous la couverture. Approximation
     //    connue et non résolue : le G capte déjà la transmission de toute l'enveloppe,
@@ -117,7 +181,7 @@ export function getRequiredKw(surface, height, room, ctx) {
     //    proprement cette part pour la retrancher. Le double comptage biaise vers une
     //    surestimation (donc un sur-dimensionnement), jamais vers un déficit de puissance.
     //    plain_pied = combles perdus isolés (apport modéré) → demi-surcharge.
-    const chargeToit = CHARGE_TOITURE[bandeIso];
+    const chargeToit = interpolerChargeToiture(coefG);
     const qToiture = room.emplacement === 'sous_toiture' ? chargeToit * surface
                    : room.emplacement === 'plain_pied'   ? chargeToit * 0.5 * surface
                    : 0;                              // W
@@ -127,7 +191,7 @@ export function getRequiredKw(surface, height, room, ctx) {
     const ratioVit  = RATIO_VITRAGE[room.vitrage] ?? RATIO_VITRAGE.moyen;
     const fc        = FC_PROTECTION[room.protection] ?? FC_PROTECTION.stores_int;
     const sVitree   = surface * ratioVit;
-    const qSolaire  = rayon * G_VITRAGE * fc * COEF_INERTIE_SOLAIRE * sVitree; // W
+    const qSolaire  = rayon * interpolerGVitrage(coefG) * fc * COEF_INERTIE_SOLAIRE * sVitree; // W
 
     // 4. Apports internes de base : éclairage + équipements.
     const qInternesBase = APPORTS_INTERNES * surface; // W
@@ -145,20 +209,35 @@ export function getRequiredKw(surface, height, room, ctx) {
     return { froid: besoinFroid, chaud: besoinChaud };
 }
 
-// Code taille UI (ex: "10") pour un besoin donné, propre à la marque.
+// Code taille UI (ex: "10") pour un besoin donné, propre à la marque. Renvoie la plus petite
+// taille qui couvre le besoin EN FROID ET EN CHAUD, ou null si aucune n'y suffit — ce null est
+// ce qui déclenche le délestage d'une pièce vers un monosplit dédié en multisplit (voir app.js).
+//
+// Les deux plafonds sont confrontés séparément à leur besoin respectif. Comparer un unique
+// `Math.max(reqFroid, reqChaud)` à un unique seuil, comme c'était le cas, revenait à traiter
+// les deux puissances comme interchangeables : le besoin froid pouvait alors être validé contre
+// une capacité chaud, systématiquement plus élevée sur une PAC air/air (voir UI_SIZE_TABLES).
 export function getUiSizeForKw(reqFroid, reqChaud, brand) {
-    const maxReq = Math.max(reqFroid, reqChaud);
     const table = UI_SIZE_TABLES[brand];
-    for (const row of table) { if (maxReq <= row.max) return row.code; }
+    if (!table) return null;
+    for (const row of table) {
+        if (reqFroid <= row.froidMax && reqChaud <= row.chaudMax) return row.code;
+    }
     return null;
 }
 
 // --- ALGORITHME DE SÉLECTION INTELLIGENTE ---
 // Ne retourne QUE les gammes qui ont exactement la meilleure (plus petite) puissance requise,
 // avec une tolérance de +15% pour regrouper les équivalents (ex: 4.6kW et 5.0kW).
+// Départage par le chaud à froid égal : sans ce second critère, l'ordre entre machines de même
+// puissance froid était celui du catalogue, donc arbitraire — la première option étant celle
+// proposée par défaut, une machine nettement plus surdimensionnée en chaud pouvait passer devant
+// une autre strictement mieux ajustée. Le tri reste piloté par le froid en premier : c'est lui qui
+// définit la bande d'équivalence ci-dessous.
 export function findBestMonos(reqF, reqC, brand) {
     let allSols = CATALOGS[brand].monosplits.filter(p => p.puissance_froid_kw >= reqF && p.puissance_chaud_kw >= reqC)
-                               .sort((a, b) => a.puissance_froid_kw - b.puissance_froid_kw);
+                               .sort((a, b) => (a.puissance_froid_kw - b.puissance_froid_kw)
+                                            || (a.puissance_chaud_kw - b.puissance_chaud_kw));
 
     if (allSols.length === 0) return [];
 
@@ -210,20 +289,51 @@ export function findMultiGroupOptions(roomsObj, brand, coefFoisonnementFroid, co
     return validGroups.filter(g => g.puissance_nominale_froid_kw <= minFroid * TOLERANCE_EQUIVALENCE);
 }
 
-// Pièce la plus demandeuse d'un ensemble : celle qui dicte le déséquilibre d'un groupe multisplit
-// (un compresseur unique alimente toutes les UI).
+// Pièce la plus demandeuse d'un ensemble, en puissance brute et indépendamment de tout groupe.
+// Ne sert plus à décider d'un déséquilibre (voir pieceDominantePourGroupe, qui raisonne en part
+// de la capacité réellement disponible) : conservée pour les usages où aucun groupe n'est encore
+// choisi.
 export function pieceDominante(roomsObj) {
     if (!roomsObj || roomsObj.length === 0) return null;
     return roomsObj.reduce((max, r) =>
         Math.max(r.froidMatch, r.chaudMatch) > Math.max(max.froidMatch, max.chaudMatch) ? r : max);
 }
 
+// Part de la puissance nominale d'un groupe absorbée par UNE pièce (0 → 1), mode par mode.
+//
+// Chaque besoin est confronté à SA propre capacité : le froid au nominal froid, le chaud au
+// nominal chaud. Auparavant le calcul divisait `max(froidMatch, chaudMatch)` par
+// `max(nominal froid, nominal chaud)` — deux maxima pris indépendamment, qui pouvaient donc
+// provenir de modes différents. Comme le nominal chaud est TOUJOURS supérieur au nominal froid
+// sur les groupes du catalogue, tout besoin dominé par le froid était divisé par une capacité
+// chaud plus grande, et sa part systématiquement sous-estimée.
+//
+// Deux cas où ça mordait, et ce sont exactement les cas cibles d'un outil de climatisation :
+//   - mode « Froid seul » : chaudMatch vaut 0, le besoin froid était donc toujours rapporté au
+//     nominal chaud. Sur un RAS-3M18 (5,2 kW F / 6,8 kW C), une pièce à 3,4 kW froid occupe
+//     réellement 65% du groupe et était comptée à 50% : sous le seuil, aucune alerte.
+//   - mode réversible en zone chaude et bâti bien isolé, où le besoin froid dépasse le chaud.
+export function partPieceDansGroupe(piece, group) {
+    if (!piece || !group) return 0;
+    const parts = [];
+    if (group.puissance_nominale_froid_kw) parts.push(piece.froidMatch / group.puissance_nominale_froid_kw);
+    if (piece.chaudMatch && group.puissance_nominale_chaud_kw) parts.push(piece.chaudMatch / group.puissance_nominale_chaud_kw);
+    return parts.length ? Math.max(...parts) : 0;
+}
+
+// Pièce qui absorbe la plus grande PART de la puissance d'un groupe donné — ce n'est pas
+// forcément celle qui demande le plus de kW bruts : une pièce dominée par le froid pèse sur une
+// capacité plus petite qu'une pièce dominée par le chaud. C'est cette pièce-là qui dicte le
+// déséquilibre, et c'est donc elle que l'interface doit nommer à côté du pourcentage affiché.
+export function pieceDominantePourGroupe(group, roomsObj) {
+    if (!roomsObj || roomsObj.length === 0) return null;
+    return roomsObj.reduce((max, r) =>
+        partPieceDansGroupe(r, group) > partPieceDansGroupe(max, group) ? r : max);
+}
+
 // Part de la puissance nominale d'un groupe absorbée par sa pièce la plus demandeuse (0 → 1).
 export function ratioPieceDominante(group, roomsObj) {
-    const piece = pieceDominante(roomsObj);
-    const nominalMax = Math.max(group.puissance_nominale_froid_kw, group.puissance_nominale_chaud_kw);
-    if (!piece || !nominalMax) return 0;
-    return Math.max(piece.froidMatch, piece.chaudMatch) / nominalMax;
+    return partPieceDansGroupe(pieceDominantePourGroupe(group, roomsObj), group);
 }
 
 // Groupe déséquilibré : une seule pièce mobilise une part telle de la puissance du groupe que les
@@ -276,16 +386,44 @@ export function getRoomEligibleGammes(room, allowedGammes, brand) {
     return [...new Set(sols.map(s => s.gamme))];
 }
 
-// Extrait le code taille Toshiba (ex: "18" dans "RAS-18E2AVG-E") depuis une référence d'unité extérieure.
-export function extractTailleCode(reference) {
-    const m = reference.match(/RAS-(\d{2})/);
-    return m ? m[1] : null;
+// Code taille (ex: "18") d'une référence monosplit, résolu depuis le CATALOGUE plutôt que
+// parsé dans la chaîne de référence. C'est la différence qui rend cette fonction générique par
+// marque : l'ancienne version filtrait sur /RAS-(\d{2})/, une nomenclature strictement Toshiba
+// (le préfixe "RAS-" suivi de deux chiffres). Pour toute autre marque, la regex ne matchait
+// jamais et retombait sur `null` — et dans getTvaInfo, les deux gardes `if (taille && ...)`
+// étant alors sautées, TOUTE référence de cette marque atterrissait silencieusement sur
+// `a_verifier`, y compris celles qu'un futur tableau constructeur désignerait explicitement
+// comme non éligibles.
+//
+// Le catalogue porte déjà tout ce qu'il faut pour retrouver la taille sans parser quoi que ce
+// soit : chaque entrée monosplit a ses puissances nominales, et UI_SIZE_TABLES (déjà par
+// marque, voir data.js) fait la correspondance puissance → code taille. getUiSizeForKw renvoie
+// alors exactement le palier de cette entrée, quelle que soit la convention de nommage du
+// constructeur.
+function tailleDepuisReference(referenceEnsemble, brand) {
+    const catalogue = CATALOGS[brand];
+    if (!catalogue) return null;
+    const entree = catalogue.monosplits.find(m => m.reference_ensemble === referenceEnsemble);
+    if (!entree) return null;
+    return getUiSizeForKw(entree.puissance_froid_kw, entree.puissance_chaud_kw, brand);
 }
 
-// Racine d'une référence de groupe extérieur, suffixe commercial de millésime retiré
-// (RAS-5M34G3AVG-E/ET et RAS-5M34G3AVG-E1 désignent la même machine) — voir TVA_RULES.multi.
-export function normaliserReferenceGroupe(reference) {
-    return String(reference || '').trim().toUpperCase().replace(/-E\d*(\/ET)?$/i, '').replace(/-ND$/i, '');
+// Suffixes de millésime commercial à ignorer pour faire correspondre une référence de groupe
+// extérieur du CATALOGUE (qui les porte, ex. "RAS-5M34G3AVG-E/ET") à celle citée par le
+// TABLEAU CONSTRUCTEUR d'éligibilité TVA (qui généralement ne les porte pas, ex.
+// "RAS-5M34G3AVG"). Par marque (SUFFIXES_MILLESIME_GROUPE, data.js) : une marque absente de
+// cette table n'a AUCUN suffixe retiré — la comparaison se fait alors sur la référence exacte.
+// C'est le comportement sûr par défaut : appliquer par erreur une règle de retrait taillée pour
+// la nomenclature Toshiba à une autre marque, où "-E" pourrait distinguer deux machines
+// différentes, ferait glisser l'éligibilité TVA de l'une à l'autre sans qu'aucune erreur ne
+// soit levée.
+export function normaliserReferenceGroupe(reference, brand) {
+    let ref = String(reference || '').trim().toUpperCase();
+    const suffixes = SUFFIXES_MILLESIME_GROUPE[brand];
+    if (suffixes) {
+        for (const regex of suffixes) ref = ref.replace(regex, '');
+    }
+    return ref;
 }
 
 // Détermine l'éligibilité TVA 5,5% d'une gamme/référence, pour la marque donnée.
@@ -308,14 +446,14 @@ export function getTvaInfo(gammeName, referenceEnsemble, context, brand, groupeR
         if (!multi) return null;
         // Groupe absent de la liste constructeur, ou unité intérieure hors des gammes couvertes :
         // le tableau ne tranche pas, on ne tranche pas non plus.
-        const groupeListe = multi.groupesEligibles.includes(normaliserReferenceGroupe(groupeReference));
+        const groupeListe = multi.groupesEligibles.includes(normaliserReferenceGroupe(groupeReference, brand));
         if (!groupeListe || !multi.gammesUi.includes(gammeName)) return resultat('a_verifier');
         return resultat('eligible', multi.wifiRequired);
     }
 
     const rule = rules.mono && rules.mono[gammeName];
     if (!rule) return null;
-    const taille = extractTailleCode(referenceEnsemble);
+    const taille = tailleDepuisReference(referenceEnsemble, brand);
     if (taille && rule.taillesNonEligibles.includes(taille)) return resultat('non_eligible');
     if (taille && rule.taillesEligibles.includes(taille)) return resultat('eligible', rule.wifiRequired);
     return resultat('a_verifier');
@@ -327,7 +465,7 @@ export function getTvaInfo(gammeName, referenceEnsemble, context, brand, groupeR
 export function getGroupTvaInfo(groupeReference, brand) {
     const multi = TVA_RULES[brand] && TVA_RULES[brand].multi;
     if (!multi) return null;
-    const eligible = multi.groupesEligibles.includes(normaliserReferenceGroupe(groupeReference));
+    const eligible = multi.groupesEligibles.includes(normaliserReferenceGroupe(groupeReference, brand));
     return {
         statut: eligible ? 'eligible' : 'a_verifier',
         eligible,

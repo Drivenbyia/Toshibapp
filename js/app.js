@@ -4,20 +4,21 @@
 import {
     CATALOGS, GAMMES_INFO, TVA_RULES, DEPARTMENTS, tBaseMatrix, tBaseEteMatrix,
     BRAND_LABELS, CONSIGNE_REFERENCE, COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD,
-    SEUIL_SOUS_CHARGE, SEUIL_DESEQUILIBRE_GROUPE
+    SEUIL_SOUS_CHARGE, SEUIL_DESEQUILIBRE_GROUPE, TVA_DATE_VERIFICATION
 } from './data.js';
 import {
     occupantsParDefaut, resolveCoefG, getFacteurCanicule, getFacteurDeclassementChaud,
     estimerEcartConsigne, getRequiredKw as getRequiredKwCore, getUiSizeForKw, findBestMonos,
     findMultiGroup, findMultiGroupOptions, getRoomEligibleGammes, getTvaInfo, getRoomSelectedTvaInfo,
-    getGroupTvaInfo, trierMonosParTva,
-    findGroupeEquilibre, estGroupeDesequilibre, ratioPieceDominante, pieceDominante
+    getGroupTvaInfo, trierMonosParTva, parseNombreSaisi,
+    findGroupeEquilibre, estGroupeDesequilibre, ratioPieceDominante, pieceDominantePourGroupe,
+    tauxChargeGroupe
 } from './calcul.js';
 import {
     sauvegardeValide, construireSauvegarde, compterChantiers
 } from './sauvegarde.js';
 import {
-    MARQUES_ACTIVES, marqueAutorisee, marqueParDefaut, resoudreMarque, libelleMarque,
+    MARQUES_ACTIVES, MARQUES_CONNUES, marqueAutorisee, marqueParDefaut, resoudreMarque, libelleMarque,
     selecteurMarqueVisible
 } from './marques.js';
 import { store } from './store.js';
@@ -53,6 +54,28 @@ function marquesActives() {
     return getBrandsOverride() || MARQUES_ACTIVES;
 }
 
+// Identifiants de pièce : compteur monotone, et non Date.now().
+//
+// Date.now() a une résolution d'une milliseconde : deux pièces créées dans la même milliseconde
+// — un double tap sur « Ajouter une pièce », ou un appel programmatique — recevaient le MÊME
+// identifiant. removeRoom filtre sur cet identifiant : supprimer l'une supprimait alors les deux
+// d'un coup, sans avertissement et sans annulation possible. duplicateRoom était le chemin le
+// plus exposé, la duplication suivant immédiatement le clic d'origine.
+//
+// Démarre à 2 : la pièce initiale de `state` porte l'identifiant 1 en dur (elle est déclarée
+// avant ce compteur, donc ne peut pas l'appeler).
+let prochainRoomId = 2;
+function nouvelIdPiece() { return prochainRoomId++; }
+
+// Après restauration d'un brouillon ou d'un chantier, le compteur doit repartir au-dessus du plus
+// grand identifiant déjà présent — sinon la prochaine pièce ajoutée entrerait en collision avec
+// une pièce restaurée. Couvre aussi les anciens identifiants issus de Date.now(), qui sont
+// simplement de très grands entiers.
+function reserverIdsPieces(rooms) {
+    const maxExistant = (rooms || []).reduce((max, r) => Math.max(max, Number(r.id) || 0), 0);
+    prochainRoomId = Math.max(prochainRoomId, maxExistant + 1);
+}
+
 function defaultRoom(id) {
     return { id, nom: '', surface: '', height: 2.5, emplacement: 'plain_pied', orientation: 'mixte', vitrage: 'moyen', protection: 'stores_int', occupants: '', expositionMurs: 4 };
 }
@@ -65,14 +88,23 @@ function setBrand(brand) {
     // sauvegardé et brouillon), qui passaient jusqu'ici la marque enregistrée sans la
     // valider et pouvaient ainsi ressusciter une marque masquée. Passe par marquesActives()
     // pour tenir compte des droits du compte connecté, s'il y en a un.
-    brand = resoudreMarque(brand, marquesActives());
+    const actives = marquesActives();
+    brand = resoudreMarque(brand, actives);
     state.brand = brand;
     // L'accent visuel est celui de Klimo, fixe, jamais celui du constructeur choisi (voir
     // --brand-accent dans index.html) : l'app doit rester identifiable comme l'outil de
     // l'installateur, pas comme le configurateur d'un fabricant.
+    //
+    // `btn.className` est réécrit en entier, donc doit reporter lui-même la classe `hidden` —
+    // sans ce `visible ? '' : ' hidden'`, un bouton masqué par initSelecteurMarque() se
+    // retrouvait démasqué au premier setBrand() suivant (celui-là même qu'initSelecteurMarque
+    // appelle en dernière étape). Invisible tant qu'une seule marque est active (la section
+    // entière est alors masquée), mais rendrait une marque non autorisée VISIBLE dès que 2
+    // marques ou plus seraient actives sur un catalogue qui en connaît davantage.
     document.querySelectorAll('[data-brand]').forEach((btn) => {
         const actif = btn.dataset.brand === brand;
-        btn.className = `flex-1 py-2 text-sm font-bold rounded-md transition-all ${actif ? 'shadow-sm bg-white text-[var(--brand-accent)]' : 'text-gray-500'}`;
+        const visible = actives.includes(btn.dataset.brand);
+        btn.className = `flex-1 py-2 text-sm font-bold rounded-md transition-all ${actif ? 'shadow-sm bg-white text-[var(--brand-accent)]' : 'text-gray-500'}${visible ? '' : ' hidden'}`;
     });
     state.currentCalc = null;
     document.getElementById('results-container').innerHTML = '';
@@ -88,14 +120,16 @@ function initApp() {
     initAccount();
 
     const deptSelect = document.getElementById('deptSelect');
+    const dernierDept = getDernierDept();
     Object.keys(DEPARTMENTS).sort().forEach(code => {
         const opt = document.createElement('option');
         opt.value = code;
         opt.textContent = `${code} - ${DEPARTMENTS[code].name}`;
-        if (code === "69") opt.selected = true;
+        if (code === dernierDept) opt.selected = true;
         deptSelect.appendChild(opt);
     });
     updateClimateInfo();
+    genererBoutonsMarque();
     initSelecteurMarque();
     renderRooms();
     initDashboardEvents();
@@ -181,6 +215,23 @@ function renderSyncBadge() {
         badge.textContent = 'À jour';
         badge.className = 'text-[11px] font-semibold text-green-700 bg-green-50 px-2 py-1 rounded';
     }
+}
+
+// Génère un bouton par marque CONNUE du catalogue (MARQUES_CONNUES, js/marques.js) — pas
+// seulement les marques actives : initSelecteurMarque() masque ensuite celles non autorisées
+// pour ce compte, exactement comme avant, mais sans plus exiger qu'un bouton soit écrit à la
+// main dans index.html pour chaque nouvelle marque. Ajouter une marque au catalogue lui fait
+// donc un bouton automatiquement, actif ou masqué selon les droits.
+//
+// Idempotent (peut être rejoué sans dupliquer les boutons) : si le catalogue change en cours
+// de session (peu probable, mais MARQUES_CONNUES est dérivée d'un import statique, pas d'un
+// état mutable), ceci évite un piège silencieux plutôt que de le documenter comme limite.
+function genererBoutonsMarque() {
+    const container = document.getElementById('brand-buttons');
+    if (!container) return;
+    container.innerHTML = MARQUES_CONNUES.map(marque => `
+        <button data-brand="${marque}" onclick="setBrand('${marque}')" class="flex-1 py-2 text-sm font-bold rounded-md text-gray-500 transition-all">${escapeHtml(libelleMarque(marque))}</button>
+    `).join('');
 }
 
 // Masque (sans les retirer du DOM — voir setBrand) les boutons des marques non autorisées,
@@ -342,8 +393,8 @@ function renderDashboard() {
                     <p class="text-[11px] text-gray-400 mt-2 font-medium">${escapeHtml(cfg.date)}</p>
                 </div>
                 <div class="absolute right-0 top-3 flex items-center gap-1">
-                    ${marqueRetiree ? '' : `<button data-action="reload-config" data-id="${escapeHtml(cfg.id)}" class="text-gray-300 hover:text-[var(--brand-accent)] p-2" title="Recharger cette configuration pour la modifier"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg></button>`}
-                    <button data-action="delete-config" data-id="${escapeHtml(cfg.id)}" class="text-gray-300 hover:text-red-500 p-2" title="Supprimer cette zone"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
+                    ${marqueRetiree ? '' : `<button data-action="reload-config" data-id="${escapeHtml(cfg.id)}" title="Recharger cette configuration pour la modifier" aria-label="Recharger cette configuration" class="text-gray-400 hover:text-[var(--brand-accent)] p-3 -m-1"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg></button>`}
+                    <button data-action="delete-config" data-id="${escapeHtml(cfg.id)}" title="Supprimer cette zone" aria-label="Supprimer cette zone" class="text-gray-400 hover:text-red-500 p-3 -m-1"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
                 </div>
             </div>
         `}).join('');
@@ -479,6 +530,8 @@ function deleteChantier(clientName) {
 }
 
 function deleteConfig(id) {
+    const cfg = store.getConfig(id);
+    if (cfg && !confirm(`Supprimer définitivement la zone « ${cfg.zone} » ?`)) return;
     if (!store.softDelete(id)) {
         afficherMessageSauvegarde("❌ Suppression impossible : le stockage local est indisponible.", false);
     }
@@ -518,6 +571,7 @@ function reloadConfig(id) {
     state.mode = cfg.mode === 'multi' ? 'multi' : 'mono';
     state.usage = cfg.usage === 'froid_seul' ? 'froid_seul' : 'reversible';
     state.rooms = JSON.parse(JSON.stringify(cfg.rooms));
+    reserverIdsPieces(state.rooms);
     updateModeButtons(state.mode);
     updateUsageButtons(state.usage);
     renderRooms();
@@ -572,14 +626,40 @@ function applyBuildingParams(params) {
 // 5 pièces déjà remplies. Sauvegarde silencieuse à chaque modification, restaurée au chargement.
 const DRAFT_KEY = 'klimo:v2:local:draft';
 const DRAFT_KEY_LEGACY = 'toshiba_prosizer_draft';
+
+// Dernier département utilisé : clé SÉPARÉE du brouillon, qui survit à clearDraft() (appelé à
+// chaque "Nouveau calcul" et après chaque enregistrement de chantier — donc à chaque parcours
+// complet et réussi). Sans elle, "69" par défaut revenait sans arrêt pour un installateur qui
+// travaille toujours dans un autre département, à corriger à chaque nouveau calcul.
+const LAST_DEPT_KEY = 'klimo:v2:local:lastDept';
+function getDernierDept() {
+    try { return localStorage.getItem(LAST_DEPT_KEY) || '69'; } catch (e) { return '69'; }
+}
+function persistDernierDept(code) {
+    try { if (code) localStorage.setItem(LAST_DEPT_KEY, code); } catch (e) { /* ignoré */ }
+}
+
+// Identité de l'installateur (nom/société/téléphone) : propriété de l'appareil, pas d'un
+// chantier précis — clé séparée, jamais effacée par clearDraft() ni par la suppression d'une
+// fiche, pour ne pas avoir à la ressaisir à chaque export PDF.
+const INSTALLATEUR_KEY = 'klimo:v2:local:installateur';
+function getInstallateur() {
+    try { return localStorage.getItem(INSTALLATEUR_KEY) || ''; } catch (e) { return ''; }
+}
+function persistInstallateur(value) {
+    try { localStorage.setItem(INSTALLATEUR_KEY, value); } catch (e) { /* ignoré */ }
+}
+
 function persistDraft() {
     try {
+        const params = captureBuildingParams();
+        persistDernierDept(params.deptSelect);
         localStorage.setItem(DRAFT_KEY, JSON.stringify({
             brand: state.brand,
             mode: state.mode,
             usage: state.usage,
             rooms: state.rooms,
-            params: captureBuildingParams()
+            params: params
         }));
     } catch (e) { /* stockage indisponible : tant pis, pas de brouillon */ }
 }
@@ -603,22 +683,40 @@ function restoreDraftIfAny() {
     // Un brouillon sans la moindre surface saisie n'a rien à restaurer.
     if (!draft.rooms.some(r => r.surface)) return;
 
+    // Contrairement à reloadConfig, on ne bloque jamais la restauration d'un brouillon : c'est
+    // une saisie non validée, la perdre serait pire que la recalculer sous une autre marque.
+    // Mais setBrand() coercerait silencieusement une marque non autorisée sans qu'on le
+    // détecte ici — et si une seule marque est active, la section marque est masquée : rien
+    // à l'écran n'indiquerait que la marque a changé sous les pièces déjà saisies. On calcule
+    // donc le décalage AVANT setBrand() pour pouvoir le dire dans la bannière.
+    const marqueAjustee = draft.brand && !marqueAutorisee(draft.brand, marquesActives());
+
     setBrand(draft.brand || marqueParDefaut(marquesActives()));
     applyBuildingParams(draft.params);
     state.mode = draft.mode === 'multi' ? 'multi' : 'mono';
     state.usage = draft.usage === 'froid_seul' ? 'froid_seul' : 'reversible';
     state.rooms = draft.rooms;
+    reserverIdsPieces(state.rooms);
     updateModeButtons(state.mode);
     updateUsageButtons(state.usage);
     renderRooms();
 
     const banner = document.getElementById('draft-banner');
+    const bannerText = document.getElementById('draft-banner-text');
+    if (bannerText) {
+        bannerText.textContent = marqueAjustee
+            ? `📝 Saisie précédente restaurée — marque ajustée en ${libelleMarque(state.brand)} (${libelleMarque(draft.brand)} n'est plus proposée sur ce poste). Vérifiez le matériel avant d'enregistrer.`
+            : '📝 Saisie précédente restaurée.';
+    }
     if (banner) banner.classList.remove('hidden');
 }
 // Efface le brouillon et repart d'une saisie vierge (bouton de la bannière de reprise).
+// Irréversible et sans le moindre "annuler" : la saisie précédente n'est nulle part ailleurs
+// une fois clearDraft() passé, d'où la confirmation avant d'agir.
 function startNewCalcul() {
+    if (!confirm('Repartir d\'une saisie vierge ? La saisie précédente restaurée ci-dessus sera perdue.')) return;
     clearDraft();
-    state.rooms = [defaultRoom(Date.now())];
+    state.rooms = [defaultRoom(nouvelIdPiece())];
     state.currentCalc = null;
     document.getElementById('results-container').innerHTML = '';
     renderRooms();
@@ -765,12 +863,46 @@ function updateModeButtons(mode) {
     document.getElementById('btn-multi').className = `flex-1 py-2 text-sm font-medium rounded-md transition-all ${!isMono ? 'shadow-sm bg-white text-[var(--brand-accent)]' : 'text-gray-500'}`;
 }
 
+// Signale que les résultats affichés ne correspondent plus aux hypothèses saisies.
+//
+// Sans cela, modifier le département, l'isolation, l'altitude, la consigne ou n'importe quel
+// champ de pièce laissait les solutions précédentes à l'écran, sans la moindre marque
+// d'obsolescence : un artisan qui corrigeait « 69 » en « 13 » voyait le bandeau climat se
+// mettre à jour et recopiait le matériel calculé pour Lyon. setMode, setUsage et setBrand
+// effaçaient bien les résultats ; ces chemins-là, non.
+//
+// On avertit au lieu d'effacer : faire disparaître un résultat sous les doigts à la première
+// frappe dans un champ est hostile, et l'information reste utile en comparaison. Le bandeau
+// disparaît au recalcul.
+function marquerResultatsObsoletes() {
+    if (!state.currentCalc) return;              // rien d'affiché : rien à périmer
+    const banner = document.getElementById('stale-banner');
+    if (banner) banner.classList.remove('hidden');
+    const results = document.getElementById('results-container');
+    if (results) results.classList.add('opacity-50');
+}
+
+function effacerMarqueObsolescence() {
+    const banner = document.getElementById('stale-banner');
+    if (banner) banner.classList.add('hidden');
+    const results = document.getElementById('results-container');
+    if (results) results.classList.remove('opacity-50');
+}
+
+// Passer en Monosplit ne garde que la première pièce : sans garde, un artisan qui teste "et si
+// je repassais en mono ?" perdait la saisie des pièces 2 à 5 en un clic, sans le moindre signe
+// avant-coureur (le bouton Monosplit/Multisplit ne ressemble à rien de destructeur). Le passage
+// inverse (mono -> multi) ne perd rien : la pièce 1 reste, on ne fait qu'ajouter des emplacements.
 function setMode(mode) {
+    if (mode === 'mono' && state.mode === 'multi' && state.rooms.length > 1) {
+        if (!confirm(`Repasser en Monosplit ? La saisie des ${state.rooms.length - 1} autre(s) pièce(s) sera perdue (seule la première est conservée).`)) return;
+    }
     state.mode = mode;
     state.rooms = [state.rooms[0]];
     updateModeButtons(mode);
     state.currentCalc = null;
     document.getElementById('results-container').innerHTML = '';
+    effacerMarqueObsolescence();
     renderRooms();
 }
 
@@ -790,6 +922,7 @@ function setUsage(usage) {
     updateUsageButtons(usage);
     state.currentCalc = null;
     document.getElementById('results-container').innerHTML = '';
+    effacerMarqueObsolescence();
     persistDraft();
 }
 
@@ -802,9 +935,9 @@ function renderRooms() {
         const showDuplicate = state.mode === 'multi' && canAddMore;
         container.insertAdjacentHTML('beforeend', `
             <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 fade-in relative">
-                <div class="absolute top-4 right-4 flex items-center gap-1">
-                    ${showDuplicate ? `<button onclick="duplicateRoom(${room.id})" title="Dupliquer cette pièce" class="text-gray-300 hover:text-[var(--brand-accent)] transition p-1"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 4h8a2 2 0 012 2v8a2 2 0 01-2 2h-8a2 2 0 01-2-2v-8a2 2 0 012-2z"></path></svg></button>` : ''}
-                    ${showRemove ? `<button onclick="removeRoom(${room.id})" title="Supprimer cette pièce" class="text-gray-300 hover:text-red-500 transition p-1"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>` : ''}
+                <div class="absolute top-3 right-3 flex items-center gap-2">
+                    ${showDuplicate ? `<button onclick="duplicateRoom(${room.id})" title="Dupliquer cette pièce" aria-label="Dupliquer cette pièce" class="text-gray-400 hover:text-[var(--brand-accent)] transition p-3 -m-1"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 4h8a2 2 0 012 2v8a2 2 0 01-2 2h-8a2 2 0 01-2-2v-8a2 2 0 012-2z"></path></svg></button>` : ''}
+                    ${showRemove ? `<button onclick="removeRoom(${room.id})" title="Supprimer cette pièce" aria-label="Supprimer cette pièce" class="text-gray-400 hover:text-red-500 transition p-3 -m-1"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>` : ''}
                 </div>
                 <h3 class="text-sm font-bold text-gray-700 mb-4 flex items-center gap-2 uppercase tracking-tight">
                     <span class="bg-gray-100 text-gray-500 rounded-lg w-7 h-7 flex items-center justify-center text-xs border border-gray-200">${index + 1}</span>
@@ -812,22 +945,22 @@ function renderRooms() {
                 </h3>
                 ${state.mode === 'multi' ? `
                 <div class="mb-4">
-                    <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">Nom de la pièce (optionnel)</label>
-                    <input type="text" maxlength="40" oninput="updateRoom(${room.id}, 'nom', this.value)" value="${escapeHtml(room.nom || '')}" placeholder="Ex: Salon, Chambre parents..." class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
+                    <label for="room-${room.id}-nom" class="block text-xs font-bold text-gray-500 uppercase mb-1">Nom de la pièce (optionnel)</label>
+                    <input id="room-${room.id}-nom" type="text" maxlength="40" oninput="updateRoom(${room.id}, 'nom', this.value)" value="${escapeHtml(room.nom || '')}" placeholder="Ex: Salon, Chambre parents..." class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                 </div>` : ''}
                 <div class="grid grid-cols-2 gap-4">
                     <div>
-                        <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">Surface (m²)</label>
-                        <input type="number" min="1" max="200" oninput="updateRoom(${room.id}, 'surface', this.value)" value="${room.surface}" placeholder="Ex: 30" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
+                        <label for="room-${room.id}-surface" class="block text-xs font-bold text-gray-500 uppercase mb-1">Surface (m²)</label>
+                        <input id="room-${room.id}-surface" type="text" inputmode="decimal" oninput="updateRoom(${room.id}, 'surface', this.value)" value="${room.surface}" placeholder="Ex: 30" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                     </div>
                     <div>
-                        <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">Hauteur (m)</label>
-                        <input type="number" min="1.8" max="6" oninput="updateRoom(${room.id}, 'height', this.value)" value="${room.height}" step="0.1" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
+                        <label for="room-${room.id}-height" class="block text-xs font-bold text-gray-500 uppercase mb-1">Hauteur (m)</label>
+                        <input id="room-${room.id}-height" type="text" inputmode="decimal" oninput="updateRoom(${room.id}, 'height', this.value)" value="${room.height}" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                     </div>
                 </div>
                 <div class="mt-4">
-                    <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">Emplacement de la pièce</label>
-                    <select onchange="updateRoom(${room.id}, 'emplacement', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
+                    <label for="room-${room.id}-emplacement" class="block text-xs font-bold text-gray-500 uppercase mb-1">Emplacement de la pièce</label>
+                    <select id="room-${room.id}-emplacement" onchange="updateRoom(${room.id}, 'emplacement', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                         <option value="sous_toiture" ${room.emplacement === 'sous_toiture' ? 'selected' : ''}>Sous toiture / combles aménagés (fort apport)</option>
                         <option value="plain_pied" ${room.emplacement === 'plain_pied' ? 'selected' : ''}>Plain-pied, combles perdus isolés (apport modéré)</option>
                         <option value="etage_protege" ${room.emplacement === 'etage_protege' ? 'selected' : ''}>Étage protégé / RDC sous un autre niveau (nul)</option>
@@ -835,8 +968,8 @@ function renderRooms() {
                 </div>
                 ${state.mode === 'multi' ? `
                 <div class="mt-4">
-                    <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">Murs donnant sur l'extérieur</label>
-                    <select onchange="updateRoom(${room.id}, 'expositionMurs', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
+                    <label for="room-${room.id}-expositionMurs" class="block text-xs font-bold text-gray-500 uppercase mb-1">Murs donnant sur l'extérieur</label>
+                    <select id="room-${room.id}-expositionMurs" onchange="updateRoom(${room.id}, 'expositionMurs', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                         <option value="4" ${String(room.expositionMurs) === '4' ? 'selected' : ''}>4 (pièce isolée sur toutes ses faces)</option>
                         <option value="3" ${String(room.expositionMurs) === '3' ? 'selected' : ''}>3</option>
                         <option value="2" ${String(room.expositionMurs) === '2' ? 'selected' : ''}>2 (pièce d'angle)</option>
@@ -845,8 +978,8 @@ function renderRooms() {
                 </div>` : ''}
                 <div class="grid grid-cols-2 gap-4 mt-4">
                     <div>
-                        <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">Orientation des baies</label>
-                        <select onchange="updateRoom(${room.id}, 'orientation', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
+                        <label for="room-${room.id}-orientation" class="block text-xs font-bold text-gray-500 uppercase mb-1">Orientation des baies</label>
+                        <select id="room-${room.id}-orientation" onchange="updateRoom(${room.id}, 'orientation', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                             <option value="nord" ${room.orientation === 'nord' ? 'selected' : ''}>Nord</option>
                             <option value="est" ${room.orientation === 'est' ? 'selected' : ''}>Est</option>
                             <option value="sud" ${room.orientation === 'sud' ? 'selected' : ''}>Sud</option>
@@ -855,8 +988,8 @@ function renderRooms() {
                         </select>
                     </div>
                     <div>
-                        <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">Quantité de vitrage</label>
-                        <select onchange="updateRoom(${room.id}, 'vitrage', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
+                        <label for="room-${room.id}-vitrage" class="block text-xs font-bold text-gray-500 uppercase mb-1">Quantité de vitrage</label>
+                        <select id="room-${room.id}-vitrage" onchange="updateRoom(${room.id}, 'vitrage', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                             <option value="peu" ${room.vitrage === 'peu' ? 'selected' : ''}>Peu vitré</option>
                             <option value="moyen" ${room.vitrage === 'moyen' ? 'selected' : ''}>Moyen</option>
                             <option value="beaucoup" ${room.vitrage === 'beaucoup' ? 'selected' : ''}>Très vitré</option>
@@ -865,16 +998,16 @@ function renderRooms() {
                 </div>
                 <div class="grid grid-cols-2 gap-4 mt-4">
                     <div>
-                        <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">Protection solaire</label>
-                        <select onchange="updateRoom(${room.id}, 'protection', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
+                        <label for="room-${room.id}-protection" class="block text-xs font-bold text-gray-500 uppercase mb-1">Protection solaire</label>
+                        <select id="room-${room.id}-protection" onchange="updateRoom(${room.id}, 'protection', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                             <option value="aucune" ${room.protection === 'aucune' ? 'selected' : ''}>Aucune</option>
                             <option value="stores_int" ${room.protection === 'stores_int' ? 'selected' : ''}>Stores / rideaux intérieurs</option>
                             <option value="volets_ext" ${room.protection === 'volets_ext' ? 'selected' : ''}>Volets / stores extérieurs</option>
                         </select>
                     </div>
                     <div>
-                        <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">Occupants</label>
-                        <input type="number" min="0" oninput="updateRoom(${room.id}, 'occupants', this.value)" value="${room.occupants}" placeholder="Auto: ${occupantsParDefaut(room.surface) || '–'}" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
+                        <label for="room-${room.id}-occupants" class="block text-xs font-bold text-gray-500 uppercase mb-1">Occupants</label>
+                        <input id="room-${room.id}-occupants" type="text" inputmode="numeric" oninput="updateRoom(${room.id}, 'occupants', this.value)" value="${room.occupants}" placeholder="Auto: ${occupantsParDefaut(room.surface) || '–'}" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                     </div>
                 </div>
             </div>
@@ -885,13 +1018,25 @@ function renderRooms() {
     }
 }
 
-function addRoom() { state.rooms.push(defaultRoom(Date.now())); renderRooms(); persistDraft(); }
-function removeRoom(id) { state.rooms = state.rooms.filter(r => r.id !== id); renderRooms(); persistDraft(); }
+function addRoom() { state.rooms.push(defaultRoom(nouvelIdPiece())); renderRooms(); persistDraft(); }
+// Confirmation avant suppression : geste irréversible (aucun "annuler"), qui efface d'un coup
+// toute la saisie de la pièce (surface, orientation, vitrage...) — voir la note en tête de
+// fichier sur duplicateRoom, le même risque s'applique ici, en pire (duplicateRoom recopie,
+// removeRoom détruit).
+function removeRoom(id) {
+    const idx = state.rooms.findIndex(r => r.id === id);
+    if (idx === -1) return;
+    const label = roomLabel({ index: idx + 1, nom: state.rooms[idx].nom });
+    if (!confirm(`Supprimer ${label} ? Sa saisie sera perdue.`)) return;
+    state.rooms = state.rooms.filter(r => r.id !== id);
+    renderRooms();
+    persistDraft();
+}
 function duplicateRoom(id) {
     if (state.rooms.length >= 5) return;
     const idx = state.rooms.findIndex(r => r.id === id);
     if (idx === -1) return;
-    const clone = { ...state.rooms[idx], id: Date.now() };
+    const clone = { ...state.rooms[idx], id: nouvelIdPiece() };
     state.rooms.splice(idx + 1, 0, clone);
     renderRooms();
     persistDraft();
@@ -905,10 +1050,12 @@ function updateRoom(id, field, value) {
     } else {
         // Number.isFinite (et non `|| ''`) : un champ à 0 (ex: 0 occupant) doit rester 0,
         // pas retomber silencieusement sur l'estimation automatique.
-        const num = parseFloat(value);
+        // parseNombreSaisi accepte la virgule décimale (voir calcul.js).
+        const num = parseNombreSaisi(value);
         r[field] = Number.isFinite(num) ? num : '';
     }
     persistDraft();
+    marquerResultatsObsoletes();
 }
 
 // Seede les choix de gamme par défaut pour chaque pièce d'un groupe multisplit, sans jamais le
@@ -926,18 +1073,58 @@ function seedGroupGammeDefaults(standardRooms, allowedGammes) {
     });
 }
 
+// Bornes de saisie. Elles étaient déclarées en attributs `min`/`max` sur les champs, mais
+// aucun <form> n'entoure la saisie et aucun checkValidity() n'est appelé : elles n'ont jamais
+// rien validé. Une surface négative traversait tous les filtres et faisait proposer la plus
+// petite machine du catalogue sans un mot ; une surface de 5000 m² produisait « aucune machine
+// ne couvre ce besoin » sans jamais mettre en cause la saisie.
+const BORNES_SAISIE = {
+    surface:  { min: 1,   max: 200, label: 'La surface', unite: 'm²' },
+    height:   { min: 1.8, max: 6,   label: 'La hauteur sous plafond', unite: 'm' },
+    occupants:{ min: 0,   max: 30,  label: "Le nombre d'occupants", unite: '' }
+};
+
+// Renvoie un message d'erreur, ou null si tout est cohérent. Nomme toujours la pièce fautive :
+// avec cinq pièces, « Saisie incomplète » obligeait à toutes les rouvrir pour trouver laquelle.
+function validerSaisiePieces(rooms, multi) {
+    for (let i = 0; i < rooms.length; i++) {
+        const r = rooms[i];
+        const nom = r.nom ? `« ${r.nom} »` : (multi ? `Pièce ${i + 1}` : 'La pièce');
+
+        if (r.surface === '' || r.surface === null || r.surface === undefined) {
+            return `${nom} : indiquez la surface.`;
+        }
+        for (const [champ, b] of Object.entries(BORNES_SAISIE)) {
+            const v = r[champ];
+            if (v === '' || v === null || v === undefined) continue;   // champ optionnel laissé vide
+            if (!Number.isFinite(v)) return `${nom} : ${b.label.toLowerCase()} n'est pas un nombre valide.`;
+            if (v < b.min || v > b.max) {
+                return `${nom} : ${b.label.toLowerCase()} doit être comprise entre ${b.min} et ${b.max} ${b.unite}`.trim() + '.';
+            }
+        }
+    }
+    return null;
+}
+
 function calculate() {
     const resultsContainer = document.getElementById('results-container');
-    if (state.rooms.some(r => !r.surface)) {
-        resultsContainer.innerHTML = `<div class="p-4 bg-red-50 text-red-600 rounded-lg border border-red-200 text-sm font-medium">Saisie incomplète : indiquez la surface pour chaque pièce.</div>`;
+    const erreur = validerSaisiePieces(state.rooms, state.mode === 'multi');
+    if (erreur) {
+        state.currentCalc = null;
+        effacerMarqueObsolescence();
+        resultsContainer.innerHTML = `<div class="p-4 bg-red-50 text-red-700 rounded-lg border border-red-200 text-sm font-medium">${escapeHtml(erreur)}</div>`;
+        resultsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
         return;
     }
+    effacerMarqueObsolescence();
 
-    const { zone, tBaseHiver } = getClimateContext();
+    const { tBaseHiver, tBaseEte } = getClimateContext();
     const froidSeul = state.usage === 'froid_seul';
 
-    // Marge canicule : en zone chaude, la puissance froid réelle chute au-delà de 35°C ext.
-    const facteurCanicule = getFacteurCanicule(zone);
+    // Marge canicule : au-delà de la température de base été, la puissance froid réelle chute
+    // (catalogue donné à 35°C ext.). Interpolée sur la Tbase été elle-même, pas sur une liste de
+    // zones : voir data.js pour la régression que ça corrige.
+    const facteurCanicule = getFacteurCanicule(tBaseEte);
     const caniculeNote = facteurCanicule > 1
         ? `<div class="p-2.5 bg-orange-50 border border-orange-200 text-orange-800 rounded-lg text-[11px] font-medium text-center mb-4 -mt-2">☀️ Zone chaude : marge canicule de +${Math.round((facteurCanicule - 1) * 100)}% appliquée à la sélection (pointes 40-42°C).</div>`
         : '';
@@ -969,6 +1156,7 @@ function calculate() {
         state.currentCalc = {
             mode: 'mono',
             req: req,
+            bilan: { froid: req.froid, chaud: req.chaud },
             besoinsHtml: renderBesoinsCard([req]),
             caniculeNote: caniculeNote + declassementNote + usageNote,
             roomDetails: [`Pièce 1 : ${req.froid.toFixed(1)}kW F / ${req.chaud.toFixed(1)}kW C ➔ Taille ${size || 'HORS LIMITE'}`],
@@ -1044,6 +1232,10 @@ function calculate() {
 
         state.currentCalc = {
             mode: 'multi',
+            bilan: {
+                froid: roomsData.reduce((sum, r) => sum + r.req.froid, 0),
+                chaud: roomsData.reduce((sum, r) => sum + r.req.chaud, 0)
+            },
             besoinsHtml: renderBesoinsCard(roomsData.map(r => r.req), true, roomsData),
             caniculeNote: caniculeNote + declassementNote + usageNote,
             roomDetails: roomDetails,
@@ -1053,6 +1245,14 @@ function calculate() {
 
     renderResults();
     resultsContainer.scrollIntoView({ behavior: 'smooth' });
+}
+
+// Explique l'ordre des options équivalentes (trierMonosParTva, calcul.js) : sans ce texte, un
+// artisan qui compare des puissances quasi identiques ne peut pas deviner pourquoi l'une est
+// proposée en premier — c'est l'éligibilité TVA 5,5% qui départage, pas la puissance.
+function noteTriTva(options) {
+    if (options.length < 2) return '';
+    return `<p class="text-[11px] text-gray-400 mb-2 -mt-1">Options techniquement équivalentes, triées par éligibilité TVA 5,5% en premier.</p>`;
 }
 
 // Reconstruit l'affichage des résultats à partir de state.currentCalc + state.selection,
@@ -1075,6 +1275,7 @@ function renderResults() {
         if (options.length === 0) {
             html += `<div class="p-4 bg-orange-50 text-orange-800 rounded-lg text-sm italic">Aucun Monosplit du catalogue ne couvre ce niveau de puissance.</div>`;
         } else {
+            html += noteTriTva(options);
             const selIdx = Math.min(state.selection.mono || 0, options.length - 1);
             options.forEach((sol, idx) => {
                 const selectOpts = options.length > 1 ? { selected: idx === selIdx, onclick: `selectMono(${idx})` } : null;
@@ -1104,6 +1305,7 @@ function renderResults() {
             const room = dedItem.room;
             const options = dedItem.options;
             if (options.length > 0) {
+                html += noteTriTva(options);
                 const selIdx = Math.min(state.selection.dedicated[room.index] || 0, options.length - 1);
                 options.forEach((sol, idx) => {
                     const selectOpts = options.length > 1 ? { selected: idx === selIdx, onclick: `selectDedicated(${room.index}, ${idx})` } : null;
@@ -1157,15 +1359,35 @@ function renderResults() {
         roomDetails: calc.roomDetails
     };
 
+    // Impasse : aucune option n'a abouti nulle part (mono hors catalogue, ou en multi aucune
+    // pièce déléstée ni aucun groupe valide). Auparavant l'artisan ne voyait que les 1-2 lignes
+    // oranges ci-dessus, sans piste : ni le bloc Imprimer/Partager (rien à exporter) ni le bloc
+    // Enregistrer (rien à sauvegarder) ne s'affichaient, l'écran s'arrêtait net.
+    if (!state.lastResultData.summaryText) {
+        html += `
+        <div class="p-4 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-700 mt-2 fade-in">
+            <strong class="block mb-1 text-gray-800">Aucune solution ne ressort du catalogue ${escapeHtml(libelleMarque(state.brand))} pour cette configuration.</strong>
+            Pistes à essayer : vérifier le niveau d'isolation saisi (une valeur trop pessimiste gonfle le besoin calculé) ;
+            en Multisplit, redécouper une grande pièce en plusieurs zones plus petites plutôt qu'une seule pièce surdimensionnée ;
+            repasser en « Froid seul » si seul le besoin chauffage dépasse le catalogue.
+        </div>`;
+    }
+
     if (state.lastResultData.summaryText) {
         html += `
-        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 mt-6 fade-in flex flex-col sm:flex-row gap-3">
-            <button onclick="exportPdf()" class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 rounded-lg transition-colors flex justify-center items-center gap-2 text-sm">
-                🖨️ Imprimer / Exporter PDF
-            </button>
-            <button onclick="shareResults()" class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 rounded-lg transition-colors flex justify-center items-center gap-2 text-sm">
-                📤 Partager
-            </button>
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 mt-6 fade-in">
+            <div class="mb-3">
+                <label for="save-installateur" class="block text-xs font-bold text-gray-500 uppercase mb-1">Identité installateur (apparaît sur le PDF)</label>
+                <input type="text" id="save-installateur" oninput="persistInstallateur(this.value)" value="${escapeHtml(getInstallateur())}" placeholder="Ex: Dupont Climatisation — 06 12 34 56 78" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
+            </div>
+            <div class="flex flex-col sm:flex-row gap-3">
+                <button onclick="exportPdf()" class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 rounded-lg transition-colors flex justify-center items-center gap-2 text-sm">
+                    🖨️ Imprimer / Exporter PDF
+                </button>
+                <button onclick="shareResults()" class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 rounded-lg transition-colors flex justify-center items-center gap-2 text-sm">
+                    📤 Partager
+                </button>
+            </div>
         </div>
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 mt-4 fade-in">
             <h3 class="text-sm font-bold text-klimo-dark flex items-center gap-2 mb-4 uppercase tracking-wide">
@@ -1179,12 +1401,12 @@ function renderResults() {
             </div>` : ''}
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                 <div>
-                    <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">Nom du Client / Projet</label>
+                    <label for="save-client" class="block text-xs font-bold text-gray-500 uppercase mb-1">Nom du Client / Projet</label>
                     <input type="text" id="save-client" list="client-list" placeholder="Ex: Dupont" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                     <datalist id="client-list"></datalist>
                 </div>
                 <div>
-                    <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">Désignation de la Zone</label>
+                    <label for="save-zone" class="block text-xs font-bold text-gray-500 uppercase mb-1">Désignation de la Zone</label>
                     <input type="text" id="save-zone" placeholder="Ex: RDC, Étage, Salon..." class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                 </div>
             </div>
@@ -1210,18 +1432,44 @@ function renderResults() {
 // PDF s'appuie sur l'impression native du navigateur (une feuille de style @media print
 // isole une vue propre dans #print-area), et le partage utilise la Web Share API quand
 // disponible, avec un repli mailto: sinon.
+// Hypothèses de calcul lisibles (département, altitude, isolation, consigne) — les mêmes
+// valeurs que capture captureBuildingParams() pour la reprise d'un chantier, mais mises en
+// forme pour un lecteur humain plutôt que pour être réappliquées au formulaire.
+function buildHypothesesLines() {
+    const deptCode = document.getElementById('deptSelect').value;
+    const deptNom = DEPARTMENTS[deptCode]?.name || deptCode;
+    const altitude = document.getElementById('altitude').value;
+    const { zone, tBaseHiver, tBaseEte } = getClimateContext();
+    const isolationSelect = document.getElementById('isolationCoef');
+    const isolationLabel = isolationSelect.value === 'custom'
+        ? `saisie personnalisée (G=${getCoefG()})`
+        : isolationSelect.options[isolationSelect.selectedIndex].textContent;
+    const consigne = document.getElementById('consigneInt').value;
+    return [
+        `Localisation : ${deptCode} - ${deptNom}, altitude ${altitude} (zone climatique ${zone})`,
+        `Températures de base : ${tBaseHiver}°C hiver, ${tBaseEte}°C été`,
+        `Isolation : ${isolationLabel}`,
+        `Consigne intérieure été : ${consigne}°C`
+    ];
+}
+
 function buildResultSummaryLines() {
     const calc = state.currentCalc;
     if (!calc || !state.lastResultData) return null;
     const client = (document.getElementById('save-client') || {}).value?.trim() || '';
     const zone = (document.getElementById('save-zone') || {}).value?.trim() || '';
+    const installateur = (document.getElementById('save-installateur') || {}).value?.trim() || getInstallateur();
     const dateStr = new Date().toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const bilan = calc.bilan
+        ? `Bilan thermique cumulé : ${calc.bilan.froid.toFixed(2)} kW froid / ${calc.bilan.chaud.toFixed(2)} kW chaud`
+        : null;
     return {
-        client, zone, dateStr,
+        client, zone, installateur, dateStr, bilan,
         brandLabel: BRAND_LABELS[state.brand] || state.brand,
         modeLabel: calc.mode === 'mono' ? 'Monosplit' : 'Multisplit',
         roomDetails: calc.roomDetails || [],
-        equipments: state.lastResultData.equipments || []
+        equipments: state.lastResultData.equipments || [],
+        hypotheses: buildHypothesesLines()
     };
 }
 
@@ -1231,14 +1479,18 @@ function exportPdf() {
     const printArea = document.getElementById('print-area');
     printArea.innerHTML = `
         <h1>Klimo — Fiche de dimensionnement</h1>
+        ${s.installateur ? `<p><strong>Installateur :</strong> ${escapeHtml(s.installateur)}</p>` : ''}
         ${s.client ? `<p><strong>Client :</strong> ${escapeHtml(s.client)}</p>` : ''}
         ${s.zone ? `<p><strong>Zone :</strong> ${escapeHtml(s.zone)}</p>` : ''}
         <p><strong>Date :</strong> ${escapeHtml(s.dateStr)} — <strong>Marque :</strong> ${s.brandLabel} — <strong>Mode :</strong> ${s.modeLabel}</p>
         <h2>Détail par pièce</h2>
         <ul>${s.roomDetails.map(r => `<li>${escapeHtml(r)}</li>`).join('')}</ul>
+        ${s.bilan ? `<p><strong>${escapeHtml(s.bilan)}</strong></p>` : ''}
         <h2>Équipements recommandés</h2>
         <ul>${s.equipments.map(e => `<li>${escapeHtml(e)}</li>`).join('')}</ul>
-        <p class="print-disclaimer">Dimensionnement indicatif généré par Klimo. À valider par un professionnel avant installation.</p>
+        <h2>Méthode et hypothèses</h2>
+        <ul>${s.hypotheses.map(h => `<li>${escapeHtml(h)}</li>`).join('')}</ul>
+        <p class="print-disclaimer">Dimensionnement indicatif généré par Klimo à partir des hypothèses ci-dessus, à valider par un professionnel avant installation.</p>
     `;
     window.print();
 }
@@ -1248,12 +1500,15 @@ function shareResults() {
     if (!s) return;
     const lines = [
         'Klimo — Fiche de dimensionnement',
+        s.installateur ? `Installateur : ${s.installateur}` : null,
         s.client ? `Client : ${s.client}` : null,
         s.zone ? `Zone : ${s.zone}` : null,
         `Marque : ${s.brandLabel} — Mode : ${s.modeLabel}`,
         '',
         'Détail par pièce :',
         ...s.roomDetails.map(r => `- ${r}`),
+        s.bilan ? '' : null,
+        s.bilan || null,
         '',
         'Équipements recommandés :',
         ...s.equipments.map(e => `- ${e}`)
@@ -1425,7 +1680,11 @@ function roomLabel(room) {
 function analyseEquilibreGroupe(m, selectedGroup) {
     const rooms = m.standardRooms;
     if (!selectedGroup || rooms.length < 2) return null;
-    const dominante = pieceDominante(rooms);
+    // Pièce dominante EN PART DU GROUPE, et non en kW bruts : c'est celle dont le pourcentage est
+    // affiché juste à côté. Les deux notions divergent réellement (une pièce dominée par le froid
+    // pèse sur une capacité plus petite qu'une pièce dominée par le chaud), et nommer l'une en
+    // citant le pourcentage de l'autre serait un message faux.
+    const dominante = pieceDominantePourGroupe(selectedGroup, rooms);
     if (!dominante) return null;
 
     const pct = ratio => Math.round(ratio * 100);
@@ -1441,9 +1700,19 @@ function analyseEquilibreGroupe(m, selectedGroup) {
         const detailBase = justeDimensionne
             ? ` Sur le ${justeDimensionne.reference}, juste dimensionné, elle en absorbait ${pct(ratioPieceDominante(justeDimensionne, rooms))}% : cette référence reste sélectionnable si le budget primait, en acceptant la limite en demande simultanée.`
             : '';
+        // Monter d'un cran fait mécaniquement baisser le taux de charge, parfois sous le seuil qui
+        // déclenche le badge « surdimensionné » juste en dessous. C'est un arbitrage assumé (un
+        // déficit en demande simultanée coûte plus cher qu'un léger surdimensionnement), mais tu
+        // laisserais sinon deux messages se contredire à l'écran sans explication.
+        const besoinFroid = rooms.reduce((sum, r) => sum + r.req.froid, 0);
+        const besoinChaud = m.froidSeul ? 0 : rooms.reduce((sum, r) => sum + r.req.chaud, 0);
+        const charge = tauxChargeGroupe(selectedGroup, besoinFroid, besoinChaud);
+        const detailSousCharge = charge.min < SEUIL_SOUS_CHARGE
+            ? ` Ce cran supérieur fait tomber le taux de charge à ${pct(charge.min)}%, sous le seuil de ${pct(SEUIL_SOUS_CHARGE)}% signalé plus bas : c'est le prix assumé du rééquilibrage, un déficit en demande simultanée étant plus pénalisant qu'un surdimensionnement modéré.`
+            : '';
         return {
             ton: 'ok',
-            message: `Groupe supérieur retenu automatiquement pour tenir la demande simultanée : ${roomLabel(dominante)} ne représente plus que ${pct(ratioSel)}% de la puissance du ${selectedGroup.reference} (limite ${seuilPct}%).${detailBase}`
+            message: `Groupe supérieur retenu automatiquement pour tenir la demande simultanée : ${roomLabel(dominante)} ne représente plus que ${pct(ratioSel)}% de la puissance du ${selectedGroup.reference} (limite ${seuilPct}%).${detailBase}${detailSousCharge}`
         };
     }
 
@@ -1474,6 +1743,10 @@ function renderBalanceNote(analyse) {
 // Taux de charge = besoin réel / puissance nominale catalogue. En dessous de ~50%, un
 // inverter résidentiel cycle court (marche/arrêt fréquents) : confort et rendement réel
 // dégradés malgré une puissance affichée confortable — d'où l'alerte, absente jusqu'ici.
+//
+// L'explication était jusqu'ici uniquement dans l'attribut title du ⚠️ — jamais visible au
+// doigt sur mobile (pas de survol tactile fiable). Affichée ici en texte, sous le badge :
+// un peu plus de place prise, mais lisible par l'artisan qui compte l'utiliser sur le terrain.
 function renderChargeBadge(reqFroid, reqChaud, nominalFroid, nominalChaud) {
     if (!reqFroid || !nominalFroid) return '';
     const chargeF = reqFroid / nominalFroid;
@@ -1482,8 +1755,11 @@ function renderChargeBadge(reqFroid, reqChaud, nominalFroid, nominalChaud) {
     const sousCharge = minCharge < SEUIL_SOUS_CHARGE;
     const classes = sousCharge ? 'bg-amber-50 text-amber-700 border-amber-300' : 'bg-gray-50 text-gray-500 border-gray-200';
     const label = `Taux de charge : ${Math.round(chargeF * 100)}% F${chargeC !== null ? ` / ${Math.round(chargeC * 100)}% C` : ''}`;
-    const warn = sousCharge ? ` <span title="Machine surdimensionnée pour ce besoin : cycles courts, confort et rendement réel dégradés.">⚠️</span>` : '';
-    return `<div class="mt-2 inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-full border ${classes}">${label}${warn}</div>`;
+    const badge = `<div class="mt-2 inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-full border ${classes}">${label}${sousCharge ? ' ⚠️' : ''}</div>`;
+    const explication = sousCharge
+        ? `<p class="text-[11px] text-amber-700 mt-1">⚠️ Machine surdimensionnée pour ce besoin : cycles courts, confort et rendement réel dégradés.</p>`
+        : '';
+    return badge + explication;
 }
 
 // selectOpts = null (carte simple, non sélectionnable) ou { selected: bool, onclick: string }
@@ -1528,6 +1804,7 @@ function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = fals
                 <div class="text-[11px] font-black uppercase text-[var(--brand-accent)] mb-1 tracking-widest">${badgeText}</div>
                 <h3 class="text-lg font-extrabold text-klimo-dark leading-tight">${mainTitle}</h3>
                 <p class="text-xs font-mono text-gray-500 mt-1">${subtitle}</p>
+                ${chargeInfo ? `<p class="text-[11px] text-gray-400 mt-1">Besoin calculé : ${chargeInfo.reqFroid.toFixed(1)} kW F${chargeInfo.reqChaud !== null && chargeInfo.reqChaud !== undefined ? ` / ${chargeInfo.reqChaud.toFixed(1)} kW C` : ''}</p>` : ''}
                 ${renderTvaBadge(tvaInfo)}
                 ${chargeInfo ? renderChargeBadge(chargeInfo.reqFroid, chargeInfo.reqChaud, froid, chaud) : ''}
             </div>
@@ -1548,15 +1825,39 @@ function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = fals
     </div>`;
 }
 
-// Pastilles HTML "TVA 5,5% / TVA 20% / TVA à vérifier" + mention Wifi si un module est nécessaire
-// pour en bénéficier. Le statut 'a_verifier' correspond à une référence absente du tableau
-// d'éligibilité Toshiba : l'outil ne promet pas 5,5% mais ne condamne pas non plus à 20%.
+// Pastilles HTML "TVA 5,5% / TVA 20% / TVA à vérifier / non renseignée" + mention Wifi si un
+// module est nécessaire pour en bénéficier. Le statut 'a_verifier' correspond à une référence
+// absente du tableau d'éligibilité DE LA MARQUE COURANTE (state.brand) : l'outil ne promet pas
+// 5,5% mais ne condamne pas non plus à 20%.
+//
+// `tvaInfo === null` est un cas DIFFÉRENT, distingué ici plutôt que confondu avec 'a_verifier' :
+// c'est la marque ENTIÈRE qui n'a aucun dispositif TVA renseigné (getTvaInfo/getGroupTvaInfo
+// retournent null quand TVA_RULES[brand] n'existe pas). Ce cas rendait jusqu'ici une chaîne
+// vide — aucune pastille du tout — qu'un commercial pressé lit « pas éligible », alors que
+// « non renseigné » et « non éligible » n'ont rien à voir. Toshiba affiche une pastille verte,
+// une future marque sans tableau doit afficher SA propre pastille grise plutôt que le silence.
+// Pastille = <details>/<summary> plutôt qu'un <span title="...">: l'explication qui suivait
+// jusqu'ici n'était visible qu'au survol souris, jamais au doigt sur mobile. Le rendu fermé
+// est visuellement identique à l'ancienne pastille (même forme, même couleur) ; ouvrir révèle
+// le texte. event.stopPropagation() : la carte parente peut porter son propre onclick de
+// sélection (voir renderCard) — ouvrir l'explication ne doit pas aussi sélectionner la carte.
+function pastilleTva(classes, texte, explication) {
+    return `<details onclick="event.stopPropagation()" class="inline-block align-top">
+        <summary class="inline-flex items-center gap-1 text-[11px] font-black px-2 py-1 rounded-full border cursor-pointer select-none ${classes}">${texte} <span class="font-normal opacity-60">ⓘ</span></summary>
+        <p class="text-[11px] text-gray-500 mt-1 max-w-xs font-normal normal-case">${explication}</p>
+    </details>`;
+}
+
 function renderTvaBadge(tvaInfo) {
-    if (!tvaInfo) return '';
+    if (!tvaInfo) {
+        return `<div class="flex flex-wrap gap-1.5 mt-2">${pastilleTva('bg-gray-100 text-gray-500 border-gray-200', 'TVA non renseignée', `Aucun dispositif d'éligibilité TVA renseigné pour ${escapeHtml(libelleMarque(state.brand))} dans cette version de l'outil — statut à vérifier auprès du fournisseur avant de facturer.`)}</div>`;
+    }
+    const marque = escapeHtml(libelleMarque(state.brand));
+    const dateVerif = new Date(TVA_DATE_VERIFICATION).toLocaleDateString('fr-FR');
     const badges = {
-        eligible:     `<span class="inline-flex items-center gap-1 text-[11px] font-black px-2 py-1 rounded-full bg-green-100 text-green-700 border border-green-300">TVA 5,5%</span>`,
-        non_eligible: `<span class="inline-flex items-center gap-1 text-[11px] font-black px-2 py-1 rounded-full bg-red-100 text-red-700 border border-red-300">TVA 20%</span>`,
-        a_verifier:   `<span class="inline-flex items-center gap-1 text-[11px] font-black px-2 py-1 rounded-full bg-gray-100 text-gray-600 border border-gray-300" title="Référence absente du tableau d'éligibilité Toshiba : à confirmer auprès du constructeur avant de facturer en 5,5%.">TVA à vérifier</span>`
+        eligible:     pastilleTva('bg-green-100 text-green-700 border-green-300', 'TVA 5,5%', `Éligibilité vérifiée face au tableau ${marque} le ${dateVerif}.`),
+        non_eligible: pastilleTva('bg-red-100 text-red-700 border-red-300', 'TVA 20%', `Éligibilité vérifiée face au tableau ${marque} le ${dateVerif}.`),
+        a_verifier:   pastilleTva('bg-gray-100 text-gray-600 border-gray-300', 'TVA à vérifier', `Référence absente du tableau d'éligibilité ${marque} (vérifié le ${dateVerif}) : à confirmer auprès du constructeur avant de facturer en 5,5%.`)
     };
     const wifi = tvaInfo.wifiRequired
         ? `<span class="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200">📶 Module Wifi requis</span>`
@@ -1565,8 +1866,8 @@ function renderTvaBadge(tvaInfo) {
 }
 
 function tvaSuffixText(tvaInfo) {
-    if (!tvaInfo) return '';
-    const libelles = { eligible: 'TVA 5,5%', non_eligible: 'TVA 20%', a_verifier: 'TVA à vérifier (référence absente du tableau Toshiba)' };
+    if (!tvaInfo) return ` — TVA non renseignée pour ${libelleMarque(state.brand)}`;
+    const libelles = { eligible: 'TVA 5,5%', non_eligible: 'TVA 20%', a_verifier: `TVA à vérifier (référence absente du tableau ${libelleMarque(state.brand)})` };
     return ` — ${libelles[tvaInfo.statut] || libelles.a_verifier}${tvaInfo.wifiRequired ? ' (Module Wifi requis)' : ''}`;
 }
 
@@ -1589,7 +1890,7 @@ Object.assign(window, {
     addRoom, calculate, duplicateRoom, exportPdf, oublierConfigChargee, persistDraft, removeRoom,
     saveChantier, selectGroupGamme, setBrand, setMode, setUsage, shareResults, startNewCalcul,
     toggleCustomCoef, toggleDashboard, updateChantier, updateClimateInfo, updateRoom,
-    selectDedicated, selectGroup, selectMono
+    selectDedicated, selectGroup, selectMono, marquerResultatsObsoletes, persistInstallateur
 });
 
 window.onload = initApp;

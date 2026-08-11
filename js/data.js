@@ -10,16 +10,61 @@ export const APPORTS_INTERNES = 5;
 // Surcharge toiture en été (W/m² de surface au sol) si la pièce est sous la toiture.
 // Rendue seulement quand la pièce est directement sous les combles / la couverture :
 // c'est le poste le plus sous-estimé d'un modèle purement volumique (ΔTe toiture 25-45 K).
-export const CHARGE_TOITURE = { bonne: 15, moyenne: 28, faible: 45 };
+//
+// Paliers en fonction du coefficient G, interpolés (voir interpolerChargeToiture, calcul.js) —
+// et non trois blocs disjoints comme auparavant. Les trois anciens niveaux ('bonne'/'moyenne'/
+// 'faible') étaient sélectionnés par un simple seuil sur G (<=0.35, <=0.8, au-delà), avec DEUX
+// sauts non physiques : +13 W/m² (+86%) à la frontière 0.35, +17 W/m² (+61%) à la frontière
+// 0.8 — et cette dernière tombe exactement sur le coefficient G par défaut de l'application :
+// passer de « 2001-2012 » (G=0.8, sélectionné par défaut) à une saisie personnalisée de 0.81
+// suffisait à faire bondir ce poste de 61% sans que rien n'ait réellement changé au bâti.
+//
+// Le point à G=1.2 correspond à l'option « 1974 à 1988 » du sélecteur d'isolation (index.html) :
+// c'est le premier point réel au-delà duquel la toiture est considérée au maximum de sa
+// surcharge, plutôt qu'un plafond arbitraire.
+export const CHARGE_TOITURE_PALIERS = [
+    { g: 0.35, charge: 15 },
+    { g: 0.8,  charge: 28 },
+    { g: 1.2,  charge: 45 }
+];
 
 // Rayonnement solaire de pointe transmis par un vitrage clair (W/m² de vitrage),
-// latitude ~45° (Sud-Ouest), par orientation dominante des baies. Méthode type Carrier.
+// latitude ~45° (Sud-Ouest), par orientation dominante des baies. Méthode d'apports solaires
+// de pointe type Carrier (méthode CLTD/CLF simplifiée, référence historique du dimensionnement
+// climatisation) — pas une valeur de la norme NF EN 12831, qui porte sur le chauffage.
+//
+// ⚠️ Comme pour le référentiel climatique (voir tBaseMatrix), ces valeurs n'ont pas été
+// confrontées ligne à ligne à une table Carrier publiée : à vérifier avant tout usage engageant.
+// Limite assumée de la méthode : la pointe Est (8h) et la pointe Ouest (16h) sont ici prises à
+// leur maximum respectif et additionnées telles quelles au ΔT de pointe (tBaseEteMatrix,
+// atteint plutôt en milieu d'après-midi) — un bureau d'études réel décale les apports dans le
+// temps (méthode RTS) pour éviter de cumuler deux pointes qui ne se produisent pas à la même
+// heure. Biais connu, non corrigé : il va vers la surestimation, jamais vers le déficit.
 export const RAYONNEMENT_VITRAGE = { nord: 45, est: 585, sud: 290, ouest: 585, mixte: 350 };
 // Ratio surface vitrée / surface au sol selon la quantité de vitrage déclarée.
 export const RATIO_VITRAGE = { peu: 0.10, moyen: 0.18, beaucoup: 0.28 };
 // Coefficient de réduction des protections solaires (Fc, DIN 4108-2 / EN 14501).
 export const FC_PROTECTION = { aucune: 1.0, stores_int: 0.55, volets_ext: 0.15 };
-export const G_VITRAGE = 0.75;            // facteur solaire d'un double vitrage standard (valeur d'usage)
+// Facteur solaire du vitrage (Sw), interpolé sur le coefficient G comme la surcharge toiture
+// (voir CHARGE_TOITURE_PALIERS) — le vitrage posé suit la même époque de construction que le
+// reste de l'enveloppe.
+//
+// Remplace une constante unique à 0.75, documentée « valeur d'usage » sans source, appliquée
+// telle quelle à tous les âges de bâti. Or 0.75 est le facteur solaire d'un vitrage proche du
+// simple vitrage (0.78-0.81) ; un double vitrage clair standard (répandu des années 1980 aux
+// années 2000) est plutôt à 0.60, et un double vitrage à isolation renforcée — la norme depuis
+// la RT2012 — descend à 0.52. Le vitrage pesant 34% du bilan froid sur le cas de référence de
+// l'application, une valeur unique à 0.75 surestimait ce poste d'environ 20-25% pour tout bâti
+// récent (RT2012/RE2020), sans jamais le sous-estimer pour le bâti ancien.
+//
+// ⚠️ Valeurs indicatives (fourchettes usuelles de vitrages résidentiels), pas une fiche produit.
+// Sans donnée de vitrage réel saisie par l'utilisateur, c'est la meilleure approximation
+// disponible ; à remplacer si un champ de saisie dédié est ajouté un jour.
+export const G_VITRAGE_PALIERS = [
+    { g: 0.35, gVitrage: 0.52 },   // RT2012 / RE2020 : double vitrage à isolation renforcée (VIR)
+    { g: 0.8,  gVitrage: 0.60 },   // RT2000/2005 : double vitrage clair standard
+    { g: 1.2,  gVitrage: 0.78 }    // avant 1988 : simple vitrage ou double vitrage ancien
+];
 export const COEF_INERTIE_SOLAIRE = 0.8;  // amortissement / déphasage moyen (bâti mixte)
 export const OCCUPANT_W = 100;            // apport total (sensible + latent) par occupant, résidentiel au repos
 export const COEF_RELANCE = 1.20;         // majoration chauffage pour la relance matinale
@@ -27,13 +72,34 @@ export const COEF_RELANCE = 1.20;         // majoration chauffage pour la relanc
 // Coefficient G par défaut si la saisie personnalisée est vide ou invalide.
 export const COEF_G_DEFAUT = 0.8;
 
+// Part du coefficient G attribuée au renouvellement d'air (ventilation + infiltrations), le
+// reste (1 - cette part) étant la transmission par les parois. Sourcé sur la répartition usuelle
+// des déperditions d'un logement résidentiel, où le renouvellement d'air pèse 20 à 30% du total.
+//
+// Sert à corriger un biais du ratio d'exposition (getRequiredKw, calcul.js) : ce ratio réduit le
+// besoin d'une pièce au prorata de ses murs donnant sur l'extérieur (une pièce entourée d'autres
+// pièces chauffées perd moins par transmission). Appliqué tel quel à la totalité de G·V·ΔT, il
+// réduisait AUSSI le renouvellement d'air dans les mêmes proportions — or une pièce intérieure se
+// ventile pareil qu'une pièce d'angle, son débit d'air neuf ne dépend pas du nombre de murs
+// extérieurs. À 1 mur sur 4, tout G·V·ΔT était divisé par 4, y compris la part ventilation.
+export const PART_VENTILATION_G = 0.25;
+
 // Consigne intérieure été de référence (utilisée pour l'écart affiché dans le bandeau climat).
 export const CONSIGNE_REFERENCE = 26;
 
-// Zones climatiques chaudes (Sud-Ouest atlantique + Méditerranée + piémont pyrénéen).
-// La puissance catalogue est donnée à 35°C ext. ; en canicule (40-42°C) elle chute ~10%.
-export const ZONES_CHAUDES = ['B', 'H', 'I'];
-export const ABATTEMENT_CANICULE = 1.11;  // besoin froid effectif majoré ~10% pour la sélection catalogue
+// Marge canicule : la puissance froid catalogue est donnée à 35°C ext. (EN 14511) ; en canicule
+// réelle (40-42°C) elle chute ~10%, d'où une majoration du besoin pour la sélection.
+//
+// Auparavant une liste fixe de 3 zones (B, H, I) recevait +11%, les 6 autres 0% — binaire et
+// incohérent : la zone F (Lyon, base été 33°C, la plus chaude de toutes hors H/I à 34°C) n'avait
+// AUCUNE marge, quand la zone B (base été 32°C, donc plus douce) en avait une. Remplacé par une
+// interpolation sur la température de base été elle-même, symétrique de la méthode déjà utilisée
+// côté chaud (ratioDeclassementChaud) : aucune marge sous le seuil bas (climats océaniques, où
+// les pointes dépassent rarement leur base), marge maximale au-delà du seuil haut (les zones les
+// plus chaudes du référentiel), progressive entre les deux.
+export const ABATTEMENT_CANICULE_SEUIL_BAS = 28;   // °C — en dessous, climat océanique tempéré : aucune marge
+export const ABATTEMENT_CANICULE_SEUIL_HAUT = 34;  // °C — au-dessus, marge maximale (zones H/I du référentiel)
+export const ABATTEMENT_CANICULE_MAX = 1.11;       // besoin froid majoré de 11% au maximum
 
 // Déclassement de la puissance chaud par grand froid — PAC air/air.
 // IMPORTANT : ces paliers sont une approximation générique (ordre de grandeur usuel pour une PAC
@@ -85,7 +151,16 @@ export const BRAND_LABELS = {
 };
 
 // --- CATALOGUES MATÉRIEL ---
-
+//
+// `puissance_froid_kw` et `puissance_chaud_kw` sont des puissances NOMINALES au point d'essai
+// normalisé EN 14511 : 35°C extérieur / 27°C intérieur en froid, +7°C extérieur / 20°C intérieur
+// en chaud — les conditions standard sous lesquelles les fabricants publient leurs fiches
+// techniques. Ce n'est écrit nulle part ailleurs dans ce fichier ; c'est pourtant l'hypothèse
+// silencieuse sous-jacente à tout le moteur de sélection : ABATTEMENT_CANICULE_* majore le
+// besoin froid parce que la pointe réelle dépasse 35°C, et DECLASSEMENT_CHAUD_PALIERS majore le
+// besoin chaud parce que la température de base hiver descend sous +7°C. Une machine dont la
+// fiche technique cite un autre point d'essai (rare, mais existe sur des catalogues étrangers)
+// romprait cette hypothèse sans qu'aucun garde-fou du code ne le détecte.
 export const CATALOGS = {
   toshiba: {
     monosplits: [
@@ -166,16 +241,45 @@ export const CATALOGS = {
   }
 };
 
-// Tailles UI (codes commerciaux) par palier de puissance requise, propres à chaque marque.
+// Tailles UI (codes commerciaux) par palier de puissance, propres à chaque marque.
+//
+// `froidMax` / `chaudMax` = puissance nominale la plus élevée offerte par cette taille, tous
+// modèles de la marque confondus. Une taille couvre donc un besoin si elle le couvre EN FROID
+// ET EN CHAUD — les deux plafonds sont vérifiés séparément (voir getUiSizeForKw).
+//
+// Pourquoi deux colonnes et pas une : il n'y avait ici qu'un seul champ `max`, dont la
+// signification différait silencieusement d'une marque à l'autre — la puissance CHAUD côté
+// Toshiba, la puissance FROID côté Panasonic. Le besoin froid n'était donc jamais confronté à
+// la capacité froid réelle : un besoin de 3,0 kW en froid renvoyait la taille "10", qui ne
+// délivre que 2,5 kW en froid. La taille annoncée à l'installateur était sous-dimensionnée
+// d'environ 20%, et l'écart était maximal en mode « Froid seul ».
+//
+// « Plus élevée » et non « la plus faible » : cette taille indique le calibre à commander, et
+// l'application affiche séparément, pièce par pièce, quelles gammes de ce calibre couvrent
+// réellement le besoin (getRoomEligibleGammes). Retenir le plafond haut garde les deux
+// informations cohérentes ; retenir le plafond bas ferait monter d'un cran des tailles pour
+// lesquelles une gamme convient parfaitement.
+//
+// Les valeurs sont dérivées du catalogue ci-dessus et vérifiées par un test qui recalcule la
+// table depuis CATALOGS (tests/calcul.test.mjs) : elles ne peuvent plus diverger en silence.
 export const UI_SIZE_TABLES = {
     toshiba: [
-        { max: 2.0, code: "05" }, { max: 2.5, code: "07" }, { max: 3.2, code: "10" },
-        { max: 4.2, code: "13" }, { max: 5.5, code: "16" }, { max: 6.0, code: "18" },
-        { max: 7.0, code: "22" }, { max: 8.0, code: "24" }
+        { code: "05", froidMax: 1.5, chaudMax: 2.0 },
+        { code: "07", froidMax: 2.0, chaudMax: 2.5 },
+        { code: "10", froidMax: 2.5, chaudMax: 3.2 },
+        { code: "13", froidMax: 3.5, chaudMax: 4.2 },
+        { code: "16", froidMax: 4.6, chaudMax: 5.5 },
+        { code: "18", froidMax: 5.0, chaudMax: 6.0 },
+        { code: "22", froidMax: 6.1, chaudMax: 7.0 },
+        { code: "24", froidMax: 7.0, chaudMax: 8.0 }
     ],
     panasonic: [
-        { max: 2.0, code: "20" }, { max: 2.5, code: "25" }, { max: 3.5, code: "35" },
-        { max: 4.2, code: "42" }, { max: 5.0, code: "50" }, { max: 7.1, code: "71" }
+        { code: "20", froidMax: 2.05, chaudMax: 2.8 },
+        { code: "25", froidMax: 2.5,  chaudMax: 3.4 },
+        { code: "35", froidMax: 3.5,  chaudMax: 4.0 },
+        { code: "42", froidMax: 4.2,  chaudMax: 5.3 },
+        { code: "50", froidMax: 5.0,  chaudMax: 5.8 },
+        { code: "71", froidMax: 7.1,  chaudMax: 8.2 }
     ]
 };
 
@@ -266,6 +370,22 @@ export const GAMMES_INFO = {
 // (éligibilité par référence — série GP éligible avec Wifi, série GM non éligible), et le groupe
 // multisplit RAS-2M60S4AVG-ND (éligible, réservé aux UI « ND » : Haori ND, Shorai Curve ND).
 //
+// Suffixes de millésime commercial à retirer d'une référence de GROUPE EXTÉRIEUR pour la
+// comparer à la liste `groupesEligibles` du tableau constructeur ci-dessous (voir
+// normaliserReferenceGroupe, calcul.js). Nomenclature spécifique à chaque marque : n'existe que
+// pour les marques où l'écart entre la référence catalogue et la référence tableau constructeur
+// est documenté. Une marque absente de cette table compare ses références telles quelles, sans
+// aucun retrait — c'est le choix sûr par défaut.
+export const SUFFIXES_MILLESIME_GROUPE = {
+    toshiba: [/-E\d*(\/ET)?$/i, /-ND$/i]
+};
+
+// Date de dernière vérification du dispositif fiscal ci-dessous face au tableau constructeur
+// source (voir le commentaire de sourcing plus haut). Affichée à l'écran à côté des pastilles
+// TVA : un dispositif fiscal est par nature révisable, et rien n'indiquait jusqu'ici depuis
+// quand ces règles étaient valables.
+export const TVA_DATE_VERIFICATION = '2026-02-19';
+
 // Uniquement disponible pour la marque Toshiba : aucune donnée d'éligibilité officielle communiquée pour Panasonic.
 export const TVA_RULES = {
   toshiba: {
@@ -302,10 +422,40 @@ export const TVA_RULES = {
 
 // --- RÉFÉRENTIEL CLIMATIQUE ---
 
-export const DEPARTMENTS = { "01": { name: "Ain", zone: "F" }, "02": { name: "Aisne", zone: "D" }, "03": { name: "Allier", zone: "F" }, "04": { name: "Alpes-de-Haute-Provence", zone: "I" }, "05": { name: "Hautes-Alpes", zone: "I" }, "06": { name: "Alpes-Maritimes", zone: "H" }, "07": { name: "Ardèche", zone: "I" }, "08": { name: "Ardennes", zone: "F" }, "09": { name: "Ariège", zone: "I" }, "10": { name: "Aube", zone: "F" }, "11": { name: "Aude", zone: "H" }, "12": { name: "Aveyron", zone: "G" }, "13": { name: "Bouches-du-Rhône", zone: "H" }, "14": { name: "Calvados", zone: "C" }, "15": { name: "Cantal", zone: "G" }, "16": { name: "Charente", zone: "B" }, "17": { name: "Charente-Maritime", zone: "B" }, "18": { name: "Cher", zone: "E" }, "19": { name: "Corrèze", zone: "G" }, "2A": { name: "Corse-du-Sud", zone: "H" }, "2B": { name: "Haute-Corse", zone: "H" }, "21": { name: "Côte-d'Or", zone: "F" }, "22": { name: "Côtes-d'Armor", zone: "A" }, "23": { name: "Creuse", zone: "G" }, "24": { name: "Dordogne", zone: "B" }, "25": { name: "Doubs", zone: "F" }, "26": { name: "Drôme", zone: "F" }, "27": { name: "Eure", zone: "C" }, "28": { name: "Eure-et-Loir", zone: "E" }, "29": { name: "Finistère", zone: "A" }, "30": { name: "Gard", zone: "H" }, "31": { name: "Haute-Garonne", zone: "I" }, "32": { name: "Gers", zone: "I" }, "33": { name: "Gironde", zone: "B" }, "34": { name: "Hérault", zone: "H" }, "35": { name: "Ille-et-Vilaine", zone: "A" }, "36": { name: "Indre", zone: "E" }, "37": { name: "Indre-et-Loire", zone: "E" }, "38": { name: "Isère", zone: "F" }, "39": { name: "Jura", zone: "F" }, "40": { name: "Landes", zone: "B" }, "41": { name: "Loir-et-Cher", zone: "E" }, "42": { name: "Loire", zone: "F" }, "43": { name: "Haute-Loire", zone: "F" }, "44": { name: "Loire-Atlantique", zone: "A" }, "45": { name: "Loiret", zone: "E" }, "46": { name: "Lot", zone: "B" }, "47": { name: "Lot-et-Garonne", zone: "B" }, "48": { name: "Lozère", zone: "G" }, "49": { name: "Maine-et-Loire", zone: "E" }, "50": { name: "Manche", zone: "C" }, "51": { name: "Marne", zone: "F" }, "52": { name: "Haute-Marne", zone: "F" }, "53": { name: "Mayenne", zone: "E" }, "54": { name: "Meurthe-et-Moselle", zone: "F" }, "55": { name: "Meuse", zone: "F" }, "56": { name: "Morbihan", zone: "A" }, "57": { name: "Moselle", zone: "F" }, "58": { name: "Nièvre", zone: "F" }, "59": { name: "Nord", zone: "D" }, "60": { name: "Oise", zone: "D" }, "61": { name: "Orne", zone: "C" }, "62": { name: "Pas-de-Calais", zone: "D" }, "63": { name: "Puy-de-Dôme", zone: "F" }, "64": { name: "Pyrénées-Atlantiques", zone: "B" }, "65": { name: "Hautes-Pyrénées", zone: "I" }, "66": { name: "Pyrénées-Orientales", zone: "H" }, "67": { name: "Bas-Rhin", zone: "F" }, "68": { name: "Haut-Rhin", zone: "F" }, "69": { name: "Rhône", zone: "F" }, "70": { name: "Haute-Saône", zone: "F" }, "71": { name: "Saône-et-Loire", zone: "F" }, "72": { name: "Sarthe", zone: "E" }, "73": { name: "Savoie", zone: "F" }, "74": { name: "Haute-Savoie", zone: "F" }, "75": { name: "Paris", zone: "D" }, "76": { name: "Seine-Maritime", zone: "C" }, "77": { name: "Seine-et-Marne", zone: "D" }, "78": { name: "Yvelines", zone: "D" }, "79": { name: "Deux-Sèvres", zone: "E" }, "80": { name: "Somme", zone: "D" }, "81": { name: "Tarn", zone: "I" }, "82": { name: "Tarn-et-Garonne", zone: "I" }, "83": { name: "Var", zone: "H" }, "84": { name: "Vaucluse", zone: "H" }, "85": { name: "Vendée", zone: "A" }, "86": { name: "Vienne", zone: "E" }, "87": { name: "Haute-Vienne", zone: "G" }, "88": { name: "Vosges", zone: "F" }, "89": { name: "Yonne", zone: "F" }, "90": { name: "Territoire de Belfort", zone: "F" }, "91": { name: "Essonne", zone: "D" }, "92": { name: "Hauts-de-Seine", zone: "D" }, "93": { name: "Seine-Saint-Denis", zone: "D" }, "94": { name: "Val-de-Marne", zone: "D" }, "95": { name: "Val-d'Oise", zone: "D" }, "971": { name: "Guadeloupe", zone: "H" }, "972": { name: "Martinique", zone: "H" }, "973": { name: "Guyane", zone: "H" }, "974": { name: "La Réunion", zone: "H" }, "976": { name: "Mayotte", zone: "H" } };
+export const DEPARTMENTS = { "01": { name: "Ain", zone: "F" }, "02": { name: "Aisne", zone: "D" }, "03": { name: "Allier", zone: "F" }, "04": { name: "Alpes-de-Haute-Provence", zone: "I" }, "05": { name: "Hautes-Alpes", zone: "I" }, "06": { name: "Alpes-Maritimes", zone: "H" }, "07": { name: "Ardèche", zone: "I" }, "08": { name: "Ardennes", zone: "F" }, "09": { name: "Ariège", zone: "I" }, "10": { name: "Aube", zone: "F" }, "11": { name: "Aude", zone: "H" }, "12": { name: "Aveyron", zone: "G" }, "13": { name: "Bouches-du-Rhône", zone: "H" }, "14": { name: "Calvados", zone: "C" }, "15": { name: "Cantal", zone: "G" }, "16": { name: "Charente", zone: "B" }, "17": { name: "Charente-Maritime", zone: "B" }, "18": { name: "Cher", zone: "E" }, "19": { name: "Corrèze", zone: "G" }, "2A": { name: "Corse-du-Sud", zone: "H" }, "2B": { name: "Haute-Corse", zone: "H" }, "21": { name: "Côte-d'Or", zone: "F" }, "22": { name: "Côtes-d'Armor", zone: "A" }, "23": { name: "Creuse", zone: "G" }, "24": { name: "Dordogne", zone: "B" }, "25": { name: "Doubs", zone: "J" }, "26": { name: "Drôme", zone: "F" }, "27": { name: "Eure", zone: "C" }, "28": { name: "Eure-et-Loir", zone: "E" }, "29": { name: "Finistère", zone: "A" }, "30": { name: "Gard", zone: "H" }, "31": { name: "Haute-Garonne", zone: "I" }, "32": { name: "Gers", zone: "I" }, "33": { name: "Gironde", zone: "B" }, "34": { name: "Hérault", zone: "H" }, "35": { name: "Ille-et-Vilaine", zone: "A" }, "36": { name: "Indre", zone: "E" }, "37": { name: "Indre-et-Loire", zone: "E" }, "38": { name: "Isère", zone: "F" }, "39": { name: "Jura", zone: "F" }, "40": { name: "Landes", zone: "B" }, "41": { name: "Loir-et-Cher", zone: "E" }, "42": { name: "Loire", zone: "F" }, "43": { name: "Haute-Loire", zone: "F" }, "44": { name: "Loire-Atlantique", zone: "A" }, "45": { name: "Loiret", zone: "E" }, "46": { name: "Lot", zone: "B" }, "47": { name: "Lot-et-Garonne", zone: "B" }, "48": { name: "Lozère", zone: "G" }, "49": { name: "Maine-et-Loire", zone: "E" }, "50": { name: "Manche", zone: "C" }, "51": { name: "Marne", zone: "F" }, "52": { name: "Haute-Marne", zone: "F" }, "53": { name: "Mayenne", zone: "E" }, "54": { name: "Meurthe-et-Moselle", zone: "J" }, "55": { name: "Meuse", zone: "J" }, "56": { name: "Morbihan", zone: "A" }, "57": { name: "Moselle", zone: "J" }, "58": { name: "Nièvre", zone: "F" }, "59": { name: "Nord", zone: "D" }, "60": { name: "Oise", zone: "D" }, "61": { name: "Orne", zone: "C" }, "62": { name: "Pas-de-Calais", zone: "D" }, "63": { name: "Puy-de-Dôme", zone: "F" }, "64": { name: "Pyrénées-Atlantiques", zone: "B" }, "65": { name: "Hautes-Pyrénées", zone: "I" }, "66": { name: "Pyrénées-Orientales", zone: "H" }, "67": { name: "Bas-Rhin", zone: "J" }, "68": { name: "Haut-Rhin", zone: "J" }, "69": { name: "Rhône", zone: "F" }, "70": { name: "Haute-Saône", zone: "J" }, "71": { name: "Saône-et-Loire", zone: "F" }, "72": { name: "Sarthe", zone: "E" }, "73": { name: "Savoie", zone: "F" }, "74": { name: "Haute-Savoie", zone: "F" }, "75": { name: "Paris", zone: "D" }, "76": { name: "Seine-Maritime", zone: "C" }, "77": { name: "Seine-et-Marne", zone: "D" }, "78": { name: "Yvelines", zone: "D" }, "79": { name: "Deux-Sèvres", zone: "E" }, "80": { name: "Somme", zone: "D" }, "81": { name: "Tarn", zone: "I" }, "82": { name: "Tarn-et-Garonne", zone: "I" }, "83": { name: "Var", zone: "H" }, "84": { name: "Vaucluse", zone: "H" }, "85": { name: "Vendée", zone: "A" }, "86": { name: "Vienne", zone: "E" }, "87": { name: "Haute-Vienne", zone: "G" }, "88": { name: "Vosges", zone: "J" }, "89": { name: "Yonne", zone: "F" }, "90": { name: "Territoire de Belfort", zone: "J" }, "91": { name: "Essonne", zone: "D" }, "92": { name: "Hauts-de-Seine", zone: "D" }, "93": { name: "Seine-Saint-Denis", zone: "D" }, "94": { name: "Val-de-Marne", zone: "D" }, "95": { name: "Val-d'Oise", zone: "D" }, "971": { name: "Guadeloupe", zone: "T" }, "972": { name: "Martinique", zone: "T" }, "973": { name: "Guyane", zone: "T" }, "974": { name: "La Réunion", zone: "T" }, "976": { name: "Mayotte", zone: "T" } };
 
-// Températures de base HIVER (°C) par zone × altitude. Corrigé V18 : zones H (Méditerranée) et I (SO/piémont) avaient des bases hiver irréalistes.
-export const tBaseMatrix = { "0 à 200m": { A: -2, B: -4, C: -5, D: -7, E: -8, F: -9, G: -10, H: -5, I: -6 }, "200 à 400m": { A: -4, B: -5, C: -6, D: -8, E: -9, F: -10, G: -11, H: -6, I: -7 }, "400 à 600m": { A: -6, B: -6, C: -7, D: -9, E: -11, F: -11, G: -13, H: -7, I: -8 }, "600 à 800m": { A: -8, B: -7, C: -8, D: -11, E: -13, F: -12, G: -14, H: -9, I: -10 }, "800 à 1000m": { A: -10, B: -8, C: -9, D: -13, E: -15, F: -13, G: -17, H: -10, I: -11 }, "1000 à 1200m": { A: -12, B: -9, C: -10, D: -14, E: -17, F: -13, G: -19, H: -11, I: -12 }, "1200 à 1400m": { A: -14, B: -10, C: -11, D: -15, E: -19, F: -13, G: -21, H: -12, I: -13 }, "1400 à 1600m": { A: -16, B: -10, C: -12, D: -15, E: -21, F: -13, G: -23, H: -13, I: -14 }, "1600 à 1800m": { A: -18, B: -10, C: -13, D: -15, E: -23, F: -13, G: -24, H: -15, I: -16 }, "1800 à 2000m": { A: -20, B: -10, C: -14, D: -15, E: -25, F: -13, G: -25, H: -16, I: -17 }, "2000 à 2200m": { A: -20, B: -10, C: -15, D: -15, E: -27, F: -13, G: -29, H: -17, I: -18 } };
+// Températures de base HIVER (°C) par zone × altitude.
+//
+// ⚠️ SOURCE — à faire valider. Ces valeurs s'appuient sur la table usuelle des températures
+// extérieures de base par zone A→I et sur les valeurs publiques citées pour la norme
+// NF P52-612/CN (complément national à la NF EN 12831-1), dont le texte intégral est payant.
+// Elles n'ont PAS été confrontées ligne à ligne au document normatif : c'est une vérification
+// à mener avant de s'appuyer dessus dans un contexte contractuel.
+//
+// Zones J et T ajoutées, et plateau de la zone F supprimé — trois corrections d'écarts mesurés :
+//
+// • Zone J (est continental : Alsace, Lorraine, Franche-Comté, Territoire de Belfort).
+//   Ces départements étaient en zone F à -9°C alors que la valeur de référence publiée pour
+//   Strasbourg est -15°C. Sur un ΔT de 29 K, c'était environ 20% de SOUS-dimensionnement
+//   chauffage — le seul biais du modèle qui allait vers le déficit de puissance, tous les
+//   autres surdimensionnent. Besançon et Belfort, dont la base usuelle est plutôt -12°C,
+//   sont inclus dans cette zone : les surdimensionner de ~10% est préférable à les
+//   sous-dimensionner de 20%.
+//
+// • Zone T (départements et régions d'outre-mer). Les cinq DOM étaient rattachés à la zone H,
+//   donc calculés avec une base hiver de -5°C : un ΔT de 25 K et un besoin de chauffage
+//   substantiel en Guadeloupe, Martinique, Guyane, Réunion et Mayotte. La base tropicale au
+//   niveau de la mer annule de fait le besoin chauffage (ΔT de 2 K), ce qui est le
+//   comportement attendu ; le gradient d'altitude reste appliqué pour les hauts de la Réunion.
+//
+// • Zone F : le gradient s'arrêtait à -13°C et restait plat de 800 m à 2200 m, là où la zone G
+//   descend à -29°C. Un chalet à 1800 m en Savoie ou en Haute-Savoie était donc calculé 5 à 8 K
+//   trop chaud. Le plateau était un artefact de saisie, pas une réalité physique : le gradient
+//   propre à la zone (-1 K par tranche de 200 m) est simplement prolongé.
+export const tBaseMatrix = { "0 à 200m": {A: -2, B: -4, C: -5, D: -7, E: -8, F: -9, G: -10, H: -5, I: -6, J: -15, T: 18}, "200 à 400m": {A: -4, B: -5, C: -6, D: -8, E: -9, F: -10, G: -11, H: -6, I: -7, J: -16, T: 17}, "400 à 600m": {A: -6, B: -6, C: -7, D: -9, E: -11, F: -11, G: -13, H: -7, I: -8, J: -17, T: 16}, "600 à 800m": {A: -8, B: -7, C: -8, D: -11, E: -13, F: -12, G: -14, H: -9, I: -10, J: -18, T: 14}, "800 à 1000m": {A: -10, B: -8, C: -9, D: -13, E: -15, F: -13, G: -17, H: -10, I: -11, J: -19, T: 13}, "1000 à 1200m": {A: -12, B: -9, C: -10, D: -14, E: -17, F: -14, G: -19, H: -11, I: -12, J: -20, T: 12}, "1200 à 1400m": {A: -14, B: -10, C: -11, D: -15, E: -19, F: -15, G: -21, H: -12, I: -13, J: -21, T: 11}, "1400 à 1600m": {A: -16, B: -10, C: -12, D: -15, E: -21, F: -16, G: -23, H: -13, I: -14, J: -22, T: 9}, "1600 à 1800m": {A: -18, B: -10, C: -13, D: -15, E: -23, F: -17, G: -24, H: -15, I: -16, J: -23, T: 8}, "1800 à 2000m": {A: -20, B: -10, C: -14, D: -15, E: -25, F: -18, G: -25, H: -16, I: -17, J: -24, T: 7}, "2000 à 2200m": {A: -20, B: -10, C: -15, D: -15, E: -27, F: -19, G: -29, H: -17, I: -18, J: -25, T: 6} };
 
-// Températures de base ÉTÉ (°C) par zone × altitude. Base du calcul de froid physique (ΔT été réel). Gradient -0,6°C/100m.
-export const tBaseEteMatrix = { "0 à 200m": { A: 28, B: 32, C: 28, D: 30, E: 31, F: 33, G: 30, H: 34, I: 34 }, "200 à 400m": { A: 27, B: 31, C: 27, D: 29, E: 30, F: 32, G: 29, H: 33, I: 33 }, "400 à 600m": { A: 26, B: 30, C: 26, D: 28, E: 29, F: 31, G: 28, H: 32, I: 32 }, "600 à 800m": { A: 24, B: 28, C: 24, D: 26, E: 27, F: 29, G: 26, H: 30, I: 30 }, "800 à 1000m": { A: 23, B: 27, C: 23, D: 25, E: 26, F: 28, G: 25, H: 29, I: 29 }, "1000 à 1200m": { A: 22, B: 26, C: 22, D: 24, E: 25, F: 27, G: 24, H: 28, I: 28 }, "1200 à 1400m": { A: 21, B: 25, C: 21, D: 23, E: 24, F: 26, G: 23, H: 27, I: 27 }, "1400 à 1600m": { A: 20, B: 24, C: 20, D: 22, E: 23, F: 25, G: 22, H: 26, I: 26 }, "1600 à 1800m": { A: 18, B: 22, C: 18, D: 20, E: 21, F: 23, G: 20, H: 24, I: 24 }, "1800 à 2000m": { A: 17, B: 21, C: 17, D: 19, E: 20, F: 22, G: 19, H: 23, I: 23 }, "2000 à 2200m": { A: 16, B: 20, C: 16, D: 18, E: 19, F: 21, G: 18, H: 22, I: 22 } };
+// Températures de base ÉTÉ (°C) par zone × altitude. Base du calcul de froid physique (ΔT été
+// réel). Gradient -0,6°C/100m. Zone J alignée sur la zone F (l'est continental connaît les mêmes
+// pointes estivales) ; zone T (DOM) à 32°C, la pointe tropicale étant plus basse et surtout plus
+// constante qu'une canicule continentale.
+export const tBaseEteMatrix = { "0 à 200m": {A: 28, B: 32, C: 28, D: 30, E: 31, F: 33, G: 30, H: 34, I: 34, J: 33, T: 32}, "200 à 400m": {A: 27, B: 31, C: 27, D: 29, E: 30, F: 32, G: 29, H: 33, I: 33, J: 32, T: 31}, "400 à 600m": {A: 26, B: 30, C: 26, D: 28, E: 29, F: 31, G: 28, H: 32, I: 32, J: 31, T: 30}, "600 à 800m": {A: 24, B: 28, C: 24, D: 26, E: 27, F: 29, G: 26, H: 30, I: 30, J: 29, T: 28}, "800 à 1000m": {A: 23, B: 27, C: 23, D: 25, E: 26, F: 28, G: 25, H: 29, I: 29, J: 28, T: 27}, "1000 à 1200m": {A: 22, B: 26, C: 22, D: 24, E: 25, F: 27, G: 24, H: 28, I: 28, J: 27, T: 26}, "1200 à 1400m": {A: 21, B: 25, C: 21, D: 23, E: 24, F: 26, G: 23, H: 27, I: 27, J: 26, T: 25}, "1400 à 1600m": {A: 20, B: 24, C: 20, D: 22, E: 23, F: 25, G: 22, H: 26, I: 26, J: 25, T: 24}, "1600 à 1800m": {A: 18, B: 22, C: 18, D: 20, E: 21, F: 23, G: 20, H: 24, I: 24, J: 23, T: 22}, "1800 à 2000m": {A: 17, B: 21, C: 17, D: 19, E: 20, F: 22, G: 19, H: 23, I: 23, J: 22, T: 21}, "2000 à 2200m": {A: 16, B: 20, C: 16, D: 18, E: 19, F: 21, G: 18, H: 22, I: 22, J: 21, T: 20} };
