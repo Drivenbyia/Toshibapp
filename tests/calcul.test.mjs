@@ -13,7 +13,7 @@ import {
 import {
     CONSIGNE_REFERENCE, COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD,
     SEUIL_DESEQUILIBRE_GROUPE, CATALOGS, UI_SIZE_TABLES, DEPARTMENTS, tBaseMatrix, tBaseEteMatrix,
-    CHARGE_TOITURE_PALIERS, G_VITRAGE_PALIERS
+    CHARGE_TOITURE_PALIERS, G_VITRAGE_PALIERS, PART_VENTILATION_G
 } from '../js/data.js';
 
 const ROOM_TYPE = { emplacement: 'plain_pied', orientation: 'mixte', vitrage: 'moyen', protection: 'stores_int', occupants: '', expositionMurs: 4 };
@@ -57,11 +57,39 @@ describe('getRequiredKw — cas de référence par zone climatique', () => {
         assert.ok(reqSans.froid < reqAvec.froid, 'une pièce à 0 occupant doit avoir un besoin froid plus faible (100W/occupant en moins)');
     });
 
-    test('exposition murs : 1 mur extérieur réduit le besoin chaud à 1/4 (ratio linéaire)', () => {
+    // Le ratio n'est plus 1/4 exact : G capte à la fois la transmission (qui dépend du nombre de
+    // murs extérieurs) et le renouvellement d'air (qui n'en dépend pas — une pièce intérieure se
+    // ventile pareil qu'une pièce d'angle). Avant ce correctif, 1 mur sur 4 divisait TOUT G,
+    // ventilation comprise, par 4 — ce test verrouillait justement ce comportement, qui était le
+    // bug. Avec 25% de G dédiés à la ventilation à taux plein (PART_VENTILATION_G, data.js), le
+    // ratio effectif à 1 mur devient 0.75×(1/4) + 0.25 = 0.4375, dans la fourchette 0.4-0.6
+    // attendue pour une pièce à un seul mur extérieur.
+    test('exposition murs : 1 mur extérieur réduit le besoin chaud, mais pas à 1/4 (la ventilation ne varie pas avec l\'exposition)', () => {
         const ctx = { coefG: 0.8, tBaseHiver: -9, tBaseEte: 33, consigne: 26 };
         const req4 = getRequiredKw(30, 2.5, { ...ROOM_TYPE, expositionMurs: 4 }, ctx);
         const req1 = getRequiredKw(30, 2.5, { ...ROOM_TYPE, expositionMurs: 1 }, ctx);
-        assert.ok(Math.abs(req1.chaud - req4.chaud / 4) < 0.001, `chaud à 1 mur doit valoir 1/4 du besoin à 4 murs (${req4.chaud} / 4 = ${req4.chaud / 4}, obtenu ${req1.chaud})`);
+        const ratio = req1.chaud / req4.chaud;
+        assert.ok(Math.abs(ratio - 0.4375) < 0.0001, `ratio attendu 0.4375, obtenu ${ratio}`);
+        assert.ok(ratio > 0.25, 'ne doit plus jamais retomber au ratio pur 1/4 (ancien comportement fautif)');
+        assert.ok(ratio >= 0.4 && ratio <= 0.6, `ratio ${ratio} hors de la fourchette 0.4-0.6 recommandée`);
+    });
+
+    test('exposition murs : le besoin décroît de façon monotone avec le nombre de murs extérieurs', () => {
+        const ctx = { coefG: 0.8, tBaseHiver: -9, tBaseEte: 33, consigne: 26 };
+        const chaud = [1, 2, 3, 4].map(n => getRequiredKw(30, 2.5, { ...ROOM_TYPE, expositionMurs: n }, ctx).chaud);
+        for (let i = 1; i < chaud.length; i++) {
+            assert.ok(chaud[i] > chaud[i - 1], `chaud non croissant entre ${i} et ${i + 1} murs`);
+        }
+    });
+
+    test('même à 0 mur extérieur (saisie hors bornes), le besoin ne descend jamais sous la part ventilation seule', () => {
+        // room.expositionMurs est borné à [1,4] dans getRequiredKw ; ce test vérifie le plancher
+        // conceptuel de PART_VENTILATION_G lui-même, indépendamment de ce clamp.
+        const ctx = { coefG: 0.8, tBaseHiver: -9, tBaseEte: 33, consigne: 26 };
+        const req1 = getRequiredKw(30, 2.5, { ...ROOM_TYPE, expositionMurs: 1 }, ctx);
+        const req4 = getRequiredKw(30, 2.5, { ...ROOM_TYPE, expositionMurs: 4 }, ctx);
+        const planchers = req4.chaud * PART_VENTILATION_G;
+        assert.ok(req1.chaud > planchers, `même au minimum d'exposition, le besoin (${req1.chaud}) doit rester au-dessus de la seule part ventilation (${planchers})`);
     });
 
     test('consigne plus basse augmente le besoin froid (enveloppe uniquement, pas les autres postes)', () => {

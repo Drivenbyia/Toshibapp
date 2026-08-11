@@ -5,7 +5,7 @@
 import {
     CATALOGS, UI_SIZE_TABLES, TVA_RULES,
     APPORTS_INTERNES, CHARGE_TOITURE_PALIERS, RAYONNEMENT_VITRAGE, RATIO_VITRAGE, FC_PROTECTION,
-    G_VITRAGE_PALIERS, COEF_INERTIE_SOLAIRE, OCCUPANT_W, COEF_RELANCE, COEF_G_DEFAUT,
+    G_VITRAGE_PALIERS, COEF_INERTIE_SOLAIRE, OCCUPANT_W, COEF_RELANCE, COEF_G_DEFAUT, PART_VENTILATION_G,
     CONSIGNE_REFERENCE, ABATTEMENT_CANICULE_SEUIL_BAS, ABATTEMENT_CANICULE_SEUIL_HAUT,
     ABATTEMENT_CANICULE_MAX, DECLASSEMENT_CHAUD_PALIERS,
     TOLERANCE_EQUIVALENCE, SEUIL_DESEQUILIBRE_GROUPE, SEUIL_SOUS_CHARGE_ESCALADE
@@ -147,9 +147,20 @@ export function getRequiredKw(surface, height, room, ctx) {
     const nbMursExt = Number.isFinite(expositionSaisie) ? Math.min(4, Math.max(1, expositionSaisie)) : 4;
     const ratioExposition = nbMursExt / 4;
 
+    // G capte à la fois la transmission par les parois ET le renouvellement d'air (voir plus
+    // bas) — mais seule la transmission dépend du nombre de murs extérieurs. Une pièce
+    // intérieure se ventile pareil qu'une pièce d'angle : appliquer ratioExposition à la
+    // totalité de G, comme avant ce correctif, réduisait aussi le débit d'air neuf, jusqu'à /4
+    // pour une pièce à un seul mur extérieur. On sépare donc G en deux parts (voir
+    // PART_VENTILATION_G, data.js) : la part ventilation reste à taux plein quelle que soit
+    // l'exposition, seule la part transmission est pondérée.
+    const gTransmission = coefG * (1 - PART_VENTILATION_G);
+    const gVentilation = coefG * PART_VENTILATION_G;
+    const gPondere = gTransmission * ratioExposition + gVentilation;
+
     // --- CHAUD : méthode déperditions (coefficient volumique G · V · ΔT) ---
     const deltaTChaud = 20 - tBaseHiver;
-    const deperditionsSeches = (volume * coefG * deltaTChaud * ratioExposition) / 1000;
+    const deperditionsSeches = (volume * gPondere * deltaTChaud) / 1000;
     const besoinChaud = deperditionsSeches * COEF_RELANCE;
 
     // --- FROID : bilan poste par poste (enveloppe + toiture + solaire + internes + occupants) ---
@@ -158,8 +169,9 @@ export function getRequiredKw(surface, height, room, ctx) {
     // toiture et les apports solaires par les vitrages, postes dominants du froid en été.
     const deltaTEte = Math.max(0, tBaseEte - consigne);
 
-    // 1. Enveloppe : transmission des parois + air neuf (via G), pondérée par l'exposition.
-    const qEnveloppe = coefG * volume * deltaTEte * ratioExposition;   // W
+    // 1. Enveloppe : transmission des parois + air neuf (via G), pondérée par l'exposition
+    //    (voir gPondere ci-dessus — seule la part transmission de G varie avec l'exposition).
+    const qEnveloppe = gPondere * volume * deltaTEte;   // W
 
     // 2. Toiture : surcharge solaire si la pièce est sous la couverture. Approximation
     //    connue et non résolue : le G capte déjà la transmission de toute l'enveloppe,

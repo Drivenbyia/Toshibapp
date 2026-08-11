@@ -62,6 +62,18 @@ export const COEF_RELANCE = 1.20;         // majoration chauffage pour la relanc
 // Coefficient G par défaut si la saisie personnalisée est vide ou invalide.
 export const COEF_G_DEFAUT = 0.8;
 
+// Part du coefficient G attribuée au renouvellement d'air (ventilation + infiltrations), le
+// reste (1 - cette part) étant la transmission par les parois. Sourcé sur la répartition usuelle
+// des déperditions d'un logement résidentiel, où le renouvellement d'air pèse 20 à 30% du total.
+//
+// Sert à corriger un biais du ratio d'exposition (getRequiredKw, calcul.js) : ce ratio réduit le
+// besoin d'une pièce au prorata de ses murs donnant sur l'extérieur (une pièce entourée d'autres
+// pièces chauffées perd moins par transmission). Appliqué tel quel à la totalité de G·V·ΔT, il
+// réduisait AUSSI le renouvellement d'air dans les mêmes proportions — or une pièce intérieure se
+// ventile pareil qu'une pièce d'angle, son débit d'air neuf ne dépend pas du nombre de murs
+// extérieurs. À 1 mur sur 4, tout G·V·ΔT était divisé par 4, y compris la part ventilation.
+export const PART_VENTILATION_G = 0.25;
+
 // Consigne intérieure été de référence (utilisée pour l'écart affiché dans le bandeau climat).
 export const CONSIGNE_REFERENCE = 26;
 
