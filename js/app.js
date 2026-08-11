@@ -120,11 +120,12 @@ function initApp() {
     initAccount();
 
     const deptSelect = document.getElementById('deptSelect');
+    const dernierDept = getDernierDept();
     Object.keys(DEPARTMENTS).sort().forEach(code => {
         const opt = document.createElement('option');
         opt.value = code;
         opt.textContent = `${code} - ${DEPARTMENTS[code].name}`;
-        if (code === "69") opt.selected = true;
+        if (code === dernierDept) opt.selected = true;
         deptSelect.appendChild(opt);
     });
     updateClimateInfo();
@@ -392,8 +393,8 @@ function renderDashboard() {
                     <p class="text-[11px] text-gray-400 mt-2 font-medium">${escapeHtml(cfg.date)}</p>
                 </div>
                 <div class="absolute right-0 top-3 flex items-center gap-1">
-                    ${marqueRetiree ? '' : `<button data-action="reload-config" data-id="${escapeHtml(cfg.id)}" class="text-gray-300 hover:text-[var(--brand-accent)] p-2" title="Recharger cette configuration pour la modifier"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg></button>`}
-                    <button data-action="delete-config" data-id="${escapeHtml(cfg.id)}" class="text-gray-300 hover:text-red-500 p-2" title="Supprimer cette zone"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
+                    ${marqueRetiree ? '' : `<button data-action="reload-config" data-id="${escapeHtml(cfg.id)}" title="Recharger cette configuration pour la modifier" aria-label="Recharger cette configuration" class="text-gray-400 hover:text-[var(--brand-accent)] p-3 -m-1"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg></button>`}
+                    <button data-action="delete-config" data-id="${escapeHtml(cfg.id)}" title="Supprimer cette zone" aria-label="Supprimer cette zone" class="text-gray-400 hover:text-red-500 p-3 -m-1"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
                 </div>
             </div>
         `}).join('');
@@ -529,6 +530,8 @@ function deleteChantier(clientName) {
 }
 
 function deleteConfig(id) {
+    const cfg = store.getConfig(id);
+    if (cfg && !confirm(`Supprimer définitivement la zone « ${cfg.zone} » ?`)) return;
     if (!store.softDelete(id)) {
         afficherMessageSauvegarde("❌ Suppression impossible : le stockage local est indisponible.", false);
     }
@@ -623,14 +626,29 @@ function applyBuildingParams(params) {
 // 5 pièces déjà remplies. Sauvegarde silencieuse à chaque modification, restaurée au chargement.
 const DRAFT_KEY = 'klimo:v2:local:draft';
 const DRAFT_KEY_LEGACY = 'toshiba_prosizer_draft';
+
+// Dernier département utilisé : clé SÉPARÉE du brouillon, qui survit à clearDraft() (appelé à
+// chaque "Nouveau calcul" et après chaque enregistrement de chantier — donc à chaque parcours
+// complet et réussi). Sans elle, "69" par défaut revenait sans arrêt pour un installateur qui
+// travaille toujours dans un autre département, à corriger à chaque nouveau calcul.
+const LAST_DEPT_KEY = 'klimo:v2:local:lastDept';
+function getDernierDept() {
+    try { return localStorage.getItem(LAST_DEPT_KEY) || '69'; } catch (e) { return '69'; }
+}
+function persistDernierDept(code) {
+    try { if (code) localStorage.setItem(LAST_DEPT_KEY, code); } catch (e) { /* ignoré */ }
+}
+
 function persistDraft() {
     try {
+        const params = captureBuildingParams();
+        persistDernierDept(params.deptSelect);
         localStorage.setItem(DRAFT_KEY, JSON.stringify({
             brand: state.brand,
             mode: state.mode,
             usage: state.usage,
             rooms: state.rooms,
-            params: captureBuildingParams()
+            params: params
         }));
     } catch (e) { /* stockage indisponible : tant pis, pas de brouillon */ }
 }
@@ -682,7 +700,10 @@ function restoreDraftIfAny() {
     if (banner) banner.classList.remove('hidden');
 }
 // Efface le brouillon et repart d'une saisie vierge (bouton de la bannière de reprise).
+// Irréversible et sans le moindre "annuler" : la saisie précédente n'est nulle part ailleurs
+// une fois clearDraft() passé, d'où la confirmation avant d'agir.
 function startNewCalcul() {
+    if (!confirm('Repartir d\'une saisie vierge ? La saisie précédente restaurée ci-dessus sera perdue.')) return;
     clearDraft();
     state.rooms = [defaultRoom(nouvelIdPiece())];
     state.currentCalc = null;
@@ -857,7 +878,14 @@ function effacerMarqueObsolescence() {
     if (results) results.classList.remove('opacity-50');
 }
 
+// Passer en Monosplit ne garde que la première pièce : sans garde, un artisan qui teste "et si
+// je repassais en mono ?" perdait la saisie des pièces 2 à 5 en un clic, sans le moindre signe
+// avant-coureur (le bouton Monosplit/Multisplit ne ressemble à rien de destructeur). Le passage
+// inverse (mono -> multi) ne perd rien : la pièce 1 reste, on ne fait qu'ajouter des emplacements.
 function setMode(mode) {
+    if (mode === 'mono' && state.mode === 'multi' && state.rooms.length > 1) {
+        if (!confirm(`Repasser en Monosplit ? La saisie des ${state.rooms.length - 1} autre(s) pièce(s) sera perdue (seule la première est conservée).`)) return;
+    }
     state.mode = mode;
     state.rooms = [state.rooms[0]];
     updateModeButtons(mode);
@@ -896,9 +924,9 @@ function renderRooms() {
         const showDuplicate = state.mode === 'multi' && canAddMore;
         container.insertAdjacentHTML('beforeend', `
             <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 fade-in relative">
-                <div class="absolute top-4 right-4 flex items-center gap-1">
-                    ${showDuplicate ? `<button onclick="duplicateRoom(${room.id})" title="Dupliquer cette pièce" class="text-gray-300 hover:text-[var(--brand-accent)] transition p-1"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 4h8a2 2 0 012 2v8a2 2 0 01-2 2h-8a2 2 0 01-2-2v-8a2 2 0 012-2z"></path></svg></button>` : ''}
-                    ${showRemove ? `<button onclick="removeRoom(${room.id})" title="Supprimer cette pièce" class="text-gray-300 hover:text-red-500 transition p-1"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>` : ''}
+                <div class="absolute top-3 right-3 flex items-center gap-2">
+                    ${showDuplicate ? `<button onclick="duplicateRoom(${room.id})" title="Dupliquer cette pièce" aria-label="Dupliquer cette pièce" class="text-gray-400 hover:text-[var(--brand-accent)] transition p-3 -m-1"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 4h8a2 2 0 012 2v8a2 2 0 01-2 2h-8a2 2 0 01-2-2v-8a2 2 0 012-2z"></path></svg></button>` : ''}
+                    ${showRemove ? `<button onclick="removeRoom(${room.id})" title="Supprimer cette pièce" aria-label="Supprimer cette pièce" class="text-gray-400 hover:text-red-500 transition p-3 -m-1"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>` : ''}
                 </div>
                 <h3 class="text-sm font-bold text-gray-700 mb-4 flex items-center gap-2 uppercase tracking-tight">
                     <span class="bg-gray-100 text-gray-500 rounded-lg w-7 h-7 flex items-center justify-center text-xs border border-gray-200">${index + 1}</span>
@@ -906,22 +934,22 @@ function renderRooms() {
                 </h3>
                 ${state.mode === 'multi' ? `
                 <div class="mb-4">
-                    <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">Nom de la pièce (optionnel)</label>
-                    <input type="text" maxlength="40" oninput="updateRoom(${room.id}, 'nom', this.value)" value="${escapeHtml(room.nom || '')}" placeholder="Ex: Salon, Chambre parents..." class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
+                    <label for="room-${room.id}-nom" class="block text-xs font-bold text-gray-500 uppercase mb-1">Nom de la pièce (optionnel)</label>
+                    <input id="room-${room.id}-nom" type="text" maxlength="40" oninput="updateRoom(${room.id}, 'nom', this.value)" value="${escapeHtml(room.nom || '')}" placeholder="Ex: Salon, Chambre parents..." class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                 </div>` : ''}
                 <div class="grid grid-cols-2 gap-4">
                     <div>
-                        <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">Surface (m²)</label>
-                        <input type="text" inputmode="decimal" oninput="updateRoom(${room.id}, 'surface', this.value)" value="${room.surface}" placeholder="Ex: 30" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
+                        <label for="room-${room.id}-surface" class="block text-xs font-bold text-gray-500 uppercase mb-1">Surface (m²)</label>
+                        <input id="room-${room.id}-surface" type="text" inputmode="decimal" oninput="updateRoom(${room.id}, 'surface', this.value)" value="${room.surface}" placeholder="Ex: 30" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                     </div>
                     <div>
-                        <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">Hauteur (m)</label>
-                        <input type="text" inputmode="decimal" oninput="updateRoom(${room.id}, 'height', this.value)" value="${room.height}" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
+                        <label for="room-${room.id}-height" class="block text-xs font-bold text-gray-500 uppercase mb-1">Hauteur (m)</label>
+                        <input id="room-${room.id}-height" type="text" inputmode="decimal" oninput="updateRoom(${room.id}, 'height', this.value)" value="${room.height}" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                     </div>
                 </div>
                 <div class="mt-4">
-                    <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">Emplacement de la pièce</label>
-                    <select onchange="updateRoom(${room.id}, 'emplacement', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
+                    <label for="room-${room.id}-emplacement" class="block text-xs font-bold text-gray-500 uppercase mb-1">Emplacement de la pièce</label>
+                    <select id="room-${room.id}-emplacement" onchange="updateRoom(${room.id}, 'emplacement', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                         <option value="sous_toiture" ${room.emplacement === 'sous_toiture' ? 'selected' : ''}>Sous toiture / combles aménagés (fort apport)</option>
                         <option value="plain_pied" ${room.emplacement === 'plain_pied' ? 'selected' : ''}>Plain-pied, combles perdus isolés (apport modéré)</option>
                         <option value="etage_protege" ${room.emplacement === 'etage_protege' ? 'selected' : ''}>Étage protégé / RDC sous un autre niveau (nul)</option>
@@ -929,8 +957,8 @@ function renderRooms() {
                 </div>
                 ${state.mode === 'multi' ? `
                 <div class="mt-4">
-                    <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">Murs donnant sur l'extérieur</label>
-                    <select onchange="updateRoom(${room.id}, 'expositionMurs', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
+                    <label for="room-${room.id}-expositionMurs" class="block text-xs font-bold text-gray-500 uppercase mb-1">Murs donnant sur l'extérieur</label>
+                    <select id="room-${room.id}-expositionMurs" onchange="updateRoom(${room.id}, 'expositionMurs', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                         <option value="4" ${String(room.expositionMurs) === '4' ? 'selected' : ''}>4 (pièce isolée sur toutes ses faces)</option>
                         <option value="3" ${String(room.expositionMurs) === '3' ? 'selected' : ''}>3</option>
                         <option value="2" ${String(room.expositionMurs) === '2' ? 'selected' : ''}>2 (pièce d'angle)</option>
@@ -939,8 +967,8 @@ function renderRooms() {
                 </div>` : ''}
                 <div class="grid grid-cols-2 gap-4 mt-4">
                     <div>
-                        <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">Orientation des baies</label>
-                        <select onchange="updateRoom(${room.id}, 'orientation', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
+                        <label for="room-${room.id}-orientation" class="block text-xs font-bold text-gray-500 uppercase mb-1">Orientation des baies</label>
+                        <select id="room-${room.id}-orientation" onchange="updateRoom(${room.id}, 'orientation', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                             <option value="nord" ${room.orientation === 'nord' ? 'selected' : ''}>Nord</option>
                             <option value="est" ${room.orientation === 'est' ? 'selected' : ''}>Est</option>
                             <option value="sud" ${room.orientation === 'sud' ? 'selected' : ''}>Sud</option>
@@ -949,8 +977,8 @@ function renderRooms() {
                         </select>
                     </div>
                     <div>
-                        <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">Quantité de vitrage</label>
-                        <select onchange="updateRoom(${room.id}, 'vitrage', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
+                        <label for="room-${room.id}-vitrage" class="block text-xs font-bold text-gray-500 uppercase mb-1">Quantité de vitrage</label>
+                        <select id="room-${room.id}-vitrage" onchange="updateRoom(${room.id}, 'vitrage', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                             <option value="peu" ${room.vitrage === 'peu' ? 'selected' : ''}>Peu vitré</option>
                             <option value="moyen" ${room.vitrage === 'moyen' ? 'selected' : ''}>Moyen</option>
                             <option value="beaucoup" ${room.vitrage === 'beaucoup' ? 'selected' : ''}>Très vitré</option>
@@ -959,16 +987,16 @@ function renderRooms() {
                 </div>
                 <div class="grid grid-cols-2 gap-4 mt-4">
                     <div>
-                        <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">Protection solaire</label>
-                        <select onchange="updateRoom(${room.id}, 'protection', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
+                        <label for="room-${room.id}-protection" class="block text-xs font-bold text-gray-500 uppercase mb-1">Protection solaire</label>
+                        <select id="room-${room.id}-protection" onchange="updateRoom(${room.id}, 'protection', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                             <option value="aucune" ${room.protection === 'aucune' ? 'selected' : ''}>Aucune</option>
                             <option value="stores_int" ${room.protection === 'stores_int' ? 'selected' : ''}>Stores / rideaux intérieurs</option>
                             <option value="volets_ext" ${room.protection === 'volets_ext' ? 'selected' : ''}>Volets / stores extérieurs</option>
                         </select>
                     </div>
                     <div>
-                        <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">Occupants</label>
-                        <input type="text" inputmode="numeric" oninput="updateRoom(${room.id}, 'occupants', this.value)" value="${room.occupants}" placeholder="Auto: ${occupantsParDefaut(room.surface) || '–'}" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
+                        <label for="room-${room.id}-occupants" class="block text-xs font-bold text-gray-500 uppercase mb-1">Occupants</label>
+                        <input id="room-${room.id}-occupants" type="text" inputmode="numeric" oninput="updateRoom(${room.id}, 'occupants', this.value)" value="${room.occupants}" placeholder="Auto: ${occupantsParDefaut(room.surface) || '–'}" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                     </div>
                 </div>
             </div>
@@ -980,7 +1008,19 @@ function renderRooms() {
 }
 
 function addRoom() { state.rooms.push(defaultRoom(nouvelIdPiece())); renderRooms(); persistDraft(); }
-function removeRoom(id) { state.rooms = state.rooms.filter(r => r.id !== id); renderRooms(); persistDraft(); }
+// Confirmation avant suppression : geste irréversible (aucun "annuler"), qui efface d'un coup
+// toute la saisie de la pièce (surface, orientation, vitrage...) — voir la note en tête de
+// fichier sur duplicateRoom, le même risque s'applique ici, en pire (duplicateRoom recopie,
+// removeRoom détruit).
+function removeRoom(id) {
+    const idx = state.rooms.findIndex(r => r.id === id);
+    if (idx === -1) return;
+    const label = roomLabel({ index: idx + 1, nom: state.rooms[idx].nom });
+    if (!confirm(`Supprimer ${label} ? Sa saisie sera perdue.`)) return;
+    state.rooms = state.rooms.filter(r => r.id !== id);
+    renderRooms();
+    persistDraft();
+}
 function duplicateRoom(id) {
     if (state.rooms.length >= 5) return;
     const idx = state.rooms.findIndex(r => r.id === id);
@@ -1191,6 +1231,14 @@ function calculate() {
     resultsContainer.scrollIntoView({ behavior: 'smooth' });
 }
 
+// Explique l'ordre des options équivalentes (trierMonosParTva, calcul.js) : sans ce texte, un
+// artisan qui compare des puissances quasi identiques ne peut pas deviner pourquoi l'une est
+// proposée en premier — c'est l'éligibilité TVA 5,5% qui départage, pas la puissance.
+function noteTriTva(options) {
+    if (options.length < 2) return '';
+    return `<p class="text-[11px] text-gray-400 mb-2 -mt-1">Options techniquement équivalentes, triées par éligibilité TVA 5,5% en premier.</p>`;
+}
+
 // Reconstruit l'affichage des résultats à partir de state.currentCalc + state.selection,
 // sans relancer le calcul (utilisé quand l'utilisateur choisit une solution parmi les options).
 // Fonction de LECTURE uniquement : ne modifie jamais state (voir seedGroupGammeDefaults / selectGroup
@@ -1211,6 +1259,7 @@ function renderResults() {
         if (options.length === 0) {
             html += `<div class="p-4 bg-orange-50 text-orange-800 rounded-lg text-sm italic">Aucun Monosplit du catalogue ne couvre ce niveau de puissance.</div>`;
         } else {
+            html += noteTriTva(options);
             const selIdx = Math.min(state.selection.mono || 0, options.length - 1);
             options.forEach((sol, idx) => {
                 const selectOpts = options.length > 1 ? { selected: idx === selIdx, onclick: `selectMono(${idx})` } : null;
@@ -1240,6 +1289,7 @@ function renderResults() {
             const room = dedItem.room;
             const options = dedItem.options;
             if (options.length > 0) {
+                html += noteTriTva(options);
                 const selIdx = Math.min(state.selection.dedicated[room.index] || 0, options.length - 1);
                 options.forEach((sol, idx) => {
                     const selectOpts = options.length > 1 ? { selected: idx === selIdx, onclick: `selectDedicated(${room.index}, ${idx})` } : null;
@@ -1315,12 +1365,12 @@ function renderResults() {
             </div>` : ''}
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                 <div>
-                    <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">Nom du Client / Projet</label>
+                    <label for="save-client" class="block text-xs font-bold text-gray-500 uppercase mb-1">Nom du Client / Projet</label>
                     <input type="text" id="save-client" list="client-list" placeholder="Ex: Dupont" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                     <datalist id="client-list"></datalist>
                 </div>
                 <div>
-                    <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">Désignation de la Zone</label>
+                    <label for="save-zone" class="block text-xs font-bold text-gray-500 uppercase mb-1">Désignation de la Zone</label>
                     <input type="text" id="save-zone" placeholder="Ex: RDC, Étage, Salon..." class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                 </div>
             </div>
@@ -1648,6 +1698,10 @@ function renderBalanceNote(analyse) {
 // Taux de charge = besoin réel / puissance nominale catalogue. En dessous de ~50%, un
 // inverter résidentiel cycle court (marche/arrêt fréquents) : confort et rendement réel
 // dégradés malgré une puissance affichée confortable — d'où l'alerte, absente jusqu'ici.
+//
+// L'explication était jusqu'ici uniquement dans l'attribut title du ⚠️ — jamais visible au
+// doigt sur mobile (pas de survol tactile fiable). Affichée ici en texte, sous le badge :
+// un peu plus de place prise, mais lisible par l'artisan qui compte l'utiliser sur le terrain.
 function renderChargeBadge(reqFroid, reqChaud, nominalFroid, nominalChaud) {
     if (!reqFroid || !nominalFroid) return '';
     const chargeF = reqFroid / nominalFroid;
@@ -1656,8 +1710,11 @@ function renderChargeBadge(reqFroid, reqChaud, nominalFroid, nominalChaud) {
     const sousCharge = minCharge < SEUIL_SOUS_CHARGE;
     const classes = sousCharge ? 'bg-amber-50 text-amber-700 border-amber-300' : 'bg-gray-50 text-gray-500 border-gray-200';
     const label = `Taux de charge : ${Math.round(chargeF * 100)}% F${chargeC !== null ? ` / ${Math.round(chargeC * 100)}% C` : ''}`;
-    const warn = sousCharge ? ` <span title="Machine surdimensionnée pour ce besoin : cycles courts, confort et rendement réel dégradés.">⚠️</span>` : '';
-    return `<div class="mt-2 inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-full border ${classes}">${label}${warn}</div>`;
+    const badge = `<div class="mt-2 inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-full border ${classes}">${label}${sousCharge ? ' ⚠️' : ''}</div>`;
+    const explication = sousCharge
+        ? `<p class="text-[11px] text-amber-700 mt-1">⚠️ Machine surdimensionnée pour ce besoin : cycles courts, confort et rendement réel dégradés.</p>`
+        : '';
+    return badge + explication;
 }
 
 // selectOpts = null (carte simple, non sélectionnable) ou { selected: bool, onclick: string }
@@ -1702,6 +1759,7 @@ function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = fals
                 <div class="text-[11px] font-black uppercase text-[var(--brand-accent)] mb-1 tracking-widest">${badgeText}</div>
                 <h3 class="text-lg font-extrabold text-klimo-dark leading-tight">${mainTitle}</h3>
                 <p class="text-xs font-mono text-gray-500 mt-1">${subtitle}</p>
+                ${chargeInfo ? `<p class="text-[11px] text-gray-400 mt-1">Besoin calculé : ${chargeInfo.reqFroid.toFixed(1)} kW F${chargeInfo.reqChaud !== null && chargeInfo.reqChaud !== undefined ? ` / ${chargeInfo.reqChaud.toFixed(1)} kW C` : ''}</p>` : ''}
                 ${renderTvaBadge(tvaInfo)}
                 ${chargeInfo ? renderChargeBadge(chargeInfo.reqFroid, chargeInfo.reqChaud, froid, chaud) : ''}
             </div>
@@ -1733,16 +1791,28 @@ function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = fals
 // vide — aucune pastille du tout — qu'un commercial pressé lit « pas éligible », alors que
 // « non renseigné » et « non éligible » n'ont rien à voir. Toshiba affiche une pastille verte,
 // une future marque sans tableau doit afficher SA propre pastille grise plutôt que le silence.
+// Pastille = <details>/<summary> plutôt qu'un <span title="...">: l'explication qui suivait
+// jusqu'ici n'était visible qu'au survol souris, jamais au doigt sur mobile. Le rendu fermé
+// est visuellement identique à l'ancienne pastille (même forme, même couleur) ; ouvrir révèle
+// le texte. event.stopPropagation() : la carte parente peut porter son propre onclick de
+// sélection (voir renderCard) — ouvrir l'explication ne doit pas aussi sélectionner la carte.
+function pastilleTva(classes, texte, explication) {
+    return `<details onclick="event.stopPropagation()" class="inline-block align-top">
+        <summary class="inline-flex items-center gap-1 text-[11px] font-black px-2 py-1 rounded-full border cursor-pointer select-none ${classes}">${texte} <span class="font-normal opacity-60">ⓘ</span></summary>
+        <p class="text-[11px] text-gray-500 mt-1 max-w-xs font-normal normal-case">${explication}</p>
+    </details>`;
+}
+
 function renderTvaBadge(tvaInfo) {
     if (!tvaInfo) {
-        return `<div class="flex flex-wrap gap-1.5 mt-2"><span class="inline-flex items-center gap-1 text-[11px] font-black px-2 py-1 rounded-full bg-gray-100 text-gray-500 border border-gray-200" title="Aucun dispositif d'éligibilité TVA renseigné pour ${escapeHtml(libelleMarque(state.brand))} dans cette version de l'outil — statut à vérifier auprès du fournisseur avant de facturer.">TVA non renseignée</span></div>`;
+        return `<div class="flex flex-wrap gap-1.5 mt-2">${pastilleTva('bg-gray-100 text-gray-500 border-gray-200', 'TVA non renseignée', `Aucun dispositif d'éligibilité TVA renseigné pour ${escapeHtml(libelleMarque(state.brand))} dans cette version de l'outil — statut à vérifier auprès du fournisseur avant de facturer.`)}</div>`;
     }
     const marque = escapeHtml(libelleMarque(state.brand));
     const dateVerif = new Date(TVA_DATE_VERIFICATION).toLocaleDateString('fr-FR');
     const badges = {
-        eligible:     `<span class="inline-flex items-center gap-1 text-[11px] font-black px-2 py-1 rounded-full bg-green-100 text-green-700 border border-green-300" title="Éligibilité vérifiée face au tableau ${marque} le ${dateVerif}.">TVA 5,5%</span>`,
-        non_eligible: `<span class="inline-flex items-center gap-1 text-[11px] font-black px-2 py-1 rounded-full bg-red-100 text-red-700 border border-red-300" title="Éligibilité vérifiée face au tableau ${marque} le ${dateVerif}.">TVA 20%</span>`,
-        a_verifier:   `<span class="inline-flex items-center gap-1 text-[11px] font-black px-2 py-1 rounded-full bg-gray-100 text-gray-600 border border-gray-300" title="Référence absente du tableau d'éligibilité ${marque} (vérifié le ${dateVerif}) : à confirmer auprès du constructeur avant de facturer en 5,5%.">TVA à vérifier</span>`
+        eligible:     pastilleTva('bg-green-100 text-green-700 border-green-300', 'TVA 5,5%', `Éligibilité vérifiée face au tableau ${marque} le ${dateVerif}.`),
+        non_eligible: pastilleTva('bg-red-100 text-red-700 border-red-300', 'TVA 20%', `Éligibilité vérifiée face au tableau ${marque} le ${dateVerif}.`),
+        a_verifier:   pastilleTva('bg-gray-100 text-gray-600 border-gray-300', 'TVA à vérifier', `Référence absente du tableau d'éligibilité ${marque} (vérifié le ${dateVerif}) : à confirmer auprès du constructeur avant de facturer en 5,5%.`)
     };
     const wifi = tvaInfo.wifiRequired
         ? `<span class="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200">📶 Module Wifi requis</span>`
