@@ -7,11 +7,13 @@ import {
     estimerEcartConsigne, resolveCoefG, parseNombreSaisi, getUiSizeForKw, findBestMonos, findMultiGroupOptions,
     findMultiGroup, getRoomEligibleGammes, getTvaInfo, occupantsParDefaut,
     findGroupesValides, findGroupeEquilibre, estGroupeDesequilibre, ratioPieceDominante,
-    pieceDominante, tauxChargeGroupe, getGroupTvaInfo, normaliserReferenceGroupe, trierMonosParTva
+    pieceDominante, tauxChargeGroupe, getGroupTvaInfo, normaliserReferenceGroupe, trierMonosParTva,
+    interpolerChargeToiture
 } from '../js/calcul.js';
 import {
     CONSIGNE_REFERENCE, COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD,
-    SEUIL_DESEQUILIBRE_GROUPE, CATALOGS, UI_SIZE_TABLES, DEPARTMENTS, tBaseMatrix, tBaseEteMatrix
+    SEUIL_DESEQUILIBRE_GROUPE, CATALOGS, UI_SIZE_TABLES, DEPARTMENTS, tBaseMatrix, tBaseEteMatrix,
+    CHARGE_TOITURE_PALIERS
 } from '../js/data.js';
 
 const ROOM_TYPE = { emplacement: 'plain_pied', orientation: 'mixte', vitrage: 'moyen', protection: 'stores_int', occupants: '', expositionMurs: 4 };
@@ -131,6 +133,39 @@ describe('resolveCoefG', () => {
     test('"custom" avec saisie vide ou invalide : repli sur la valeur par défaut (0.8)', () => {
         assert.equal(resolveCoefG('custom', ''), 0.8);
         assert.equal(resolveCoefG('custom', 'abc'), 0.8);
+    });
+});
+
+// La surcharge toiture sautait de +61% (28 → 45 W/m²) exactement à la frontière G=0.8, qui est
+// la valeur par défaut de l'application, et de +86% (15 → 28) à la frontière G=0.35. Les deux
+// sauts n'avaient aucune justification physique — c'était un artefact des trois blocs disjoints
+// 'bonne'/'moyenne'/'faible'.
+describe('interpolerChargeToiture — continuité', () => {
+    test('les points d\'ancrage sont préservés (pas de régression sur les cas de référence)', () => {
+        for (const p of CHARGE_TOITURE_PALIERS) {
+            assert.equal(interpolerChargeToiture(p.g), p.charge, `palier G=${p.g}`);
+        }
+    });
+    test('plafonné en dehors des paliers, jamais extrapolé au-delà', () => {
+        assert.equal(interpolerChargeToiture(0.1), CHARGE_TOITURE_PALIERS[0].charge, 'G très bas → minimum');
+        assert.equal(interpolerChargeToiture(3.0), CHARGE_TOITURE_PALIERS.at(-1).charge, 'G véranda → maximum');
+    });
+    test('aucun saut supérieur à la variation d\'un pas de saisie usuel (±0.01) autour des anciennes frontières', () => {
+        for (const frontiere of [0.35, 0.8]) {
+            const avant = interpolerChargeToiture(frontiere - 0.005);
+            const apres = interpolerChargeToiture(frontiere + 0.005);
+            const ecartRelatif = Math.abs(apres - avant) / avant;
+            assert.ok(ecartRelatif < 0.02, `saut de ${(ecartRelatif * 100).toFixed(1)}% autour de G=${frontiere}`);
+        }
+    });
+    test('strictement croissante entre les paliers (jamais plate ni décroissante)', () => {
+        const echantillon = [0.2, 0.35, 0.5, 0.65, 0.8, 1.0, 1.2, 2.0];
+        for (let i = 1; i < echantillon.length; i++) {
+            assert.ok(
+                interpolerChargeToiture(echantillon[i]) >= interpolerChargeToiture(echantillon[i - 1]),
+                `décroissance entre G=${echantillon[i - 1]} et G=${echantillon[i]}`
+            );
+        }
     });
 });
 

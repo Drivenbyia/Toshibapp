@@ -10,7 +10,23 @@ export const APPORTS_INTERNES = 5;
 // Surcharge toiture en été (W/m² de surface au sol) si la pièce est sous la toiture.
 // Rendue seulement quand la pièce est directement sous les combles / la couverture :
 // c'est le poste le plus sous-estimé d'un modèle purement volumique (ΔTe toiture 25-45 K).
-export const CHARGE_TOITURE = { bonne: 15, moyenne: 28, faible: 45 };
+//
+// Paliers en fonction du coefficient G, interpolés (voir interpolerChargeToiture, calcul.js) —
+// et non trois blocs disjoints comme auparavant. Les trois anciens niveaux ('bonne'/'moyenne'/
+// 'faible') étaient sélectionnés par un simple seuil sur G (<=0.35, <=0.8, au-delà), avec DEUX
+// sauts non physiques : +13 W/m² (+86%) à la frontière 0.35, +17 W/m² (+61%) à la frontière
+// 0.8 — et cette dernière tombe exactement sur le coefficient G par défaut de l'application :
+// passer de « 2001-2012 » (G=0.8, sélectionné par défaut) à une saisie personnalisée de 0.81
+// suffisait à faire bondir ce poste de 61% sans que rien n'ait réellement changé au bâti.
+//
+// Le point à G=1.2 correspond à l'option « 1974 à 1988 » du sélecteur d'isolation (index.html) :
+// c'est le premier point réel au-delà duquel la toiture est considérée au maximum de sa
+// surcharge, plutôt qu'un plafond arbitraire.
+export const CHARGE_TOITURE_PALIERS = [
+    { g: 0.35, charge: 15 },
+    { g: 0.8,  charge: 28 },
+    { g: 1.2,  charge: 45 }
+];
 
 // Rayonnement solaire de pointe transmis par un vitrage clair (W/m² de vitrage),
 // latitude ~45° (Sud-Ouest), par orientation dominante des baies. Méthode type Carrier.
