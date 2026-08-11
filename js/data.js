@@ -29,7 +29,17 @@ export const CHARGE_TOITURE_PALIERS = [
 ];
 
 // Rayonnement solaire de pointe transmis par un vitrage clair (W/m² de vitrage),
-// latitude ~45° (Sud-Ouest), par orientation dominante des baies. Méthode type Carrier.
+// latitude ~45° (Sud-Ouest), par orientation dominante des baies. Méthode d'apports solaires
+// de pointe type Carrier (méthode CLTD/CLF simplifiée, référence historique du dimensionnement
+// climatisation) — pas une valeur de la norme NF EN 12831, qui porte sur le chauffage.
+//
+// ⚠️ Comme pour le référentiel climatique (voir tBaseMatrix), ces valeurs n'ont pas été
+// confrontées ligne à ligne à une table Carrier publiée : à vérifier avant tout usage engageant.
+// Limite assumée de la méthode : la pointe Est (8h) et la pointe Ouest (16h) sont ici prises à
+// leur maximum respectif et additionnées telles quelles au ΔT de pointe (tBaseEteMatrix,
+// atteint plutôt en milieu d'après-midi) — un bureau d'études réel décale les apports dans le
+// temps (méthode RTS) pour éviter de cumuler deux pointes qui ne se produisent pas à la même
+// heure. Biais connu, non corrigé : il va vers la surestimation, jamais vers le déficit.
 export const RAYONNEMENT_VITRAGE = { nord: 45, est: 585, sud: 290, ouest: 585, mixte: 350 };
 // Ratio surface vitrée / surface au sol selon la quantité de vitrage déclarée.
 export const RATIO_VITRAGE = { peu: 0.10, moyen: 0.18, beaucoup: 0.28 };
@@ -141,7 +151,16 @@ export const BRAND_LABELS = {
 };
 
 // --- CATALOGUES MATÉRIEL ---
-
+//
+// `puissance_froid_kw` et `puissance_chaud_kw` sont des puissances NOMINALES au point d'essai
+// normalisé EN 14511 : 35°C extérieur / 27°C intérieur en froid, +7°C extérieur / 20°C intérieur
+// en chaud — les conditions standard sous lesquelles les fabricants publient leurs fiches
+// techniques. Ce n'est écrit nulle part ailleurs dans ce fichier ; c'est pourtant l'hypothèse
+// silencieuse sous-jacente à tout le moteur de sélection : ABATTEMENT_CANICULE_* majore le
+// besoin froid parce que la pointe réelle dépasse 35°C, et DECLASSEMENT_CHAUD_PALIERS majore le
+// besoin chaud parce que la température de base hiver descend sous +7°C. Une machine dont la
+// fiche technique cite un autre point d'essai (rare, mais existe sur des catalogues étrangers)
+// romprait cette hypothèse sans qu'aucun garde-fou du code ne le détecte.
 export const CATALOGS = {
   toshiba: {
     monosplits: [

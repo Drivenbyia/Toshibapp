@@ -1280,6 +1280,27 @@ function renderResults() {
 // PDF s'appuie sur l'impression native du navigateur (une feuille de style @media print
 // isole une vue propre dans #print-area), et le partage utilise la Web Share API quand
 // disponible, avec un repli mailto: sinon.
+// Hypothèses de calcul lisibles (département, altitude, isolation, consigne) — les mêmes
+// valeurs que capture captureBuildingParams() pour la reprise d'un chantier, mais mises en
+// forme pour un lecteur humain plutôt que pour être réappliquées au formulaire.
+function buildHypothesesLines() {
+    const deptCode = document.getElementById('deptSelect').value;
+    const deptNom = DEPARTMENTS[deptCode]?.name || deptCode;
+    const altitude = document.getElementById('altitude').value;
+    const { zone, tBaseHiver, tBaseEte } = getClimateContext();
+    const isolationSelect = document.getElementById('isolationCoef');
+    const isolationLabel = isolationSelect.value === 'custom'
+        ? `saisie personnalisée (G=${getCoefG()})`
+        : isolationSelect.options[isolationSelect.selectedIndex].textContent;
+    const consigne = document.getElementById('consigneInt').value;
+    return [
+        `Localisation : ${deptCode} - ${deptNom}, altitude ${altitude} (zone climatique ${zone})`,
+        `Températures de base : ${tBaseHiver}°C hiver, ${tBaseEte}°C été`,
+        `Isolation : ${isolationLabel}`,
+        `Consigne intérieure été : ${consigne}°C`
+    ];
+}
+
 function buildResultSummaryLines() {
     const calc = state.currentCalc;
     if (!calc || !state.lastResultData) return null;
@@ -1291,7 +1312,8 @@ function buildResultSummaryLines() {
         brandLabel: BRAND_LABELS[state.brand] || state.brand,
         modeLabel: calc.mode === 'mono' ? 'Monosplit' : 'Multisplit',
         roomDetails: calc.roomDetails || [],
-        equipments: state.lastResultData.equipments || []
+        equipments: state.lastResultData.equipments || [],
+        hypotheses: buildHypothesesLines()
     };
 }
 
@@ -1308,7 +1330,9 @@ function exportPdf() {
         <ul>${s.roomDetails.map(r => `<li>${escapeHtml(r)}</li>`).join('')}</ul>
         <h2>Équipements recommandés</h2>
         <ul>${s.equipments.map(e => `<li>${escapeHtml(e)}</li>`).join('')}</ul>
-        <p class="print-disclaimer">Dimensionnement indicatif généré par Klimo. À valider par un professionnel avant installation.</p>
+        <h2>Méthode et hypothèses</h2>
+        <ul>${s.hypotheses.map(h => `<li>${escapeHtml(h)}</li>`).join('')}</ul>
+        <p class="print-disclaimer">Dimensionnement indicatif généré par Klimo à partir des hypothèses ci-dessus, à valider par un professionnel avant installation.</p>
     `;
     window.print();
 }
