@@ -35,7 +35,26 @@ export const RAYONNEMENT_VITRAGE = { nord: 45, est: 585, sud: 290, ouest: 585, m
 export const RATIO_VITRAGE = { peu: 0.10, moyen: 0.18, beaucoup: 0.28 };
 // Coefficient de réduction des protections solaires (Fc, DIN 4108-2 / EN 14501).
 export const FC_PROTECTION = { aucune: 1.0, stores_int: 0.55, volets_ext: 0.15 };
-export const G_VITRAGE = 0.75;            // facteur solaire d'un double vitrage standard (valeur d'usage)
+// Facteur solaire du vitrage (Sw), interpolé sur le coefficient G comme la surcharge toiture
+// (voir CHARGE_TOITURE_PALIERS) — le vitrage posé suit la même époque de construction que le
+// reste de l'enveloppe.
+//
+// Remplace une constante unique à 0.75, documentée « valeur d'usage » sans source, appliquée
+// telle quelle à tous les âges de bâti. Or 0.75 est le facteur solaire d'un vitrage proche du
+// simple vitrage (0.78-0.81) ; un double vitrage clair standard (répandu des années 1980 aux
+// années 2000) est plutôt à 0.60, et un double vitrage à isolation renforcée — la norme depuis
+// la RT2012 — descend à 0.52. Le vitrage pesant 34% du bilan froid sur le cas de référence de
+// l'application, une valeur unique à 0.75 surestimait ce poste d'environ 20-25% pour tout bâti
+// récent (RT2012/RE2020), sans jamais le sous-estimer pour le bâti ancien.
+//
+// ⚠️ Valeurs indicatives (fourchettes usuelles de vitrages résidentiels), pas une fiche produit.
+// Sans donnée de vitrage réel saisie par l'utilisateur, c'est la meilleure approximation
+// disponible ; à remplacer si un champ de saisie dédié est ajouté un jour.
+export const G_VITRAGE_PALIERS = [
+    { g: 0.35, gVitrage: 0.52 },   // RT2012 / RE2020 : double vitrage à isolation renforcée (VIR)
+    { g: 0.8,  gVitrage: 0.60 },   // RT2000/2005 : double vitrage clair standard
+    { g: 1.2,  gVitrage: 0.78 }    // avant 1988 : simple vitrage ou double vitrage ancien
+];
 export const COEF_INERTIE_SOLAIRE = 0.8;  // amortissement / déphasage moyen (bâti mixte)
 export const OCCUPANT_W = 100;            // apport total (sensible + latent) par occupant, résidentiel au repos
 export const COEF_RELANCE = 1.20;         // majoration chauffage pour la relance matinale

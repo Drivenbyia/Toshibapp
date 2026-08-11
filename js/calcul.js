@@ -5,7 +5,7 @@
 import {
     CATALOGS, UI_SIZE_TABLES, TVA_RULES,
     APPORTS_INTERNES, CHARGE_TOITURE_PALIERS, RAYONNEMENT_VITRAGE, RATIO_VITRAGE, FC_PROTECTION,
-    G_VITRAGE, COEF_INERTIE_SOLAIRE, OCCUPANT_W, COEF_RELANCE, COEF_G_DEFAUT,
+    G_VITRAGE_PALIERS, COEF_INERTIE_SOLAIRE, OCCUPANT_W, COEF_RELANCE, COEF_G_DEFAUT,
     CONSIGNE_REFERENCE, ABATTEMENT_CANICULE_SEUIL_BAS, ABATTEMENT_CANICULE_SEUIL_HAUT,
     ABATTEMENT_CANICULE_MAX, DECLASSEMENT_CHAUD_PALIERS,
     TOLERANCE_EQUIVALENCE, SEUIL_DESEQUILIBRE_GROUPE, SEUIL_SOUS_CHARGE_ESCALADE
@@ -78,23 +78,35 @@ export function getFacteurDeclassementChaud(tBaseHiver) {
     return ratio > 0 ? 1 / ratio : 1;
 }
 
-// Surcharge toiture interpolée sur le coefficient G, à partir des paliers CHARGE_TOITURE_PALIERS
-// (voir data.js pour la discontinuité que ça corrige). Plafonnée en dehors des paliers plutôt
-// qu'extrapolée : sous le premier G, la toiture reste à son minimum ; au-delà du dernier, à son
-// maximum — la charge toiture ne devient pas négative pour un G très bas, ni ne croît sans borne
-// pour un G très élevé (véranda, G=3.0).
-export function interpolerChargeToiture(coefG) {
-    const p = CHARGE_TOITURE_PALIERS;
-    if (coefG <= p[0].g) return p[0].charge;
-    if (coefG >= p[p.length - 1].g) return p[p.length - 1].charge;
-    for (let i = 0; i < p.length - 1; i++) {
-        const a = p[i], b = p[i + 1];
+// Interpolation linéaire générique sur une table de paliers { g, [cle]: valeur } triée par g
+// croissant, plafonnée en dehors (jamais extrapolée) : sous le premier palier, la valeur reste
+// à son minimum ; au-delà du dernier, à son maximum. Partagée par les deux grandeurs de
+// l'enveloppe qui suivent l'époque de construction (coefficient G) sans variation continue
+// propre : la surcharge toiture et le facteur solaire du vitrage.
+function interpolerSurG(coefG, paliers, cle) {
+    if (coefG <= paliers[0].g) return paliers[0][cle];
+    if (coefG >= paliers[paliers.length - 1].g) return paliers[paliers.length - 1][cle];
+    for (let i = 0; i < paliers.length - 1; i++) {
+        const a = paliers[i], b = paliers[i + 1];
         if (coefG >= a.g && coefG <= b.g) {
             const t = (coefG - a.g) / (b.g - a.g);
-            return a.charge + t * (b.charge - a.charge);
+            return a[cle] + t * (b[cle] - a[cle]);
         }
     }
-    return p[p.length - 1].charge;
+    return paliers[paliers.length - 1][cle];
+}
+
+// Surcharge toiture interpolée sur le coefficient G, à partir des paliers CHARGE_TOITURE_PALIERS
+// (voir data.js pour la discontinuité que ça corrige) : la charge ne devient pas négative pour
+// un G très bas, ni ne croît sans borne pour un G très élevé (véranda, G=3.0).
+export function interpolerChargeToiture(coefG) {
+    return interpolerSurG(coefG, CHARGE_TOITURE_PALIERS, 'charge');
+}
+
+// Facteur solaire du vitrage interpolé sur le coefficient G, à partir des paliers
+// G_VITRAGE_PALIERS (voir data.js pour la surestimation que ça corrige).
+export function interpolerGVitrage(coefG) {
+    return interpolerSurG(coefG, G_VITRAGE_PALIERS, 'gVitrage');
 }
 
 // Estimation indicative de l'impact de la consigne sur le besoin froid, sur un profil de pièce
@@ -108,7 +120,7 @@ export function estimerEcartConsigne(consigne, coefG, tBaseEte) {
         const deltaTEte = Math.max(0, tBaseEte - c);
         const qEnveloppe = coefG * volume * deltaTEte;
         const qToiture = interpolerChargeToiture(coefG) * 0.5 * surfaceRef;
-        const qSolaire = RAYONNEMENT_VITRAGE.mixte * G_VITRAGE * FC_PROTECTION.stores_int * COEF_INERTIE_SOLAIRE * surfaceRef * RATIO_VITRAGE.moyen;
+        const qSolaire = RAYONNEMENT_VITRAGE.mixte * interpolerGVitrage(coefG) * FC_PROTECTION.stores_int * COEF_INERTIE_SOLAIRE * surfaceRef * RATIO_VITRAGE.moyen;
         const qInternesBase = APPORTS_INTERNES * surfaceRef;
         const qOccupants = occupantsParDefaut(surfaceRef) * OCCUPANT_W;
         return qEnveloppe + qToiture + qSolaire + qInternesBase + qOccupants;
@@ -167,7 +179,7 @@ export function getRequiredKw(surface, height, room, ctx) {
     const ratioVit  = RATIO_VITRAGE[room.vitrage] ?? RATIO_VITRAGE.moyen;
     const fc        = FC_PROTECTION[room.protection] ?? FC_PROTECTION.stores_int;
     const sVitree   = surface * ratioVit;
-    const qSolaire  = rayon * G_VITRAGE * fc * COEF_INERTIE_SOLAIRE * sVitree; // W
+    const qSolaire  = rayon * interpolerGVitrage(coefG) * fc * COEF_INERTIE_SOLAIRE * sVitree; // W
 
     // 4. Apports internes de base : éclairage + équipements.
     const qInternesBase = APPORTS_INTERNES * surface; // W

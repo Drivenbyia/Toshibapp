@@ -8,21 +8,26 @@ import {
     findMultiGroup, getRoomEligibleGammes, getTvaInfo, occupantsParDefaut,
     findGroupesValides, findGroupeEquilibre, estGroupeDesequilibre, ratioPieceDominante,
     pieceDominante, tauxChargeGroupe, getGroupTvaInfo, normaliserReferenceGroupe, trierMonosParTva,
-    interpolerChargeToiture
+    interpolerChargeToiture, interpolerGVitrage
 } from '../js/calcul.js';
 import {
     CONSIGNE_REFERENCE, COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD,
     SEUIL_DESEQUILIBRE_GROUPE, CATALOGS, UI_SIZE_TABLES, DEPARTMENTS, tBaseMatrix, tBaseEteMatrix,
-    CHARGE_TOITURE_PALIERS
+    CHARGE_TOITURE_PALIERS, G_VITRAGE_PALIERS
 } from '../js/data.js';
 
 const ROOM_TYPE = { emplacement: 'plain_pied', orientation: 'mixte', vitrage: 'moyen', protection: 'stores_int', occupants: '', expositionMurs: 4 };
 
 describe('getRequiredKw — cas de référence par zone climatique', () => {
+    // Valeur froid recalculée suite à l'interpolation du facteur solaire du vitrage (voir
+    // « interpolerGVitrage — facteur solaire » plus bas) : à G=0.8, gVitrage vaut désormais 0.60
+    // au lieu de la constante 0.75 d'origine, ce qui réduit le poste solaire — 34% du bilan — et
+    // donc le besoin froid total de 1.8137 à 1.68896 kW. Le chaud est inchangé, ce poste n'y
+    // intervenant pas.
     test('Lyon (zone F, Tbase hiver -9°C, Tbase été 33°C), salon 30 m², G=0.8', () => {
         const ctx = { coefG: 0.8, tBaseHiver: -9, tBaseEte: 33, consigne: 26 };
         const req = getRequiredKw(30, 2.5, ROOM_TYPE, ctx);
-        assert.ok(Math.abs(req.froid - 1.8137) < 0.001, `froid attendu ~1.8137, obtenu ${req.froid}`);
+        assert.ok(Math.abs(req.froid - 1.68896) < 0.001, `froid attendu ~1.68896, obtenu ${req.froid}`);
         assert.ok(Math.abs(req.chaud - 2.088) < 0.001, `chaud attendu ~2.088, obtenu ${req.chaud}`);
     });
 
@@ -165,6 +170,38 @@ describe('interpolerChargeToiture — continuité', () => {
                 interpolerChargeToiture(echantillon[i]) >= interpolerChargeToiture(echantillon[i - 1]),
                 `décroissance entre G=${echantillon[i - 1]} et G=${echantillon[i]}`
             );
+        }
+    });
+});
+
+// G_VITRAGE était une constante unique à 0.75 (proche du simple vitrage) appliquée à tout âge
+// de bâti, alors que le vitrage posé suit la même époque de construction que le reste de
+// l'enveloppe : un double vitrage clair standard est plutôt à 0.60, un vitrage à isolation
+// renforcée (norme depuis la RT2012) à 0.52. Le vitrage pesant 34% du bilan froid, la
+// surestimation touchait tout bâti récent.
+describe('interpolerGVitrage — facteur solaire', () => {
+    test('les points d\'ancrage sont préservés', () => {
+        for (const p of G_VITRAGE_PALIERS) {
+            assert.equal(interpolerGVitrage(p.g), p.gVitrage, `palier G=${p.g}`);
+        }
+    });
+    test('plafonné en dehors des paliers', () => {
+        assert.equal(interpolerGVitrage(0.1), G_VITRAGE_PALIERS[0].gVitrage, 'G très bas (RE2020) → minimum');
+        assert.equal(interpolerGVitrage(3.0), G_VITRAGE_PALIERS.at(-1).gVitrage, 'G véranda → maximum');
+    });
+    test('un bâti plus ancien (G plus élevé) ne peut jamais avoir un facteur solaire plus faible', () => {
+        const echantillon = [0.2, 0.35, 0.5, 0.65, 0.8, 1.0, 1.2, 2.0];
+        for (let i = 1; i < echantillon.length; i++) {
+            assert.ok(
+                interpolerGVitrage(echantillon[i]) >= interpolerGVitrage(echantillon[i - 1]),
+                `facteur solaire décroissant entre G=${echantillon[i - 1]} et G=${echantillon[i]}`
+            );
+        }
+    });
+    test('toutes les valeurs restent dans la fourchette physique d\'un vitrage résidentiel (0.4 à 0.85)', () => {
+        for (const g of [0.1, 0.35, 0.5, 0.8, 1.2, 3.0]) {
+            const v = interpolerGVitrage(g);
+            assert.ok(v >= 0.4 && v <= 0.85, `G=${g} → gVitrage=${v} hors fourchette plausible`);
         }
     });
 });
