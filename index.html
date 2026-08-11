@@ -137,7 +137,7 @@
                     <div class="flex flex-col gap-2">
                         <label for="isolationCoef" class="text-xs font-bold uppercase text-gray-500 tracking-wider">Niveau d'Isolation (G)</label>
                         <div class="flex gap-2">
-                            <select id="isolationCoef" onchange="toggleCustomCoef(); updateClimateInfo(); persistDraft();" class="select-custom flex-grow p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all">
+                            <select id="isolationCoef" onchange="toggleCustomCoef(); updateClimateInfo(); persistDraft(); marquerResultatsObsoletes();" class="select-custom flex-grow p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all">
                                 <option value="2.0">Avant 1974 (Aucune isolation) - G: 2.0</option>
                                 <option value="1.2">1974 à 1988 (Isolation basique) - G: 1.2</option>
                                 <option value="1.1">1989 à 2000 (Années 90) - G: 1.1</option>
@@ -147,18 +147,18 @@
                                 <option value="3.0">Véranda (Très déperditif) - G: 3.0</option>
                                 <option value="custom">Saisie personnalisée...</option>
                             </select>
-                            <input type="number" id="customCoef" step="0.01" min="0.1" value="0.65" oninput="updateClimateInfo(); persistDraft();" class="hidden w-24 p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all" placeholder="Ex: 0.65">
+                            <input type="text" inputmode="decimal" id="customCoef" value="0.65" oninput="updateClimateInfo(); persistDraft(); marquerResultatsObsoletes();" class="hidden w-24 p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all" placeholder="Ex: 0.65">
                         </div>
                     </div>
 
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div class="flex flex-col gap-2">
                             <label for="deptSelect" class="text-xs font-bold uppercase text-[var(--brand-accent)] tracking-wider">Département</label>
-                            <select id="deptSelect" onchange="updateClimateInfo(); persistDraft();" class="select-custom p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all"></select>
+                            <select id="deptSelect" onchange="updateClimateInfo(); persistDraft(); marquerResultatsObsoletes();" class="select-custom p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all"></select>
                         </div>
                         <div class="flex flex-col gap-2">
                             <label for="altitude" class="text-xs font-bold uppercase text-[var(--brand-accent)] tracking-wider">Altitude</label>
-                            <select id="altitude" onchange="updateClimateInfo(); persistDraft();" class="select-custom p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all">
+                            <select id="altitude" onchange="updateClimateInfo(); persistDraft(); marquerResultatsObsoletes();" class="select-custom p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all">
                                 <option value="0 à 200m" selected>0 à 200m</option>
                                 <option value="200 à 400m">200 à 400m</option>
                                 <option value="400 à 600m">400 à 600m</option>
@@ -176,7 +176,7 @@
 
                     <div class="flex flex-col gap-2">
                         <label for="consigneInt" class="text-xs font-bold uppercase text-[var(--brand-accent)] tracking-wider">Consigne Intérieure Été</label>
-                        <select id="consigneInt" onchange="updateClimateInfo(); persistDraft();" class="select-custom p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all">
+                        <select id="consigneInt" onchange="updateClimateInfo(); persistDraft(); marquerResultatsObsoletes();" class="select-custom p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all">
                             <option value="25">25°C – Confort maximal</option>
                             <option value="26" selected>26°C – Standard (référence)</option>
                             <option value="27">27°C – Optimisé</option>
@@ -215,6 +215,14 @@
         </button>
 
         <!-- Results Section -->
+        <!-- Avertissement de péremption : les hypothèses (département, isolation, surfaces…) ont
+             changé depuis le dernier calcul, donc le matériel affiché plus bas ne correspond plus.
+             Signalé plutôt qu'effacé, pour ne pas faire disparaître un résultat sous les doigts. -->
+        <div id="stale-banner" class="hidden p-3 bg-amber-50 border border-amber-300 text-amber-900 rounded-lg text-xs font-bold flex items-center justify-between gap-3 fade-in" role="status">
+            <span>⚠️ Les hypothèses ont changé — les solutions ci-dessous ne sont plus à jour.</span>
+            <button onclick="calculate()" class="text-[11px] font-bold text-amber-900 border border-amber-400 hover:bg-amber-100 px-3 py-2 rounded whitespace-nowrap">Recalculer</button>
+        </div>
+
         <!-- Zone résultats : bordure/espacement distincts de la saisie au-dessus, pour que les
              solutions produites se lisent clairement comme la sortie de l'outil, pas un formulaire de plus. -->
         <section id="results-container" aria-live="polite" class="flex flex-col gap-4 pb-10 border-t-2 border-gray-200 pt-6"></section>

@@ -15,11 +15,31 @@ export function occupantsParDefaut(surface) {
     return surface ? Math.max(1, Math.round(surface / 15)) : '';
 }
 
+// Lecture d'un nombre saisi au clavier, en acceptant la virgule décimale.
+//
+// Indispensable ici : les champs sont saisis par des artisans français, qui tapent « 2,5 »
+// pour une hauteur sous plafond. Les champs étaient en `type="number"`, dont la valeur est
+// une chaîne VIDE dès que le contenu n'est pas un nombre au format anglo-saxon — la virgule
+// n'atteignait donc même pas JavaScript. Une hauteur « 2,5 » devenait 0, le volume devenait 0,
+// et le besoin chaud s'affichait à 0.00 kW sans le moindre avertissement. Les champs sont
+// désormais en `type="text" inputmode="decimal"` (le pavé numérique reste proposé sur mobile)
+// et la normalisation se fait ici.
+//
+// Renvoie NaN sur une saisie non numérique, à charge de l'appelant de décider quoi en faire :
+// cette fonction ne choisit jamais de valeur de repli à la place du métier.
+export function parseNombreSaisi(valeur) {
+    if (typeof valeur === 'number') return valeur;
+    if (valeur === null || valeur === undefined) return NaN;
+    const normalise = String(valeur).trim().replace(',', '.');
+    if (normalise === '') return NaN;
+    return Number(normalise);
+}
+
 // Coefficient G résolu à partir de la sélection (valeur numérique ou "custom"), avec repli sur
 // la valeur par défaut si la saisie personnalisée est vide ou invalide (évite la propagation de
 // NaN dans tout le calcul).
 export function resolveCoefG(selectVal, customVal) {
-    const raw = selectVal === 'custom' ? parseFloat(customVal) : parseFloat(selectVal);
+    const raw = selectVal === 'custom' ? parseNombreSaisi(customVal) : parseNombreSaisi(selectVal);
     return Number.isFinite(raw) && raw > 0 ? raw : COEF_G_DEFAUT;
 }
 

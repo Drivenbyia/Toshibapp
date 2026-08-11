@@ -4,7 +4,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import {
     getRequiredKw, getFacteurCanicule, getFacteurDeclassementChaud, ratioDeclassementChaud,
-    estimerEcartConsigne, resolveCoefG, getUiSizeForKw, findBestMonos, findMultiGroupOptions,
+    estimerEcartConsigne, resolveCoefG, parseNombreSaisi, getUiSizeForKw, findBestMonos, findMultiGroupOptions,
     findMultiGroup, getRoomEligibleGammes, getTvaInfo, occupantsParDefaut,
     findGroupesValides, findGroupeEquilibre, estGroupeDesequilibre, ratioPieceDominante,
     pieceDominante, tauxChargeGroupe, getGroupTvaInfo, normaliserReferenceGroupe, trierMonosParTva
@@ -115,6 +115,38 @@ describe('resolveCoefG', () => {
     test('"custom" avec saisie vide ou invalide : repli sur la valeur par défaut (0.8)', () => {
         assert.equal(resolveCoefG('custom', ''), 0.8);
         assert.equal(resolveCoefG('custom', 'abc'), 0.8);
+    });
+});
+
+// Un artisan français tape « 2,5 », pas « 2.5 ». Les champs étaient en type="number", dont la
+// valeur est vide dès que le contenu n'est pas au format anglo-saxon : la virgule n'atteignait
+// jamais JavaScript, la hauteur devenait 0, et le besoin chaud s'affichait à 0.00 kW.
+describe('parseNombreSaisi — virgule décimale', () => {
+    test('accepte la virgule comme séparateur décimal', () => {
+        assert.equal(parseNombreSaisi('2,5'), 2.5);
+        assert.equal(parseNombreSaisi('0,65'), 0.65);
+        assert.equal(parseNombreSaisi('30,25'), 30.25);
+    });
+    test('accepte toujours le point et les nombres déjà typés', () => {
+        assert.equal(parseNombreSaisi('2.5'), 2.5);
+        assert.equal(parseNombreSaisi(2.5), 2.5);
+        assert.equal(parseNombreSaisi('30'), 30);
+    });
+    test('tolère les espaces autour de la saisie', () => {
+        assert.equal(parseNombreSaisi('  2,5  '), 2.5);
+    });
+    test('conserve le zéro explicite, qui est une valeur métier (pièce inoccupée)', () => {
+        assert.equal(parseNombreSaisi('0'), 0);
+        assert.ok(Number.isFinite(parseNombreSaisi('0')));
+    });
+    test('renvoie NaN sur une saisie vide ou non numérique, sans choisir de repli', () => {
+        for (const v of ['', '   ', 'abc', '2,5,3', null, undefined]) {
+            assert.ok(Number.isNaN(parseNombreSaisi(v)), `« ${v} » devrait donner NaN`);
+        }
+    });
+    test('le coefficient G personnalisé accepte la virgule', () => {
+        assert.equal(resolveCoefG('custom', '0,45'), 0.45);
+        assert.equal(resolveCoefG('custom', '0.45'), 0.45);
     });
 });
 

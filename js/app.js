@@ -10,7 +10,7 @@ import {
     occupantsParDefaut, resolveCoefG, getFacteurCanicule, getFacteurDeclassementChaud,
     estimerEcartConsigne, getRequiredKw as getRequiredKwCore, getUiSizeForKw, findBestMonos,
     findMultiGroup, findMultiGroupOptions, getRoomEligibleGammes, getTvaInfo, getRoomSelectedTvaInfo,
-    getGroupTvaInfo, trierMonosParTva,
+    getGroupTvaInfo, trierMonosParTva, parseNombreSaisi,
     findGroupeEquilibre, estGroupeDesequilibre, ratioPieceDominante, pieceDominante
 } from './calcul.js';
 import {
@@ -765,12 +765,39 @@ function updateModeButtons(mode) {
     document.getElementById('btn-multi').className = `flex-1 py-2 text-sm font-medium rounded-md transition-all ${!isMono ? 'shadow-sm bg-white text-[var(--brand-accent)]' : 'text-gray-500'}`;
 }
 
+// Signale que les résultats affichés ne correspondent plus aux hypothèses saisies.
+//
+// Sans cela, modifier le département, l'isolation, l'altitude, la consigne ou n'importe quel
+// champ de pièce laissait les solutions précédentes à l'écran, sans la moindre marque
+// d'obsolescence : un artisan qui corrigeait « 69 » en « 13 » voyait le bandeau climat se
+// mettre à jour et recopiait le matériel calculé pour Lyon. setMode, setUsage et setBrand
+// effaçaient bien les résultats ; ces chemins-là, non.
+//
+// On avertit au lieu d'effacer : faire disparaître un résultat sous les doigts à la première
+// frappe dans un champ est hostile, et l'information reste utile en comparaison. Le bandeau
+// disparaît au recalcul.
+function marquerResultatsObsoletes() {
+    if (!state.currentCalc) return;              // rien d'affiché : rien à périmer
+    const banner = document.getElementById('stale-banner');
+    if (banner) banner.classList.remove('hidden');
+    const results = document.getElementById('results-container');
+    if (results) results.classList.add('opacity-50');
+}
+
+function effacerMarqueObsolescence() {
+    const banner = document.getElementById('stale-banner');
+    if (banner) banner.classList.add('hidden');
+    const results = document.getElementById('results-container');
+    if (results) results.classList.remove('opacity-50');
+}
+
 function setMode(mode) {
     state.mode = mode;
     state.rooms = [state.rooms[0]];
     updateModeButtons(mode);
     state.currentCalc = null;
     document.getElementById('results-container').innerHTML = '';
+    effacerMarqueObsolescence();
     renderRooms();
 }
 
@@ -790,6 +817,7 @@ function setUsage(usage) {
     updateUsageButtons(usage);
     state.currentCalc = null;
     document.getElementById('results-container').innerHTML = '';
+    effacerMarqueObsolescence();
     persistDraft();
 }
 
@@ -818,11 +846,11 @@ function renderRooms() {
                 <div class="grid grid-cols-2 gap-4">
                     <div>
                         <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">Surface (m²)</label>
-                        <input type="number" min="1" max="200" oninput="updateRoom(${room.id}, 'surface', this.value)" value="${room.surface}" placeholder="Ex: 30" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
+                        <input type="text" inputmode="decimal" oninput="updateRoom(${room.id}, 'surface', this.value)" value="${room.surface}" placeholder="Ex: 30" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                     </div>
                     <div>
                         <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">Hauteur (m)</label>
-                        <input type="number" min="1.8" max="6" oninput="updateRoom(${room.id}, 'height', this.value)" value="${room.height}" step="0.1" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
+                        <input type="text" inputmode="decimal" oninput="updateRoom(${room.id}, 'height', this.value)" value="${room.height}" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                     </div>
                 </div>
                 <div class="mt-4">
@@ -874,7 +902,7 @@ function renderRooms() {
                     </div>
                     <div>
                         <label class="block text-[11px] font-bold text-gray-400 uppercase mb-1">Occupants</label>
-                        <input type="number" min="0" oninput="updateRoom(${room.id}, 'occupants', this.value)" value="${room.occupants}" placeholder="Auto: ${occupantsParDefaut(room.surface) || '–'}" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
+                        <input type="text" inputmode="numeric" oninput="updateRoom(${room.id}, 'occupants', this.value)" value="${room.occupants}" placeholder="Auto: ${occupantsParDefaut(room.surface) || '–'}" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
                     </div>
                 </div>
             </div>
@@ -905,10 +933,12 @@ function updateRoom(id, field, value) {
     } else {
         // Number.isFinite (et non `|| ''`) : un champ à 0 (ex: 0 occupant) doit rester 0,
         // pas retomber silencieusement sur l'estimation automatique.
-        const num = parseFloat(value);
+        // parseNombreSaisi accepte la virgule décimale (voir calcul.js).
+        const num = parseNombreSaisi(value);
         r[field] = Number.isFinite(num) ? num : '';
     }
     persistDraft();
+    marquerResultatsObsoletes();
 }
 
 // Seede les choix de gamme par défaut pour chaque pièce d'un groupe multisplit, sans jamais le
@@ -926,12 +956,50 @@ function seedGroupGammeDefaults(standardRooms, allowedGammes) {
     });
 }
 
+// Bornes de saisie. Elles étaient déclarées en attributs `min`/`max` sur les champs, mais
+// aucun <form> n'entoure la saisie et aucun checkValidity() n'est appelé : elles n'ont jamais
+// rien validé. Une surface négative traversait tous les filtres et faisait proposer la plus
+// petite machine du catalogue sans un mot ; une surface de 5000 m² produisait « aucune machine
+// ne couvre ce besoin » sans jamais mettre en cause la saisie.
+const BORNES_SAISIE = {
+    surface:  { min: 1,   max: 200, label: 'La surface', unite: 'm²' },
+    height:   { min: 1.8, max: 6,   label: 'La hauteur sous plafond', unite: 'm' },
+    occupants:{ min: 0,   max: 30,  label: "Le nombre d'occupants", unite: '' }
+};
+
+// Renvoie un message d'erreur, ou null si tout est cohérent. Nomme toujours la pièce fautive :
+// avec cinq pièces, « Saisie incomplète » obligeait à toutes les rouvrir pour trouver laquelle.
+function validerSaisiePieces(rooms, multi) {
+    for (let i = 0; i < rooms.length; i++) {
+        const r = rooms[i];
+        const nom = r.nom ? `« ${r.nom} »` : (multi ? `Pièce ${i + 1}` : 'La pièce');
+
+        if (r.surface === '' || r.surface === null || r.surface === undefined) {
+            return `${nom} : indiquez la surface.`;
+        }
+        for (const [champ, b] of Object.entries(BORNES_SAISIE)) {
+            const v = r[champ];
+            if (v === '' || v === null || v === undefined) continue;   // champ optionnel laissé vide
+            if (!Number.isFinite(v)) return `${nom} : ${b.label.toLowerCase()} n'est pas un nombre valide.`;
+            if (v < b.min || v > b.max) {
+                return `${nom} : ${b.label.toLowerCase()} doit être comprise entre ${b.min} et ${b.max} ${b.unite}`.trim() + '.';
+            }
+        }
+    }
+    return null;
+}
+
 function calculate() {
     const resultsContainer = document.getElementById('results-container');
-    if (state.rooms.some(r => !r.surface)) {
-        resultsContainer.innerHTML = `<div class="p-4 bg-red-50 text-red-600 rounded-lg border border-red-200 text-sm font-medium">Saisie incomplète : indiquez la surface pour chaque pièce.</div>`;
+    const erreur = validerSaisiePieces(state.rooms, state.mode === 'multi');
+    if (erreur) {
+        state.currentCalc = null;
+        effacerMarqueObsolescence();
+        resultsContainer.innerHTML = `<div class="p-4 bg-red-50 text-red-700 rounded-lg border border-red-200 text-sm font-medium">${escapeHtml(erreur)}</div>`;
+        resultsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
         return;
     }
+    effacerMarqueObsolescence();
 
     const { zone, tBaseHiver } = getClimateContext();
     const froidSeul = state.usage === 'froid_seul';
@@ -1589,7 +1657,7 @@ Object.assign(window, {
     addRoom, calculate, duplicateRoom, exportPdf, oublierConfigChargee, persistDraft, removeRoom,
     saveChantier, selectGroupGamme, setBrand, setMode, setUsage, shareResults, startNewCalcul,
     toggleCustomCoef, toggleDashboard, updateChantier, updateClimateInfo, updateRoom,
-    selectDedicated, selectGroup, selectMono
+    selectDedicated, selectGroup, selectMono, marquerResultatsObsoletes
 });
 
 window.onload = initApp;
