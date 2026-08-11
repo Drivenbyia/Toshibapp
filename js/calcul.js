@@ -229,9 +229,15 @@ export function getUiSizeForKw(reqFroid, reqChaud, brand) {
 // --- ALGORITHME DE SÉLECTION INTELLIGENTE ---
 // Ne retourne QUE les gammes qui ont exactement la meilleure (plus petite) puissance requise,
 // avec une tolérance de +15% pour regrouper les équivalents (ex: 4.6kW et 5.0kW).
+// Départage par le chaud à froid égal : sans ce second critère, l'ordre entre machines de même
+// puissance froid était celui du catalogue, donc arbitraire — la première option étant celle
+// proposée par défaut, une machine nettement plus surdimensionnée en chaud pouvait passer devant
+// une autre strictement mieux ajustée. Le tri reste piloté par le froid en premier : c'est lui qui
+// définit la bande d'équivalence ci-dessous.
 export function findBestMonos(reqF, reqC, brand) {
     let allSols = CATALOGS[brand].monosplits.filter(p => p.puissance_froid_kw >= reqF && p.puissance_chaud_kw >= reqC)
-                               .sort((a, b) => a.puissance_froid_kw - b.puissance_froid_kw);
+                               .sort((a, b) => (a.puissance_froid_kw - b.puissance_froid_kw)
+                                            || (a.puissance_chaud_kw - b.puissance_chaud_kw));
 
     if (allSols.length === 0) return [];
 
@@ -283,20 +289,51 @@ export function findMultiGroupOptions(roomsObj, brand, coefFoisonnementFroid, co
     return validGroups.filter(g => g.puissance_nominale_froid_kw <= minFroid * TOLERANCE_EQUIVALENCE);
 }
 
-// Pièce la plus demandeuse d'un ensemble : celle qui dicte le déséquilibre d'un groupe multisplit
-// (un compresseur unique alimente toutes les UI).
+// Pièce la plus demandeuse d'un ensemble, en puissance brute et indépendamment de tout groupe.
+// Ne sert plus à décider d'un déséquilibre (voir pieceDominantePourGroupe, qui raisonne en part
+// de la capacité réellement disponible) : conservée pour les usages où aucun groupe n'est encore
+// choisi.
 export function pieceDominante(roomsObj) {
     if (!roomsObj || roomsObj.length === 0) return null;
     return roomsObj.reduce((max, r) =>
         Math.max(r.froidMatch, r.chaudMatch) > Math.max(max.froidMatch, max.chaudMatch) ? r : max);
 }
 
+// Part de la puissance nominale d'un groupe absorbée par UNE pièce (0 → 1), mode par mode.
+//
+// Chaque besoin est confronté à SA propre capacité : le froid au nominal froid, le chaud au
+// nominal chaud. Auparavant le calcul divisait `max(froidMatch, chaudMatch)` par
+// `max(nominal froid, nominal chaud)` — deux maxima pris indépendamment, qui pouvaient donc
+// provenir de modes différents. Comme le nominal chaud est TOUJOURS supérieur au nominal froid
+// sur les groupes du catalogue, tout besoin dominé par le froid était divisé par une capacité
+// chaud plus grande, et sa part systématiquement sous-estimée.
+//
+// Deux cas où ça mordait, et ce sont exactement les cas cibles d'un outil de climatisation :
+//   - mode « Froid seul » : chaudMatch vaut 0, le besoin froid était donc toujours rapporté au
+//     nominal chaud. Sur un RAS-3M18 (5,2 kW F / 6,8 kW C), une pièce à 3,4 kW froid occupe
+//     réellement 65% du groupe et était comptée à 50% : sous le seuil, aucune alerte.
+//   - mode réversible en zone chaude et bâti bien isolé, où le besoin froid dépasse le chaud.
+export function partPieceDansGroupe(piece, group) {
+    if (!piece || !group) return 0;
+    const parts = [];
+    if (group.puissance_nominale_froid_kw) parts.push(piece.froidMatch / group.puissance_nominale_froid_kw);
+    if (piece.chaudMatch && group.puissance_nominale_chaud_kw) parts.push(piece.chaudMatch / group.puissance_nominale_chaud_kw);
+    return parts.length ? Math.max(...parts) : 0;
+}
+
+// Pièce qui absorbe la plus grande PART de la puissance d'un groupe donné — ce n'est pas
+// forcément celle qui demande le plus de kW bruts : une pièce dominée par le froid pèse sur une
+// capacité plus petite qu'une pièce dominée par le chaud. C'est cette pièce-là qui dicte le
+// déséquilibre, et c'est donc elle que l'interface doit nommer à côté du pourcentage affiché.
+export function pieceDominantePourGroupe(group, roomsObj) {
+    if (!roomsObj || roomsObj.length === 0) return null;
+    return roomsObj.reduce((max, r) =>
+        partPieceDansGroupe(r, group) > partPieceDansGroupe(max, group) ? r : max);
+}
+
 // Part de la puissance nominale d'un groupe absorbée par sa pièce la plus demandeuse (0 → 1).
 export function ratioPieceDominante(group, roomsObj) {
-    const piece = pieceDominante(roomsObj);
-    const nominalMax = Math.max(group.puissance_nominale_froid_kw, group.puissance_nominale_chaud_kw);
-    if (!piece || !nominalMax) return 0;
-    return Math.max(piece.froidMatch, piece.chaudMatch) / nominalMax;
+    return partPieceDansGroupe(pieceDominantePourGroupe(group, roomsObj), group);
 }
 
 // Groupe déséquilibré : une seule pièce mobilise une part telle de la puissance du groupe que les

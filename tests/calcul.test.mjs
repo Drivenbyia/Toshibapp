@@ -7,7 +7,8 @@ import {
     estimerEcartConsigne, resolveCoefG, parseNombreSaisi, getUiSizeForKw, findBestMonos, findMultiGroupOptions,
     findMultiGroup, getRoomEligibleGammes, getTvaInfo, occupantsParDefaut,
     findGroupesValides, findGroupeEquilibre, estGroupeDesequilibre, ratioPieceDominante,
-    pieceDominante, tauxChargeGroupe, getGroupTvaInfo, normaliserReferenceGroupe, trierMonosParTva,
+    pieceDominante, pieceDominantePourGroupe, partPieceDansGroupe,
+    tauxChargeGroupe, getGroupTvaInfo, normaliserReferenceGroupe, trierMonosParTva,
     interpolerChargeToiture, interpolerGVitrage
 } from '../js/calcul.js';
 import {
@@ -401,6 +402,25 @@ describe('Sélection catalogue (Toshiba)', () => {
             assert.ok(s.puissance_froid_kw <= minFroid * 1.15 + 1e-9, `${s.gamme} dépasse la tolérance de +15%`);
         }
     });
+    // Sans départage par le chaud, l'ordre entre machines de même puissance froid était celui du
+    // catalogue, donc arbitraire — et la première option est celle proposée par défaut.
+    test('findBestMonos : à puissance froid égale, la machine la mieux ajustée en chaud passe devant', () => {
+        const sols = findBestMonos(3.4, 3.5, 'toshiba');
+        assert.ok(sols.length > 1, 'ce besoin doit produire plusieurs équivalents');
+        for (let i = 1; i < sols.length; i++) {
+            const [prec, cur] = [sols[i - 1], sols[i]];
+            if (prec.puissance_froid_kw === cur.puissance_froid_kw) {
+                assert.ok(prec.puissance_chaud_kw <= cur.puissance_chaud_kw,
+                    `${prec.gamme} (${prec.puissance_chaud_kw} kW C) devrait suivre ${cur.gamme} (${cur.puissance_chaud_kw} kW C)`);
+            }
+        }
+    });
+    test('findBestMonos : le tri reste piloté par le froid en premier critère', () => {
+        const sols = findBestMonos(2.0, 2.0, 'toshiba');
+        for (let i = 1; i < sols.length; i++) {
+            assert.ok(sols[i].puissance_froid_kw >= sols[i - 1].puissance_froid_kw, 'froid non croissant');
+        }
+    });
     test('findBestMonos retourne un tableau vide si aucune machine ne couvre le besoin', () => {
         assert.deepEqual(findBestMonos(999, 999, 'toshiba'), []);
     });
@@ -435,6 +455,64 @@ describe('Sélection groupe multisplit', () => {
             assert.ok(g.puissance_nominale_froid_kw * COEF_FOISONNEMENT_FROID >= totF - 1e-9);
             assert.ok(g.puissance_nominale_chaud_kw * COEF_FOISONNEMENT_CHAUD >= totC - 1e-9);
         }
+    });
+});
+
+// La part d'un groupe absorbée par une pièce était calculée en divisant max(froidMatch,
+// chaudMatch) par max(nominal froid, nominal chaud) : deux maxima pris indépendamment, donc
+// possiblement issus de MODES DIFFÉRENTS. Le nominal chaud étant toujours le plus élevé sur les
+// groupes du catalogue, tout besoin dominé par le froid était rapporté à une capacité chaud plus
+// grande et sa part sous-estimée — sans jamais déclencher l'alerte de déséquilibre.
+describe('Part d\'un groupe absorbée par une pièce (froid et chaud confrontés à leur propre capacité)', () => {
+    const GROUPE = { reference: 'TEST-2M', max_unites_interieures: 3, puissance_nominale_froid_kw: 5.2, puissance_nominale_chaud_kw: 6.8 };
+
+    test('le besoin froid est rapporté à la capacité FROID, pas à la capacité chaud', () => {
+        const piece = { froidMatch: 3.4, chaudMatch: 0 };
+        assert.ok(Math.abs(partPieceDansGroupe(piece, GROUPE) - 3.4 / 5.2) < 1e-9,
+            'en froid seul, la part doit valoir froidMatch / nominal froid');
+    });
+
+    test('le besoin chaud est rapporté à la capacité CHAUD', () => {
+        const piece = { froidMatch: 0.5, chaudMatch: 3.4 };
+        assert.ok(Math.abs(partPieceDansGroupe(piece, GROUPE) - 3.4 / 6.8) < 1e-9);
+    });
+
+    test('la part retenue est la plus contraignante des deux modes', () => {
+        const piece = { froidMatch: 3.0, chaudMatch: 3.0 };
+        // 3.0/5.2 = 0.577 en froid, 3.0/6.8 = 0.441 en chaud : c'est le froid qui contraint.
+        assert.ok(Math.abs(partPieceDansGroupe(piece, GROUPE) - 3.0 / 5.2) < 1e-9);
+    });
+
+    // La régression exacte, en mode « Froid seul » — le mode où le bug était systématique.
+    test('mode froid seul : une pièce à 65% de la capacité froid est bien détectée comme déséquilibrante', () => {
+        const pieces = [
+            { index: 1, froidMatch: 3.4, chaudMatch: 0 },
+            { index: 2, froidMatch: 0.9, chaudMatch: 0 },
+            { index: 3, froidMatch: 0.8, chaudMatch: 0 }
+        ];
+        const ratio = ratioPieceDominante(GROUPE, pieces);
+        assert.ok(Math.abs(ratio - 3.4 / 5.2) < 1e-9, `ratio attendu ${(3.4 / 5.2).toFixed(3)}, obtenu ${ratio}`);
+        assert.ok(ratio > SEUIL_DESEQUILIBRE_GROUPE, 'ce ratio dépasse le seuil et doit donc alerter');
+        assert.equal(estGroupeDesequilibre(GROUPE, pieces), true,
+            'avec l\'ancien calcul, cette configuration passait à 50% et n\'alertait jamais');
+    });
+
+    // Le nom affiché et le pourcentage affiché doivent désigner la même pièce.
+    test('la pièce dominante en part du groupe peut différer de la pièce dominante en kW bruts', () => {
+        const pieces = [
+            { index: 1, froidMatch: 3.0, chaudMatch: 2.0 },   // 3.0/5.2 = 0.577
+            { index: 2, froidMatch: 2.0, chaudMatch: 3.5 }    // 3.5/6.8 = 0.515
+        ];
+        assert.equal(pieceDominante(pieces).index, 2, 'en kW bruts, la pièce 2 demande le plus (3.5)');
+        assert.equal(pieceDominantePourGroupe(GROUPE, pieces).index, 1, 'mais c\'est la pièce 1 qui pèse le plus sur le groupe');
+        assert.ok(Math.abs(ratioPieceDominante(GROUPE, pieces) - 3.0 / 5.2) < 1e-9,
+            'le ratio doit être celui de la pièce réellement dominante');
+    });
+
+    test('entrées dégradées : ni pièce ni groupe ne fait planter le calcul', () => {
+        assert.equal(partPieceDansGroupe(null, GROUPE), 0);
+        assert.equal(partPieceDansGroupe({ froidMatch: 1, chaudMatch: 1 }, null), 0);
+        assert.equal(pieceDominantePourGroupe(GROUPE, []), null);
     });
 });
 

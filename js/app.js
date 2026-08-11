@@ -11,7 +11,8 @@ import {
     estimerEcartConsigne, getRequiredKw as getRequiredKwCore, getUiSizeForKw, findBestMonos,
     findMultiGroup, findMultiGroupOptions, getRoomEligibleGammes, getTvaInfo, getRoomSelectedTvaInfo,
     getGroupTvaInfo, trierMonosParTva, parseNombreSaisi,
-    findGroupeEquilibre, estGroupeDesequilibre, ratioPieceDominante, pieceDominante
+    findGroupeEquilibre, estGroupeDesequilibre, ratioPieceDominante, pieceDominantePourGroupe,
+    tauxChargeGroupe
 } from './calcul.js';
 import {
     sauvegardeValide, construireSauvegarde, compterChantiers
@@ -51,6 +52,28 @@ let state = {
 // utilisateur local existant n'est cassé par l'arrivée des comptes.
 function marquesActives() {
     return getBrandsOverride() || MARQUES_ACTIVES;
+}
+
+// Identifiants de pièce : compteur monotone, et non Date.now().
+//
+// Date.now() a une résolution d'une milliseconde : deux pièces créées dans la même milliseconde
+// — un double tap sur « Ajouter une pièce », ou un appel programmatique — recevaient le MÊME
+// identifiant. removeRoom filtre sur cet identifiant : supprimer l'une supprimait alors les deux
+// d'un coup, sans avertissement et sans annulation possible. duplicateRoom était le chemin le
+// plus exposé, la duplication suivant immédiatement le clic d'origine.
+//
+// Démarre à 2 : la pièce initiale de `state` porte l'identifiant 1 en dur (elle est déclarée
+// avant ce compteur, donc ne peut pas l'appeler).
+let prochainRoomId = 2;
+function nouvelIdPiece() { return prochainRoomId++; }
+
+// Après restauration d'un brouillon ou d'un chantier, le compteur doit repartir au-dessus du plus
+// grand identifiant déjà présent — sinon la prochaine pièce ajoutée entrerait en collision avec
+// une pièce restaurée. Couvre aussi les anciens identifiants issus de Date.now(), qui sont
+// simplement de très grands entiers.
+function reserverIdsPieces(rooms) {
+    const maxExistant = (rooms || []).reduce((max, r) => Math.max(max, Number(r.id) || 0), 0);
+    prochainRoomId = Math.max(prochainRoomId, maxExistant + 1);
 }
 
 function defaultRoom(id) {
@@ -518,6 +541,7 @@ function reloadConfig(id) {
     state.mode = cfg.mode === 'multi' ? 'multi' : 'mono';
     state.usage = cfg.usage === 'froid_seul' ? 'froid_seul' : 'reversible';
     state.rooms = JSON.parse(JSON.stringify(cfg.rooms));
+    reserverIdsPieces(state.rooms);
     updateModeButtons(state.mode);
     updateUsageButtons(state.usage);
     renderRooms();
@@ -608,6 +632,7 @@ function restoreDraftIfAny() {
     state.mode = draft.mode === 'multi' ? 'multi' : 'mono';
     state.usage = draft.usage === 'froid_seul' ? 'froid_seul' : 'reversible';
     state.rooms = draft.rooms;
+    reserverIdsPieces(state.rooms);
     updateModeButtons(state.mode);
     updateUsageButtons(state.usage);
     renderRooms();
@@ -618,7 +643,7 @@ function restoreDraftIfAny() {
 // Efface le brouillon et repart d'une saisie vierge (bouton de la bannière de reprise).
 function startNewCalcul() {
     clearDraft();
-    state.rooms = [defaultRoom(Date.now())];
+    state.rooms = [defaultRoom(nouvelIdPiece())];
     state.currentCalc = null;
     document.getElementById('results-container').innerHTML = '';
     renderRooms();
@@ -913,13 +938,13 @@ function renderRooms() {
     }
 }
 
-function addRoom() { state.rooms.push(defaultRoom(Date.now())); renderRooms(); persistDraft(); }
+function addRoom() { state.rooms.push(defaultRoom(nouvelIdPiece())); renderRooms(); persistDraft(); }
 function removeRoom(id) { state.rooms = state.rooms.filter(r => r.id !== id); renderRooms(); persistDraft(); }
 function duplicateRoom(id) {
     if (state.rooms.length >= 5) return;
     const idx = state.rooms.findIndex(r => r.id === id);
     if (idx === -1) return;
-    const clone = { ...state.rooms[idx], id: Date.now() };
+    const clone = { ...state.rooms[idx], id: nouvelIdPiece() };
     state.rooms.splice(idx + 1, 0, clone);
     renderRooms();
     persistDraft();
@@ -1519,7 +1544,11 @@ function roomLabel(room) {
 function analyseEquilibreGroupe(m, selectedGroup) {
     const rooms = m.standardRooms;
     if (!selectedGroup || rooms.length < 2) return null;
-    const dominante = pieceDominante(rooms);
+    // Pièce dominante EN PART DU GROUPE, et non en kW bruts : c'est celle dont le pourcentage est
+    // affiché juste à côté. Les deux notions divergent réellement (une pièce dominée par le froid
+    // pèse sur une capacité plus petite qu'une pièce dominée par le chaud), et nommer l'une en
+    // citant le pourcentage de l'autre serait un message faux.
+    const dominante = pieceDominantePourGroupe(selectedGroup, rooms);
     if (!dominante) return null;
 
     const pct = ratio => Math.round(ratio * 100);
@@ -1535,9 +1564,19 @@ function analyseEquilibreGroupe(m, selectedGroup) {
         const detailBase = justeDimensionne
             ? ` Sur le ${justeDimensionne.reference}, juste dimensionné, elle en absorbait ${pct(ratioPieceDominante(justeDimensionne, rooms))}% : cette référence reste sélectionnable si le budget primait, en acceptant la limite en demande simultanée.`
             : '';
+        // Monter d'un cran fait mécaniquement baisser le taux de charge, parfois sous le seuil qui
+        // déclenche le badge « surdimensionné » juste en dessous. C'est un arbitrage assumé (un
+        // déficit en demande simultanée coûte plus cher qu'un léger surdimensionnement), mais tu
+        // laisserais sinon deux messages se contredire à l'écran sans explication.
+        const besoinFroid = rooms.reduce((sum, r) => sum + r.req.froid, 0);
+        const besoinChaud = m.froidSeul ? 0 : rooms.reduce((sum, r) => sum + r.req.chaud, 0);
+        const charge = tauxChargeGroupe(selectedGroup, besoinFroid, besoinChaud);
+        const detailSousCharge = charge.min < SEUIL_SOUS_CHARGE
+            ? ` Ce cran supérieur fait tomber le taux de charge à ${pct(charge.min)}%, sous le seuil de ${pct(SEUIL_SOUS_CHARGE)}% signalé plus bas : c'est le prix assumé du rééquilibrage, un déficit en demande simultanée étant plus pénalisant qu'un surdimensionnement modéré.`
+            : '';
         return {
             ton: 'ok',
-            message: `Groupe supérieur retenu automatiquement pour tenir la demande simultanée : ${roomLabel(dominante)} ne représente plus que ${pct(ratioSel)}% de la puissance du ${selectedGroup.reference} (limite ${seuilPct}%).${detailBase}`
+            message: `Groupe supérieur retenu automatiquement pour tenir la demande simultanée : ${roomLabel(dominante)} ne représente plus que ${pct(ratioSel)}% de la puissance du ${selectedGroup.reference} (limite ${seuilPct}%).${detailBase}${detailSousCharge}`
         };
     }
 
