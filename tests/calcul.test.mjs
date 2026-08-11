@@ -11,7 +11,7 @@ import {
 } from '../js/calcul.js';
 import {
     CONSIGNE_REFERENCE, COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD,
-    SEUIL_DESEQUILIBRE_GROUPE, CATALOGS
+    SEUIL_DESEQUILIBRE_GROUPE, CATALOGS, UI_SIZE_TABLES
 } from '../js/data.js';
 
 const ROOM_TYPE = { emplacement: 'plain_pied', orientation: 'mixte', vitrage: 'moyen', protection: 'stores_int', occupants: '', expositionMurs: 4 };
@@ -115,6 +115,74 @@ describe('resolveCoefG', () => {
     test('"custom" avec saisie vide ou invalide : repli sur la valeur par défaut (0.8)', () => {
         assert.equal(resolveCoefG('custom', ''), 0.8);
         assert.equal(resolveCoefG('custom', 'abc'), 0.8);
+    });
+});
+
+// Ces tests portent sur UI_SIZE_TABLES, qui est une table saisie à la main en regard du
+// catalogue : c'est exactement le genre de donnée qui diverge en silence. Le premier test la
+// recalcule depuis CATALOGS pour interdire toute dérive ; les suivants verrouillent le
+// comportement de la recherche de taille.
+describe('Tailles UI — cohérence avec le catalogue', () => {
+    // Extraction du code taille depuis une référence, par marque. Vit ici et non dans le code
+    // de production : c'est un outil de vérification, pas une règle métier — la production lit
+    // la table, elle ne la dérive pas (le catalogue doit rester chargeable sans parsing).
+    const EXTRACTEURS = {
+        toshiba: (ref) => (ref.match(/RAS-(\d{2})/) || [])[1],
+        panasonic: (ref) => (ref.match(/^CU-(?:TZ|Z)(\d{2})/) || [])[1]
+    };
+
+    for (const marque of ['toshiba', 'panasonic']) {
+        test(`${marque} : chaque plafond déclaré correspond au catalogue réel`, () => {
+            const reel = new Map();
+            for (const m of CATALOGS[marque].monosplits) {
+                const code = EXTRACTEURS[marque](m.reference_ensemble);
+                assert.ok(code, `code taille introuvable dans « ${m.reference_ensemble} »`);
+                const cumul = reel.get(code) || { froidMax: 0, chaudMax: 0 };
+                cumul.froidMax = Math.max(cumul.froidMax, m.puissance_froid_kw);
+                cumul.chaudMax = Math.max(cumul.chaudMax, m.puissance_chaud_kw);
+                reel.set(code, cumul);
+            }
+
+            const declaree = UI_SIZE_TABLES[marque];
+            assert.deepEqual(
+                declaree.map(r => r.code).sort(),
+                [...reel.keys()].sort(),
+                'les tailles déclarées et celles présentes au catalogue doivent coïncider'
+            );
+            for (const row of declaree) {
+                const attendu = reel.get(row.code);
+                assert.equal(row.froidMax, attendu.froidMax, `taille ${row.code} : plafond froid`);
+                assert.equal(row.chaudMax, attendu.chaudMax, `taille ${row.code} : plafond chaud`);
+            }
+        });
+
+        test(`${marque} : les plafonds croissent avec la taille`, () => {
+            const t = UI_SIZE_TABLES[marque];
+            for (let i = 1; i < t.length; i++) {
+                assert.ok(t[i].froidMax >= t[i - 1].froidMax, `froid non monotone en ${t[i].code}`);
+                assert.ok(t[i].chaudMax >= t[i - 1].chaudMax, `chaud non monotone en ${t[i].code}`);
+            }
+        });
+
+        // La régression corrigée : un besoin exprimé en froid était confronté au plafond chaud,
+        // toujours plus élevé sur une PAC air/air, donc la taille annoncée ne couvrait pas le froid.
+        test(`${marque} : la taille retournée couvre réellement le besoin froid`, () => {
+            for (const row of UI_SIZE_TABLES[marque]) {
+                const besoin = row.froidMax;
+                const code = getUiSizeForKw(besoin, 0, marque);
+                assert.ok(code, `aucune taille pour un besoin de ${besoin} kW en froid`);
+                const retenue = UI_SIZE_TABLES[marque].find(r => r.code === code);
+                assert.ok(
+                    retenue.froidMax >= besoin,
+                    `besoin ${besoin} kW froid → taille ${code} qui ne délivre que ${retenue.froidMax} kW`
+                );
+            }
+        });
+    }
+
+    test('un besoin hors catalogue ne renvoie aucune taille (déclencheur du délestage)', () => {
+        assert.equal(getUiSizeForKw(999, 0, 'toshiba'), null);
+        assert.equal(getUiSizeForKw(0, 999, 'toshiba'), null);
     });
 });
 

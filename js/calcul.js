@@ -145,11 +145,20 @@ export function getRequiredKw(surface, height, room, ctx) {
     return { froid: besoinFroid, chaud: besoinChaud };
 }
 
-// Code taille UI (ex: "10") pour un besoin donné, propre à la marque.
+// Code taille UI (ex: "10") pour un besoin donné, propre à la marque. Renvoie la plus petite
+// taille qui couvre le besoin EN FROID ET EN CHAUD, ou null si aucune n'y suffit — ce null est
+// ce qui déclenche le délestage d'une pièce vers un monosplit dédié en multisplit (voir app.js).
+//
+// Les deux plafonds sont confrontés séparément à leur besoin respectif. Comparer un unique
+// `Math.max(reqFroid, reqChaud)` à un unique seuil, comme c'était le cas, revenait à traiter
+// les deux puissances comme interchangeables : le besoin froid pouvait alors être validé contre
+// une capacité chaud, systématiquement plus élevée sur une PAC air/air (voir UI_SIZE_TABLES).
 export function getUiSizeForKw(reqFroid, reqChaud, brand) {
-    const maxReq = Math.max(reqFroid, reqChaud);
     const table = UI_SIZE_TABLES[brand];
-    for (const row of table) { if (maxReq <= row.max) return row.code; }
+    if (!table) return null;
+    for (const row of table) {
+        if (reqFroid <= row.froidMax && reqChaud <= row.chaudMax) return row.code;
+    }
     return null;
 }
 

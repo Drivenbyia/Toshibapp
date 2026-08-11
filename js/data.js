@@ -166,16 +166,45 @@ export const CATALOGS = {
   }
 };
 
-// Tailles UI (codes commerciaux) par palier de puissance requise, propres à chaque marque.
+// Tailles UI (codes commerciaux) par palier de puissance, propres à chaque marque.
+//
+// `froidMax` / `chaudMax` = puissance nominale la plus élevée offerte par cette taille, tous
+// modèles de la marque confondus. Une taille couvre donc un besoin si elle le couvre EN FROID
+// ET EN CHAUD — les deux plafonds sont vérifiés séparément (voir getUiSizeForKw).
+//
+// Pourquoi deux colonnes et pas une : il n'y avait ici qu'un seul champ `max`, dont la
+// signification différait silencieusement d'une marque à l'autre — la puissance CHAUD côté
+// Toshiba, la puissance FROID côté Panasonic. Le besoin froid n'était donc jamais confronté à
+// la capacité froid réelle : un besoin de 3,0 kW en froid renvoyait la taille "10", qui ne
+// délivre que 2,5 kW en froid. La taille annoncée à l'installateur était sous-dimensionnée
+// d'environ 20%, et l'écart était maximal en mode « Froid seul ».
+//
+// « Plus élevée » et non « la plus faible » : cette taille indique le calibre à commander, et
+// l'application affiche séparément, pièce par pièce, quelles gammes de ce calibre couvrent
+// réellement le besoin (getRoomEligibleGammes). Retenir le plafond haut garde les deux
+// informations cohérentes ; retenir le plafond bas ferait monter d'un cran des tailles pour
+// lesquelles une gamme convient parfaitement.
+//
+// Les valeurs sont dérivées du catalogue ci-dessus et vérifiées par un test qui recalcule la
+// table depuis CATALOGS (tests/calcul.test.mjs) : elles ne peuvent plus diverger en silence.
 export const UI_SIZE_TABLES = {
     toshiba: [
-        { max: 2.0, code: "05" }, { max: 2.5, code: "07" }, { max: 3.2, code: "10" },
-        { max: 4.2, code: "13" }, { max: 5.5, code: "16" }, { max: 6.0, code: "18" },
-        { max: 7.0, code: "22" }, { max: 8.0, code: "24" }
+        { code: "05", froidMax: 1.5, chaudMax: 2.0 },
+        { code: "07", froidMax: 2.0, chaudMax: 2.5 },
+        { code: "10", froidMax: 2.5, chaudMax: 3.2 },
+        { code: "13", froidMax: 3.5, chaudMax: 4.2 },
+        { code: "16", froidMax: 4.6, chaudMax: 5.5 },
+        { code: "18", froidMax: 5.0, chaudMax: 6.0 },
+        { code: "22", froidMax: 6.1, chaudMax: 7.0 },
+        { code: "24", froidMax: 7.0, chaudMax: 8.0 }
     ],
     panasonic: [
-        { max: 2.0, code: "20" }, { max: 2.5, code: "25" }, { max: 3.5, code: "35" },
-        { max: 4.2, code: "42" }, { max: 5.0, code: "50" }, { max: 7.1, code: "71" }
+        { code: "20", froidMax: 2.05, chaudMax: 2.8 },
+        { code: "25", froidMax: 2.5,  chaudMax: 3.4 },
+        { code: "35", froidMax: 3.5,  chaudMax: 4.0 },
+        { code: "42", froidMax: 4.2,  chaudMax: 5.3 },
+        { code: "50", froidMax: 5.0,  chaudMax: 5.8 },
+        { code: "71", froidMax: 7.1,  chaudMax: 8.2 }
     ]
 };
 
