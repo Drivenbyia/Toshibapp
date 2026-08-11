@@ -13,7 +13,7 @@ import {
 import {
     CONSIGNE_REFERENCE, COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD,
     SEUIL_DESEQUILIBRE_GROUPE, CATALOGS, UI_SIZE_TABLES, DEPARTMENTS, tBaseMatrix, tBaseEteMatrix,
-    CHARGE_TOITURE_PALIERS, G_VITRAGE_PALIERS, PART_VENTILATION_G
+    CHARGE_TOITURE_PALIERS, G_VITRAGE_PALIERS, PART_VENTILATION_G, ABATTEMENT_CANICULE_MAX
 } from '../js/data.js';
 
 const ROOM_TYPE = { emplacement: 'plain_pied', orientation: 'mixte', vitrage: 'moyen', protection: 'stores_int', occupants: '', expositionMurs: 4 };
@@ -98,6 +98,61 @@ describe('getRequiredKw — cas de référence par zone climatique', () => {
         const req25 = getRequiredKw(30, 2.5, ROOM_TYPE, ctx25);
         const req28 = getRequiredKw(30, 2.5, ROOM_TYPE, ctx28);
         assert.ok(req25.froid > req28.froid, 'consigne 25°C doit demander plus de froid que 28°C');
+    });
+});
+
+// Le poste solaire pèse 34% du bilan froid sur le cas de référence — c'est le poste dominant —
+// et pourtant aucun test ne vérifiait que les quatre champs qui le pilotent (orientation,
+// vitrage, protection, emplacement) changent réellement le résultat, ni dans quel sens. Un bug
+// qui aurait rendu l'orientation sans effet, par exemple, serait passé inaperçu indéfiniment.
+describe('getRequiredKw — poste solaire (orientation, vitrage, protection, emplacement)', () => {
+    const CTX = { coefG: 0.8, tBaseHiver: -9, tBaseEte: 33, consigne: 26 };
+
+    test('orientation : Nord < Sud < mixte < Est = Ouest (RAYONNEMENT_VITRAGE, data.js)', () => {
+        const froidPour = (orientation) => getRequiredKw(30, 2.5, { ...ROOM_TYPE, orientation }, CTX).froid;
+        const nord = froidPour('nord'), sud = froidPour('sud'), mixte = froidPour('mixte');
+        const est = froidPour('est'), ouest = froidPour('ouest');
+        assert.ok(nord < sud, 'Nord doit demander moins de froid que Sud');
+        assert.ok(sud < mixte, 'Sud doit demander moins de froid qu\'une orientation mixte');
+        assert.ok(mixte < est, 'mixte doit demander moins de froid qu\'Est');
+        assert.ok(Math.abs(est - ouest) < 1e-9, 'Est et Ouest doivent être strictement identiques (même valeur en table)');
+    });
+
+    test('orientation inconnue : repli sur mixte plutôt qu\'un plantage', () => {
+        const mixte = getRequiredKw(30, 2.5, { ...ROOM_TYPE, orientation: 'mixte' }, CTX).froid;
+        const inconnue = getRequiredKw(30, 2.5, { ...ROOM_TYPE, orientation: 'nord-nord-ouest' }, CTX).froid;
+        assert.equal(inconnue, mixte);
+    });
+
+    test('vitrage : plus de surface vitrée augmente le besoin froid (peu < moyen < beaucoup)', () => {
+        const froidPour = (vitrage) => getRequiredKw(30, 2.5, { ...ROOM_TYPE, vitrage }, CTX).froid;
+        assert.ok(froidPour('peu') < froidPour('moyen'), 'peu de vitrage doit demander moins de froid que moyen');
+        assert.ok(froidPour('moyen') < froidPour('beaucoup'), 'moyen doit demander moins de froid que beaucoup');
+    });
+
+    test('protection solaire : moins de protection augmente le besoin froid (volets < stores < aucune)', () => {
+        const froidPour = (protection) => getRequiredKw(30, 2.5, { ...ROOM_TYPE, protection }, CTX).froid;
+        const volets = froidPour('volets_ext'), stores = froidPour('stores_int'), aucune = froidPour('aucune');
+        assert.ok(volets < stores, 'des volets extérieurs doivent demander moins de froid que des stores intérieurs');
+        assert.ok(stores < aucune, 'une protection doit toujours demander moins de froid qu\'aucune protection');
+    });
+
+    test('emplacement : étage protégé < plain-pied < sous toiture (surcharge toiture, CHARGE_TOITURE_PALIERS)', () => {
+        const froidPour = (emplacement) => getRequiredKw(30, 2.5, { ...ROOM_TYPE, emplacement }, CTX).froid;
+        const protege = froidPour('etage_protege'), plainPied = froidPour('plain_pied'), sousToiture = froidPour('sous_toiture');
+        assert.ok(protege < plainPied, 'un étage protégé doit demander moins de froid qu\'un plain-pied (pas de surcharge toiture)');
+        assert.ok(plainPied < sousToiture, 'un plain-pied (demi-surcharge) doit demander moins de froid qu\'une pièce sous toiture (surcharge pleine)');
+    });
+
+    test('emplacement sous toiture reçoit exactement le double de la surcharge d\'un plain-pied (facteur 0.5 documenté)', () => {
+        const base = { ...ROOM_TYPE, orientation: 'nord', vitrage: 'peu', protection: 'volets_ext', occupants: 0 };
+        const plainPied = getRequiredKw(30, 2.5, { ...base, emplacement: 'plain_pied' }, CTX).froid;
+        const protege = getRequiredKw(30, 2.5, { ...base, emplacement: 'etage_protege' }, CTX).froid;
+        const sousToiture = getRequiredKw(30, 2.5, { ...base, emplacement: 'sous_toiture' }, CTX).froid;
+        const demiSurcharge = plainPied - protege;
+        const surchargePleine = sousToiture - protege;
+        assert.ok(Math.abs(surchargePleine - demiSurcharge * 2) < 1e-6,
+            `surcharge sous toiture (${surchargePleine}) attendue au double de la demi-surcharge plain-pied (${demiSurcharge})`);
     });
 });
 
@@ -388,9 +443,12 @@ describe('Équilibre du groupe multisplit (demande simultanée)', () => {
     // chaud +25%. Le plus petit groupe valide (2M14) laisse la pièce 2 absorber ~63% de la puissance
     // nominale : l'application doit proposer d'elle-même le cran au-dessus (2M18) plutôt que de se
     // contenter d'alerter et de renvoyer vers un monosplit dédié.
+    // Marges reprises des constantes réelles plutôt que recopiées en dur : un changement de
+    // ABATTEMENT_CANICULE_MAX ou de COEF_FOISONNEMENT_CHAUD doit se répercuter ici automatiquement,
+    // sinon ce test continuerait de passer avec des marges qui ne correspondent plus à l'application.
     const CAS_TERRAIN = [
-        { index: 1, req: { froid: 0.86, chaud: 1.83 }, froidMatch: 0.86 * 1.11, chaudMatch: 1.83 * 1.25 },
-        { index: 2, req: { froid: 1.70, chaud: 2.23 }, froidMatch: 1.70 * 1.11, chaudMatch: 2.23 * 1.25 }
+        { index: 1, req: { froid: 0.86, chaud: 1.83 }, froidMatch: 0.86 * ABATTEMENT_CANICULE_MAX, chaudMatch: 1.83 * COEF_FOISONNEMENT_CHAUD },
+        { index: 2, req: { froid: 1.70, chaud: 2.23 }, froidMatch: 1.70 * ABATTEMENT_CANICULE_MAX, chaudMatch: 2.23 * COEF_FOISONNEMENT_CHAUD }
     ];
     const besoinsTerrain = { froid: 2.56, chaud: 4.06 };
 
