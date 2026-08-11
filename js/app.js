@@ -639,6 +639,17 @@ function persistDernierDept(code) {
     try { if (code) localStorage.setItem(LAST_DEPT_KEY, code); } catch (e) { /* ignoré */ }
 }
 
+// Identité de l'installateur (nom/société/téléphone) : propriété de l'appareil, pas d'un
+// chantier précis — clé séparée, jamais effacée par clearDraft() ni par la suppression d'une
+// fiche, pour ne pas avoir à la ressaisir à chaque export PDF.
+const INSTALLATEUR_KEY = 'klimo:v2:local:installateur';
+function getInstallateur() {
+    try { return localStorage.getItem(INSTALLATEUR_KEY) || ''; } catch (e) { return ''; }
+}
+function persistInstallateur(value) {
+    try { localStorage.setItem(INSTALLATEUR_KEY, value); } catch (e) { /* ignoré */ }
+}
+
 function persistDraft() {
     try {
         const params = captureBuildingParams();
@@ -1145,6 +1156,7 @@ function calculate() {
         state.currentCalc = {
             mode: 'mono',
             req: req,
+            bilan: { froid: req.froid, chaud: req.chaud },
             besoinsHtml: renderBesoinsCard([req]),
             caniculeNote: caniculeNote + declassementNote + usageNote,
             roomDetails: [`Pièce 1 : ${req.froid.toFixed(1)}kW F / ${req.chaud.toFixed(1)}kW C ➔ Taille ${size || 'HORS LIMITE'}`],
@@ -1220,6 +1232,10 @@ function calculate() {
 
         state.currentCalc = {
             mode: 'multi',
+            bilan: {
+                froid: roomsData.reduce((sum, r) => sum + r.req.froid, 0),
+                chaud: roomsData.reduce((sum, r) => sum + r.req.chaud, 0)
+            },
             besoinsHtml: renderBesoinsCard(roomsData.map(r => r.req), true, roomsData),
             caniculeNote: caniculeNote + declassementNote + usageNote,
             roomDetails: roomDetails,
@@ -1343,15 +1359,35 @@ function renderResults() {
         roomDetails: calc.roomDetails
     };
 
+    // Impasse : aucune option n'a abouti nulle part (mono hors catalogue, ou en multi aucune
+    // pièce déléstée ni aucun groupe valide). Auparavant l'artisan ne voyait que les 1-2 lignes
+    // oranges ci-dessus, sans piste : ni le bloc Imprimer/Partager (rien à exporter) ni le bloc
+    // Enregistrer (rien à sauvegarder) ne s'affichaient, l'écran s'arrêtait net.
+    if (!state.lastResultData.summaryText) {
+        html += `
+        <div class="p-4 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-700 mt-2 fade-in">
+            <strong class="block mb-1 text-gray-800">Aucune solution ne ressort du catalogue ${escapeHtml(libelleMarque(state.brand))} pour cette configuration.</strong>
+            Pistes à essayer : vérifier le niveau d'isolation saisi (une valeur trop pessimiste gonfle le besoin calculé) ;
+            en Multisplit, redécouper une grande pièce en plusieurs zones plus petites plutôt qu'une seule pièce surdimensionnée ;
+            repasser en « Froid seul » si seul le besoin chauffage dépasse le catalogue.
+        </div>`;
+    }
+
     if (state.lastResultData.summaryText) {
         html += `
-        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 mt-6 fade-in flex flex-col sm:flex-row gap-3">
-            <button onclick="exportPdf()" class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 rounded-lg transition-colors flex justify-center items-center gap-2 text-sm">
-                🖨️ Imprimer / Exporter PDF
-            </button>
-            <button onclick="shareResults()" class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 rounded-lg transition-colors flex justify-center items-center gap-2 text-sm">
-                📤 Partager
-            </button>
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 mt-6 fade-in">
+            <div class="mb-3">
+                <label for="save-installateur" class="block text-xs font-bold text-gray-500 uppercase mb-1">Identité installateur (apparaît sur le PDF)</label>
+                <input type="text" id="save-installateur" oninput="persistInstallateur(this.value)" value="${escapeHtml(getInstallateur())}" placeholder="Ex: Dupont Climatisation — 06 12 34 56 78" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
+            </div>
+            <div class="flex flex-col sm:flex-row gap-3">
+                <button onclick="exportPdf()" class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 rounded-lg transition-colors flex justify-center items-center gap-2 text-sm">
+                    🖨️ Imprimer / Exporter PDF
+                </button>
+                <button onclick="shareResults()" class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 rounded-lg transition-colors flex justify-center items-center gap-2 text-sm">
+                    📤 Partager
+                </button>
+            </div>
         </div>
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 mt-4 fade-in">
             <h3 class="text-sm font-bold text-klimo-dark flex items-center gap-2 mb-4 uppercase tracking-wide">
@@ -1422,9 +1458,13 @@ function buildResultSummaryLines() {
     if (!calc || !state.lastResultData) return null;
     const client = (document.getElementById('save-client') || {}).value?.trim() || '';
     const zone = (document.getElementById('save-zone') || {}).value?.trim() || '';
+    const installateur = (document.getElementById('save-installateur') || {}).value?.trim() || getInstallateur();
     const dateStr = new Date().toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const bilan = calc.bilan
+        ? `Bilan thermique cumulé : ${calc.bilan.froid.toFixed(2)} kW froid / ${calc.bilan.chaud.toFixed(2)} kW chaud`
+        : null;
     return {
-        client, zone, dateStr,
+        client, zone, installateur, dateStr, bilan,
         brandLabel: BRAND_LABELS[state.brand] || state.brand,
         modeLabel: calc.mode === 'mono' ? 'Monosplit' : 'Multisplit',
         roomDetails: calc.roomDetails || [],
@@ -1439,11 +1479,13 @@ function exportPdf() {
     const printArea = document.getElementById('print-area');
     printArea.innerHTML = `
         <h1>Klimo — Fiche de dimensionnement</h1>
+        ${s.installateur ? `<p><strong>Installateur :</strong> ${escapeHtml(s.installateur)}</p>` : ''}
         ${s.client ? `<p><strong>Client :</strong> ${escapeHtml(s.client)}</p>` : ''}
         ${s.zone ? `<p><strong>Zone :</strong> ${escapeHtml(s.zone)}</p>` : ''}
         <p><strong>Date :</strong> ${escapeHtml(s.dateStr)} — <strong>Marque :</strong> ${s.brandLabel} — <strong>Mode :</strong> ${s.modeLabel}</p>
         <h2>Détail par pièce</h2>
         <ul>${s.roomDetails.map(r => `<li>${escapeHtml(r)}</li>`).join('')}</ul>
+        ${s.bilan ? `<p><strong>${escapeHtml(s.bilan)}</strong></p>` : ''}
         <h2>Équipements recommandés</h2>
         <ul>${s.equipments.map(e => `<li>${escapeHtml(e)}</li>`).join('')}</ul>
         <h2>Méthode et hypothèses</h2>
@@ -1458,12 +1500,15 @@ function shareResults() {
     if (!s) return;
     const lines = [
         'Klimo — Fiche de dimensionnement',
+        s.installateur ? `Installateur : ${s.installateur}` : null,
         s.client ? `Client : ${s.client}` : null,
         s.zone ? `Zone : ${s.zone}` : null,
         `Marque : ${s.brandLabel} — Mode : ${s.modeLabel}`,
         '',
         'Détail par pièce :',
         ...s.roomDetails.map(r => `- ${r}`),
+        s.bilan ? '' : null,
+        s.bilan || null,
         '',
         'Équipements recommandés :',
         ...s.equipments.map(e => `- ${e}`)
@@ -1845,7 +1890,7 @@ Object.assign(window, {
     addRoom, calculate, duplicateRoom, exportPdf, oublierConfigChargee, persistDraft, removeRoom,
     saveChantier, selectGroupGamme, setBrand, setMode, setUsage, shareResults, startNewCalcul,
     toggleCustomCoef, toggleDashboard, updateChantier, updateClimateInfo, updateRoom,
-    selectDedicated, selectGroup, selectMono, marquerResultatsObsoletes
+    selectDedicated, selectGroup, selectMono, marquerResultatsObsoletes, persistInstallateur
 });
 
 window.onload = initApp;
