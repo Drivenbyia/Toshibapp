@@ -119,10 +119,10 @@
                 <span class="w-2 h-6 bg-[var(--brand-accent)] rounded-full"></span>
                 Marque
             </h2>
-            <div class="flex p-1 bg-gray-100 rounded-lg">
-                <button id="btn-brand-toshiba" data-brand="toshiba" onclick="setBrand('toshiba')" class="flex-1 py-2 text-sm font-bold rounded-md shadow-sm bg-white text-[var(--brand-accent)] transition-all">Toshiba</button>
-                <button id="btn-brand-panasonic" data-brand="panasonic" onclick="setBrand('panasonic')" class="flex-1 py-2 text-sm font-bold rounded-md text-gray-500 transition-all">Panasonic</button>
-            </div>
+            <!-- Boutons générés depuis MARQUES_CONNUES (js/marques.js) — voir
+                 genererBoutonsMarque() dans app.js. Ajouter une marque au catalogue suffit à
+                 lui faire un bouton ; ce fichier n'a plus à être touché. -->
+            <div id="brand-buttons" class="flex p-1 bg-gray-100 rounded-lg"></div>
         </section>
 
         <!-- Configuration Card -->

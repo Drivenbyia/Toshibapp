@@ -18,7 +18,7 @@ import {
     sauvegardeValide, construireSauvegarde, compterChantiers
 } from './sauvegarde.js';
 import {
-    MARQUES_ACTIVES, marqueAutorisee, marqueParDefaut, resoudreMarque, libelleMarque,
+    MARQUES_ACTIVES, MARQUES_CONNUES, marqueAutorisee, marqueParDefaut, resoudreMarque, libelleMarque,
     selecteurMarqueVisible
 } from './marques.js';
 import { store } from './store.js';
@@ -88,14 +88,23 @@ function setBrand(brand) {
     // sauvegardé et brouillon), qui passaient jusqu'ici la marque enregistrée sans la
     // valider et pouvaient ainsi ressusciter une marque masquée. Passe par marquesActives()
     // pour tenir compte des droits du compte connecté, s'il y en a un.
-    brand = resoudreMarque(brand, marquesActives());
+    const actives = marquesActives();
+    brand = resoudreMarque(brand, actives);
     state.brand = brand;
     // L'accent visuel est celui de Klimo, fixe, jamais celui du constructeur choisi (voir
     // --brand-accent dans index.html) : l'app doit rester identifiable comme l'outil de
     // l'installateur, pas comme le configurateur d'un fabricant.
+    //
+    // `btn.className` est réécrit en entier, donc doit reporter lui-même la classe `hidden` —
+    // sans ce `visible ? '' : ' hidden'`, un bouton masqué par initSelecteurMarque() se
+    // retrouvait démasqué au premier setBrand() suivant (celui-là même qu'initSelecteurMarque
+    // appelle en dernière étape). Invisible tant qu'une seule marque est active (la section
+    // entière est alors masquée), mais rendrait une marque non autorisée VISIBLE dès que 2
+    // marques ou plus seraient actives sur un catalogue qui en connaît davantage.
     document.querySelectorAll('[data-brand]').forEach((btn) => {
         const actif = btn.dataset.brand === brand;
-        btn.className = `flex-1 py-2 text-sm font-bold rounded-md transition-all ${actif ? 'shadow-sm bg-white text-[var(--brand-accent)]' : 'text-gray-500'}`;
+        const visible = actives.includes(btn.dataset.brand);
+        btn.className = `flex-1 py-2 text-sm font-bold rounded-md transition-all ${actif ? 'shadow-sm bg-white text-[var(--brand-accent)]' : 'text-gray-500'}${visible ? '' : ' hidden'}`;
     });
     state.currentCalc = null;
     document.getElementById('results-container').innerHTML = '';
@@ -119,6 +128,7 @@ function initApp() {
         deptSelect.appendChild(opt);
     });
     updateClimateInfo();
+    genererBoutonsMarque();
     initSelecteurMarque();
     renderRooms();
     initDashboardEvents();
@@ -204,6 +214,23 @@ function renderSyncBadge() {
         badge.textContent = 'À jour';
         badge.className = 'text-[11px] font-semibold text-green-700 bg-green-50 px-2 py-1 rounded';
     }
+}
+
+// Génère un bouton par marque CONNUE du catalogue (MARQUES_CONNUES, js/marques.js) — pas
+// seulement les marques actives : initSelecteurMarque() masque ensuite celles non autorisées
+// pour ce compte, exactement comme avant, mais sans plus exiger qu'un bouton soit écrit à la
+// main dans index.html pour chaque nouvelle marque. Ajouter une marque au catalogue lui fait
+// donc un bouton automatiquement, actif ou masqué selon les droits.
+//
+// Idempotent (peut être rejoué sans dupliquer les boutons) : si le catalogue change en cours
+// de session (peu probable, mais MARQUES_CONNUES est dérivée d'un import statique, pas d'un
+// état mutable), ceci évite un piège silencieux plutôt que de le documenter comme limite.
+function genererBoutonsMarque() {
+    const container = document.getElementById('brand-buttons');
+    if (!container) return;
+    container.innerHTML = MARQUES_CONNUES.map(marque => `
+        <button data-brand="${marque}" onclick="setBrand('${marque}')" class="flex-1 py-2 text-sm font-bold rounded-md text-gray-500 transition-all">${escapeHtml(libelleMarque(marque))}</button>
+    `).join('');
 }
 
 // Masque (sans les retirer du DOM — voir setBrand) les boutons des marques non autorisées,
