@@ -1001,11 +1001,13 @@ function calculate() {
     }
     effacerMarqueObsolescence();
 
-    const { zone, tBaseHiver } = getClimateContext();
+    const { tBaseHiver, tBaseEte } = getClimateContext();
     const froidSeul = state.usage === 'froid_seul';
 
-    // Marge canicule : en zone chaude, la puissance froid réelle chute au-delà de 35°C ext.
-    const facteurCanicule = getFacteurCanicule(zone);
+    // Marge canicule : au-delà de la température de base été, la puissance froid réelle chute
+    // (catalogue donné à 35°C ext.). Interpolée sur la Tbase été elle-même, pas sur une liste de
+    // zones : voir data.js pour la régression que ça corrige.
+    const facteurCanicule = getFacteurCanicule(tBaseEte);
     const caniculeNote = facteurCanicule > 1
         ? `<div class="p-2.5 bg-orange-50 border border-orange-200 text-orange-800 rounded-lg text-[11px] font-medium text-center mb-4 -mt-2">☀️ Zone chaude : marge canicule de +${Math.round((facteurCanicule - 1) * 100)}% appliquée à la sélection (pointes 40-42°C).</div>`
         : '';

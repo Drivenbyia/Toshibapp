@@ -30,10 +30,19 @@ export const COEF_G_DEFAUT = 0.8;
 // Consigne intérieure été de référence (utilisée pour l'écart affiché dans le bandeau climat).
 export const CONSIGNE_REFERENCE = 26;
 
-// Zones climatiques chaudes (Sud-Ouest atlantique + Méditerranée + piémont pyrénéen).
-// La puissance catalogue est donnée à 35°C ext. ; en canicule (40-42°C) elle chute ~10%.
-export const ZONES_CHAUDES = ['B', 'H', 'I'];
-export const ABATTEMENT_CANICULE = 1.11;  // besoin froid effectif majoré ~10% pour la sélection catalogue
+// Marge canicule : la puissance froid catalogue est donnée à 35°C ext. (EN 14511) ; en canicule
+// réelle (40-42°C) elle chute ~10%, d'où une majoration du besoin pour la sélection.
+//
+// Auparavant une liste fixe de 3 zones (B, H, I) recevait +11%, les 6 autres 0% — binaire et
+// incohérent : la zone F (Lyon, base été 33°C, la plus chaude de toutes hors H/I à 34°C) n'avait
+// AUCUNE marge, quand la zone B (base été 32°C, donc plus douce) en avait une. Remplacé par une
+// interpolation sur la température de base été elle-même, symétrique de la méthode déjà utilisée
+// côté chaud (ratioDeclassementChaud) : aucune marge sous le seuil bas (climats océaniques, où
+// les pointes dépassent rarement leur base), marge maximale au-delà du seuil haut (les zones les
+// plus chaudes du référentiel), progressive entre les deux.
+export const ABATTEMENT_CANICULE_SEUIL_BAS = 28;   // °C — en dessous, climat océanique tempéré : aucune marge
+export const ABATTEMENT_CANICULE_SEUIL_HAUT = 34;  // °C — au-dessus, marge maximale (zones H/I du référentiel)
+export const ABATTEMENT_CANICULE_MAX = 1.11;       // besoin froid majoré de 11% au maximum
 
 // Déclassement de la puissance chaud par grand froid — PAC air/air.
 // IMPORTANT : ces paliers sont une approximation générique (ordre de grandeur usuel pour une PAC

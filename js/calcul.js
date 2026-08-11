@@ -6,7 +6,8 @@ import {
     CATALOGS, UI_SIZE_TABLES, TVA_RULES,
     APPORTS_INTERNES, CHARGE_TOITURE, RAYONNEMENT_VITRAGE, RATIO_VITRAGE, FC_PROTECTION,
     G_VITRAGE, COEF_INERTIE_SOLAIRE, OCCUPANT_W, COEF_RELANCE, COEF_G_DEFAUT,
-    CONSIGNE_REFERENCE, ZONES_CHAUDES, ABATTEMENT_CANICULE, DECLASSEMENT_CHAUD_PALIERS,
+    CONSIGNE_REFERENCE, ABATTEMENT_CANICULE_SEUIL_BAS, ABATTEMENT_CANICULE_SEUIL_HAUT,
+    ABATTEMENT_CANICULE_MAX, DECLASSEMENT_CHAUD_PALIERS,
     TOLERANCE_EQUIVALENCE, SEUIL_DESEQUILIBRE_GROUPE, SEUIL_SOUS_CHARGE_ESCALADE
 } from './data.js';
 
@@ -43,10 +44,14 @@ export function resolveCoefG(selectVal, customVal) {
     return Number.isFinite(raw) && raw > 0 ? raw : COEF_G_DEFAUT;
 }
 
-// Marge canicule : en zone chaude, la puissance froid catalogue (donnée à 35°C ext.) chute
-// réellement au-delà de 35°C (pointes 40-42°C).
-export function getFacteurCanicule(zone) {
-    return zone && ZONES_CHAUDES.includes(zone) ? ABATTEMENT_CANICULE : 1.0;
+// Marge canicule : la puissance froid catalogue (donnée à 35°C ext.) chute réellement au-delà
+// (pointes 40-42°C). Interpolée sur la température de base été elle-même plutôt que sur une
+// liste de zones — voir data.js pour la régression que ça corrige (zone F sans marge alors que
+// plus chaude que la zone B, qui en avait une).
+export function getFacteurCanicule(tBaseEte) {
+    if (!Number.isFinite(tBaseEte) || tBaseEte <= ABATTEMENT_CANICULE_SEUIL_BAS) return 1.0;
+    const t = Math.min(1, (tBaseEte - ABATTEMENT_CANICULE_SEUIL_BAS) / (ABATTEMENT_CANICULE_SEUIL_HAUT - ABATTEMENT_CANICULE_SEUIL_BAS));
+    return 1 + t * (ABATTEMENT_CANICULE_MAX - 1);
 }
 
 // Interpolation du ratio de capacité chaud restant à une température de base donnée, à partir

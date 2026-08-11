@@ -67,11 +67,27 @@ describe('getRequiredKw — cas de référence par zone climatique', () => {
 });
 
 describe('Facteur canicule (froid)', () => {
-    test('zone non chaude : facteur neutre', () => {
-        assert.equal(getFacteurCanicule('F'), 1.0);
+    test('climat tempéré (Tbase été au seuil bas ou en dessous) : facteur neutre', () => {
+        assert.equal(getFacteurCanicule(28), 1.0);
+        assert.equal(getFacteurCanicule(20), 1.0);
     });
-    test('zone chaude (H) : majoration', () => {
-        assert.equal(getFacteurCanicule('H'), 1.11);
+    test('Tbase été au seuil haut (34°C, zones H/I) : majoration maximale', () => {
+        assert.equal(getFacteurCanicule(34), 1.11);
+        assert.equal(getFacteurCanicule(40), 1.11, 'plafonné au-delà du seuil haut');
+    });
+    test('interpolation progressive entre les seuils', () => {
+        const f31 = getFacteurCanicule(31);
+        assert.ok(f31 > 1.0 && f31 < 1.11, `attendu strictement entre 1.0 et 1.11, obtenu ${f31}`);
+    });
+    // La régression corrigée : zone F (Lyon, Tbase été 33°C) n'avait aucune marge alors que la
+    // zone B (Tbase été 32°C, donc plus douce) en avait une — une inversion pure.
+    test('une Tbase été plus élevée ne peut jamais donner une marge plus faible', () => {
+        assert.ok(getFacteurCanicule(33) > getFacteurCanicule(32),
+            'Lyon (33°C) doit recevoir une marge au moins aussi forte que la zone B (32°C)');
+    });
+    test('sans valeur de Tbase (undefined/NaN) : aucune marge, pas de crash', () => {
+        assert.equal(getFacteurCanicule(undefined), 1.0);
+        assert.equal(getFacteurCanicule(NaN), 1.0);
     });
 });
 
