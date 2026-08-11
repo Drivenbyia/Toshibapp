@@ -90,6 +90,14 @@ npm test
 # équivalent à : node --test "tests/**/*.test.mjs"
 ```
 
+### Ajouter une marque
+
+Klimo est multi-marque par construction (`js/calcul.js` ne contient aucun branchement par
+marque, seulement des tables indexées par sa clé). Le schéma exact des données à fournir,
+un script de validation (`scripts/valider-marque.mjs`), et le runbook pour donner une
+marque à un client précis (côté Supabase, sans redéploiement) sont dans
+[`docs/ajouter-une-marque.md`](docs/ajouter-une-marque.md).
+
 ## Déploiement (Netlify)
 
 Le dépôt est prêt pour un déploiement continu :
