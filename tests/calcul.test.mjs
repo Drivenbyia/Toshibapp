@@ -11,7 +11,7 @@ import {
 } from '../js/calcul.js';
 import {
     CONSIGNE_REFERENCE, COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD,
-    SEUIL_DESEQUILIBRE_GROUPE, CATALOGS, UI_SIZE_TABLES
+    SEUIL_DESEQUILIBRE_GROUPE, CATALOGS, UI_SIZE_TABLES, DEPARTMENTS, tBaseMatrix, tBaseEteMatrix
 } from '../js/data.js';
 
 const ROOM_TYPE = { emplacement: 'plain_pied', orientation: 'mixte', vitrage: 'moyen', protection: 'stores_int', occupants: '', expositionMurs: 4 };
@@ -515,5 +515,111 @@ describe('getRoomEligibleGammes', () => {
         const room = { froidMatch: 1.8, chaudMatch: 2.2 };
         const gammes = getRoomEligibleGammes(room, ['TZ Ultra Compact'], 'panasonic');
         assert.deepEqual(gammes, ['TZ Ultra Compact']);
+    });
+});
+
+// Le référentiel climatique n'avait aucun test : c'est pourtant une table saisie à la main de
+// 9 zones × 11 tranches d'altitude × 2 saisons, où une coquille se traduit directement par un
+// dimensionnement faux sur tout un département. Ces tests ne valident pas les valeurs contre la
+// norme (payante) — ils interdisent les incohérences internes détectables par le code.
+describe('Référentiel climatique — cohérence interne', () => {
+    const ALTITUDES = Object.keys(tBaseMatrix);
+    const ZONES = [...new Set(Object.values(DEPARTMENTS).map(d => d.zone))].sort();
+
+    test('chaque zone référencée par un département existe dans les deux matrices', () => {
+        for (const z of ZONES) {
+            for (const alt of ALTITUDES) {
+                assert.ok(Number.isFinite(tBaseMatrix[alt][z]), `hiver manquant : zone ${z}, ${alt}`);
+                assert.ok(Number.isFinite(tBaseEteMatrix[alt][z]), `été manquant : zone ${z}, ${alt}`);
+            }
+        }
+    });
+
+    test('les deux matrices couvrent les mêmes tranches d\'altitude', () => {
+        assert.deepEqual(Object.keys(tBaseEteMatrix), ALTITUDES);
+    });
+
+    // Il ne fait jamais plus chaud en montant. Une inversion serait une coquille pure.
+    // Les paliers plats sont tolérés ici : les zones A (Bretagne), B (Landes / Gironde) et
+    // D (Nord / Île-de-France) en comportent au-delà de 1400 m, altitude qu'aucun de leurs
+    // départements n'atteint — le plateau y est sans effet. Il n'en allait pas de même pour la
+    // zone F, qui contient la Savoie et la Haute-Savoie (cas vérifié séparément plus bas).
+    test('la température ne remonte jamais avec l\'altitude', () => {
+        for (const z of ZONES) {
+            for (let i = 1; i < ALTITUDES.length; i++) {
+                const [prec, cur] = [ALTITUDES[i - 1], ALTITUDES[i]];
+                assert.ok(
+                    tBaseMatrix[cur][z] <= tBaseMatrix[prec][z],
+                    `zone ${z} : hiver plus doux en altitude entre ${prec} et ${cur}`
+                );
+                assert.ok(
+                    tBaseEteMatrix[cur][z] <= tBaseEteMatrix[prec][z],
+                    `zone ${z} : été plus chaud en altitude entre ${prec} et ${cur}`
+                );
+            }
+        }
+    });
+
+    // La régression corrigée : la zone F stagnait à -13°C de 800 m à 2200 m alors qu'elle
+    // contient la Savoie, la Haute-Savoie et le Jura. Un chalet à 1800 m était calculé 5 à 8 K
+    // trop chaud. Le test porte sur les zones qui contiennent réellement de la montagne.
+    test('les zones de montagne conservent un gradient jusqu\'en altitude', () => {
+        const ZONES_MONTAGNE = [...new Set(
+            ['73', '74', '38', '05', '04', '09', '65', '15', '88', '68']
+                .filter(d => DEPARTMENTS[d])
+                .map(d => DEPARTMENTS[d].zone)
+        )];
+        assert.ok(ZONES_MONTAGNE.length > 0, 'aucune zone de montagne identifiée');
+        for (const z of ZONES_MONTAGNE) {
+            for (let i = 1; i < ALTITUDES.length; i++) {
+                const [prec, cur] = [ALTITUDES[i - 1], ALTITUDES[i]];
+                assert.ok(
+                    tBaseMatrix[cur][z] < tBaseMatrix[prec][z],
+                    `zone ${z} : plateau hiver entre ${prec} et ${cur} (${tBaseMatrix[prec][z]}°C), alors que la zone contient de la montagne`
+                );
+            }
+        }
+    });
+
+    test('l\'été est toujours plus chaud que l\'hiver, dans toutes les zones', () => {
+        for (const z of ZONES) {
+            for (const alt of ALTITUDES) {
+                assert.ok(tBaseEteMatrix[alt][z] > tBaseMatrix[alt][z], `zone ${z} à ${alt}`);
+            }
+        }
+    });
+
+    test('chaque département déclare une zone connue', () => {
+        for (const [code, info] of Object.entries(DEPARTMENTS)) {
+            assert.ok(info.zone, `département ${code} sans zone`);
+            assert.ok(ZONES.includes(info.zone), `département ${code} : zone ${info.zone} inconnue`);
+        }
+    });
+
+    // Garde-fou de plausibilité : une base hiver plus froide que -30°C ou plus douce que +25°C
+    // au niveau de la mer signale une erreur de saisie, pas un climat français.
+    test('les bases au niveau de la mer restent dans des bornes plausibles', () => {
+        for (const z of ZONES) {
+            const h = tBaseMatrix['0 à 200m'][z];
+            const e = tBaseEteMatrix['0 à 200m'][z];
+            assert.ok(h >= -20 && h <= 25, `zone ${z} : base hiver ${h}°C hors bornes plausibles`);
+            assert.ok(e >= 25 && e <= 40, `zone ${z} : base été ${e}°C hors bornes plausibles`);
+        }
+    });
+
+    // Les trois écarts corrigés, verrouillés par des cas nommés.
+    test('l\'est continental n\'est plus calculé comme la vallée du Rhône', () => {
+        const zoneStrasbourg = DEPARTMENTS['67'].zone;
+        assert.equal(tBaseMatrix['0 à 200m'][zoneStrasbourg], -15,
+            'la base hiver publiée pour Strasbourg est -15°C');
+        assert.ok(tBaseMatrix['0 à 200m'][zoneStrasbourg] < tBaseMatrix['0 à 200m'][DEPARTMENTS['69'].zone],
+            'Strasbourg doit être plus froid que Lyon');
+    });
+
+    test('les DOM n\'ont pas de besoin de chauffage au niveau de la mer', () => {
+        for (const dom of ['971', '972', '973', '974', '976']) {
+            const t = tBaseMatrix['0 à 200m'][DEPARTMENTS[dom].zone];
+            assert.ok(t > 15, `département ${dom} : base hiver ${t}°C, incompatible avec un climat tropical`);
+        }
     });
 });
