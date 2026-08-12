@@ -39,44 +39,42 @@ function renderOverlayContent(erreur) {
 
     if (status === 'authenticated' || status === 'stale') {
         zone.innerHTML = `
-            <h2 class="text-lg font-bold text-klimo-dark mb-1">Compte</h2>
-            <p class="text-sm text-gray-500 mb-4">${echapper(account.getUserEmail() || '')}</p>
+            <h2 class="text-lg font-semibold text-ink-900">Compte</h2>
+            <p class="text-sm text-ink-500 mb-4 break-words">${echapper(account.getUserEmail() || '')}</p>
             ${status === 'stale' ? `
-            <p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2.5 mb-4">
-                Hors ligne : la session n'a pas pu être reconfirmée, mais vos chantiers restent
-                pleinement accessibles sur cet appareil.
-            </p>` : ''}
+            <div class="k-note k-note-warn mb-4">
+                <span class="min-w-0">Hors ligne : la session n'a pas pu être reconfirmée, mais vos chantiers restent
+                pleinement accessibles sur cet appareil.</span>
+            </div>` : ''}
             <div class="flex gap-2">
-                <button data-action="logout" class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-2.5 rounded-lg text-sm">Se déconnecter</button>
-                <button data-action="close-overlay" class="flex-1 bg-gray-800 hover:bg-black text-white font-bold py-2.5 rounded-lg text-sm">Fermer</button>
+                <button data-action="logout" class="k-btn-soft flex-1">Se déconnecter</button>
+                <button data-action="close-overlay" class="k-btn-dark flex-1">Fermer</button>
             </div>`;
         return;
     }
 
     if (!supabaseConfigured()) {
         zone.innerHTML = `
-            <h2 class="text-lg font-bold text-klimo-dark mb-1">Connexion</h2>
-            <p class="text-sm text-gray-600 mb-4">La connexion aux comptes n'est pas encore configurée sur ce poste.</p>
-            <button data-action="close-overlay" class="w-full bg-gray-800 hover:bg-black text-white font-bold py-2.5 rounded-lg text-sm">Fermer</button>`;
+            <h2 class="text-lg font-semibold text-ink-900 mb-1">Connexion</h2>
+            <p class="text-sm text-ink-600 mb-4 leading-relaxed">La connexion aux comptes n'est pas encore configurée sur ce poste.</p>
+            <button data-action="close-overlay" class="k-btn-dark w-full">Fermer</button>`;
         return;
     }
 
     zone.innerHTML = `
-        <h2 class="text-lg font-bold text-klimo-dark mb-1">Connexion</h2>
+        <h2 class="text-lg font-semibold text-ink-900 mb-4">Connexion</h2>
         ${status === 'revoked' ? `
-        <p class="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg p-2.5 mb-3">
-            Votre session a expiré. Reconnectez-vous, ou continuez sans compte : vos chantiers
-            restent disponibles sur cet appareil.
-        </p>` : ''}
+        <div class="k-note k-note-danger mb-4">
+            <span class="min-w-0">Votre session a expiré. Reconnectez-vous, ou continuez sans compte : vos chantiers
+            restent disponibles sur cet appareil.</span>
+        </div>` : ''}
         <div class="flex flex-col gap-3 mb-3">
-            <input type="email" id="auth-email" placeholder="Adresse e-mail" autocomplete="username"
-                class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
-            <input type="password" id="auth-password" placeholder="Mot de passe" autocomplete="current-password"
-                class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
+            <input type="email" id="auth-email" placeholder="Adresse e-mail" autocomplete="username" class="k-input">
+            <input type="password" id="auth-password" placeholder="Mot de passe" autocomplete="current-password" class="k-input">
         </div>
-        ${erreur ? `<p class="text-xs font-bold text-red-500 mb-3">${echapper(erreur)}</p>` : ''}
-        <button data-action="login-submit" class="w-full bg-gray-800 hover:bg-black text-white font-bold py-2.5 rounded-lg text-sm mb-2">Se connecter</button>
-        <button data-action="continue-offline" class="w-full text-gray-500 hover:text-gray-700 text-xs font-bold py-1">Continuer sans compte</button>`;
+        ${erreur ? `<p class="text-xs font-semibold text-rose-600 mb-3">${echapper(erreur)}</p>` : ''}
+        <button data-action="login-submit" class="k-btn-dark w-full mb-1">Se connecter</button>
+        <button data-action="continue-offline" class="k-btn-ghost w-full text-xs">Continuer sans compte</button>`;
 }
 
 function ouvrirOverlay() {

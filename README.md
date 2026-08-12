@@ -65,11 +65,40 @@ python3 -m http.server 8000
 > (`https://` ou `http://localhost`) — ouvrir `index.html` directement en `file://`
 > ne l'active pas.
 
+### Système visuel
+
+L'apparence de l'application est définie à deux endroits, et **nulle part ailleurs** :
+
+- **`build/tailwind.config.js`** — les jetons : palette (`accent` teal Klimo, `ink` pour le
+  texte, `line` pour les bordures, `froid` / `chaud` réservés aux puissances), ombres, rayons.
+  Aucune couleur ne doit être écrite en dur ailleurs.
+- **`build/input.css`** — la couche de composants (`@layer components`) : `.k-card`, `.k-input`,
+  `.k-select`, `.k-btn-*`, `.k-pill-*`, `.k-note-*`, `.k-stat-*`, `.k-result`, `.k-seg`…
+  C'est ce vocabulaire qu'emploient `index.html` et les gabarits de `js/app.js`.
+
+Écrire une nouvelle carte ou un nouveau champ consiste donc à réutiliser une classe existante,
+pas à recopier une pile d'utilitaires : le balisage de l'app est produit par des littéraux de
+gabarit répartis dans une quinzaine de fonctions de rendu, et une valeur recopiée à la main
+dans l'une d'elles se désynchronise des autres sans jamais casser un test.
+
+Quelques conventions que le système encode :
+
+- **Le bleu et le rouge veulent dire « froid » et « chaud »**, jamais « information » ou
+  « erreur » : les encarts d'information passent par `.k-note-*`, jamais par les couleurs de mesure.
+- **Cibles tactiles de 44px minimum** et champs de saisie en 16px (en dessous, iOS zoome à
+  chaque prise de focus).
+- **Aucun état ne se signale par l'effacement.** Une option non retenue ou un résultat périmé
+  reste lisible en plein contraste ; c'est la bordure, la coche ou la saturation qui portent
+  l'information (`.k-result[aria-pressed]`, `.k-stale`).
+- **`aria-pressed` porte l'état sélectionné** des contrôles segmentés et des cartes ; le style
+  en découle (`.k-seg-item[aria-pressed="true"]`), plutôt que l'inverse.
+
 ### Régénérer le CSS Tailwind
 
 `assets/tailwind.css` est un CSS Tailwind pré-compilé (pas le CDN `cdn.tailwindcss.com`,
-qui casse le mode hors-ligne et n'est pas destiné à la production). Il n'a besoin d'être
-régénéré que si vous ajoutez de nouvelles classes Tailwind dans `index.html` :
+qui casse le mode hors-ligne et n'est pas destiné à la production). Il doit être régénéré
+après **toute** modification de `build/input.css`, `build/tailwind.config.js`, ou après l'ajout
+d'une classe Tailwind dans `index.html` ou `js/` :
 
 ```bash
 npx tailwindcss@3 -i build/input.css -o assets/tailwind.css \
@@ -79,6 +108,10 @@ npx tailwindcss@3 -i build/input.css -o assets/tailwind.css \
 Cette commande nécessite Node.js et un accès réseau (téléchargement ponctuel de l'outil
 Tailwind), mais reste sans effet sur le déploiement : le fichier généré est commité, et
 Netlify continue de servir le site tel quel, sans étape de build.
+
+> Attention : une classe utilisée dans le balisage mais absente du CSS régénéré n'échoue pas,
+> elle ne fait simplement rien. Un rendu inchangé après une modification de style est presque
+> toujours un CSS non régénéré.
 
 ### Tests
 

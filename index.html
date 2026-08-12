@@ -22,30 +22,20 @@
         /* Accent Klimo fixe, indépendant de la marque de matériel sélectionnée : l'application
            doit se présenter comme l'outil de l'installateur, pas comme le configurateur d'un
            constructeur. Teal #0F766E : contraste ~5.2:1 sur blanc, au-dessus du seuil AA de
-           4.5:1 pour du texte normal, et n'appartient à aucune des marques du catalogue. */
-        :root { --brand-accent: #0F766E; --brand-accent-dark: #115E59; }
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: #f1f1f1; }
-        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-        ::-webkit-scrollbar-thumb:hover { background: var(--brand-accent); }
+           4.5:1 pour du texte normal, et n'appartient à aucune des marques du catalogue.
+           Il n'y a ici que ce qui ne peut pas passer par Tailwind (pseudo-éléments de la barre
+           de défilement, feuille d'impression) : couleurs, composants et jetons du système
+           visuel vivent dans build/tailwind.config.js et build/input.css — voir le README. */
+        :root { --brand-accent: #0F766E; }
 
-        .fade-in { animation: fadeIn 0.3s ease-in-out; }
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--brand-accent); }
 
         input[type=number]::-webkit-inner-spin-button,
         input[type=number]::-webkit-outer-spin-button {
             -webkit-appearance: none; margin: 0;
-        }
-
-        .select-custom {
-            appearance: none;
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%236B7280'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
-            background-repeat: no-repeat;
-            background-position: right 0.5rem center;
-            background-size: 1.25em;
         }
 
         details > summary { list-style: none; }
@@ -53,7 +43,6 @@
 
         /* Zone sûre iOS (notch / Dynamic Island) : le header sticky ne doit pas passer sous la barre d'état. */
         header { padding-top: env(safe-area-inset-top); }
-        body { padding-bottom: env(safe-area-inset-bottom); }
 
         /* Export PDF (window.print()) : masque l'appli, n'affiche que #print-area. */
         #print-area { display: none; }
@@ -69,27 +58,31 @@
         }
     </style>
 </head>
-<body class="bg-klimo-gray text-gray-800 font-sans antialiased min-h-screen flex flex-col">
+<body class="bg-canvas text-ink-700 font-sans antialiased min-h-screen flex flex-col">
 
     <!-- Vue d'impression (export PDF) : masquée à l'écran, seule visible dans window.print() -->
     <div id="print-area"></div>
 
-    <!-- Header -->
-    <header class="bg-white shadow-sm border-b-4 border-[var(--brand-accent)] sticky top-0 z-50">
-        <div class="max-w-3xl mx-auto px-4 h-16 flex items-center justify-between">
-            <div class="flex items-center gap-2">
-                <svg class="w-8 h-8 text-[var(--brand-accent)]" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M2 7h20v2H2V7zm4 4h12v2H6v-2zm-4 4h20v2H2v-2z"/>
-                </svg>
-                <h1 class="text-xl font-bold tracking-tight text-klimo-dark cursor-pointer" onclick="toggleDashboard(false)">Klimo</h1>
-            </div>
-            
-            <div class="flex items-center gap-3">
-                <div class="text-[11px] sm:text-xs font-semibold text-gray-500 bg-gray-100 px-2 py-1 rounded"><span class="sm:hidden">V18</span><span class="hidden sm:inline">V18 - FROID PHYSIQUE</span></div>
-                <span id="sync-badge" class="hidden text-[11px] font-semibold text-gray-500 bg-gray-100 px-2 py-1 rounded"></span>
-                <button id="account-badge" data-status="anonymous" class="text-[11px] sm:text-xs font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 px-2.5 py-1.5 rounded-full transition-colors max-w-[9rem] truncate" title="Compte">Se connecter</button>
-                <button onclick="toggleDashboard(true)" class="flex items-center justify-center p-2 rounded-full bg-gray-100 text-gray-600 hover:bg-[var(--brand-accent)] hover:text-white transition-colors" title="Mes Chantiers">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
+    <!-- ==== HEADER ====
+         Un seul niveau d'information : l'identité, l'état du compte, l'accès aux chantiers.
+         Le numéro de version, qui occupait ici la place d'une action, est descendu en pied de
+         page : il sert au support, jamais à l'artisan en cours de saisie. -->
+    <header class="bg-white/95 backdrop-blur border-b border-line sticky top-0 z-50">
+        <div class="max-w-3xl xl:max-w-6xl mx-auto px-4 h-16 flex items-center justify-between gap-3">
+            <button type="button" onclick="toggleDashboard(false)" class="flex items-center gap-2.5 -ml-2 px-2 py-1.5 rounded-xl hover:bg-slate-50 transition-colors" title="Retour au dimensionnement">
+                <span class="w-9 h-9 rounded-xl bg-accent-500 flex items-center justify-center flex-shrink-0">
+                    <svg class="w-5 h-5 text-white" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                        <path d="M4 7h16v2H4V7zm4 4h8v2H8v-2zm-4 4h16v2H4v-2z"/>
+                    </svg>
+                </span>
+                <span class="text-lg font-bold tracking-tight text-ink-900">Klimo</span>
+            </button>
+
+            <div class="flex items-center gap-1.5 sm:gap-2 min-w-0">
+                <span id="sync-badge" class="hidden k-pill k-pill-neutral"></span>
+                <button id="account-badge" data-status="anonymous" class="k-btn-soft px-3 max-w-[8.5rem] sm:max-w-[12rem] truncate" title="Compte">Se connecter</button>
+                <button onclick="toggleDashboard(true)" class="k-icon-btn hover:text-accent-700 hover:bg-accent-50" title="Mes Chantiers" aria-label="Mes Chantiers">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
                 </button>
             </div>
         </div>
@@ -98,67 +91,70 @@
     <!-- ==== VUE : COMPTE ==== -->
     <!-- Écran de connexion, jamais bloquant : "Continuer sans compte" reste disponible dans
          tous les états sauf déjà connecté. Voir js/auth-ui.js. -->
-    <div id="auth-overlay" class="hidden fixed inset-0 bg-black/40 z-[60] items-center justify-center p-4">
-        <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 fade-in">
+    <div id="auth-overlay" class="hidden fixed inset-0 bg-ink-900/50 backdrop-blur-sm z-[60] items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-pop w-full max-w-sm p-6 fade-in">
             <div id="auth-overlay-content"></div>
         </div>
     </div>
 
-    <!-- ==== VUE 1 : SIMULATEUR ==== -->
-    <main id="app-main" class="flex-grow max-w-3xl mx-auto w-full px-4 py-6 flex flex-col gap-6">
+    <!-- ==== VUE 1 : SIMULATEUR ====
+         Deux colonnes à partir de xl (≥1280px) : la saisie à gauche, les solutions à droite.
+         En dessous, une seule colonne — l'app est d'abord un outil de terrain, tenu à une main.
+         La grille est permanente (et non déclenchée par l'apparition des résultats) pour que la
+         saisie ne se réorganise pas sous les doigts au moment du calcul ; la colonne de droite
+         porte un état vide tant qu'aucun calcul n'a été lancé. -->
+    <main id="app-main" class="flex-grow w-full max-w-3xl xl:max-w-6xl mx-auto px-4 py-6 grid grid-cols-1 xl:grid-cols-[minmax(0,7fr)_minmax(0,8fr)] gap-6 xl:gap-8 items-start">
+
+      <div class="flex flex-col gap-5 min-w-0">
 
         <!-- Bannière de reprise de saisie (autosave) -->
-        <div id="draft-banner" class="hidden p-3 bg-blue-50 border border-blue-200 text-blue-900 rounded-lg text-xs font-medium flex items-center justify-between gap-3 fade-in">
-            <span id="draft-banner-text">📝 Saisie précédente restaurée.</span>
-            <button onclick="startNewCalcul()" class="text-xs font-bold text-blue-700 border border-blue-300 hover:bg-blue-100 px-3 py-2.5 rounded whitespace-nowrap">Nouveau calcul</button>
+        <div id="draft-banner" class="hidden k-note k-note-info items-center justify-between gap-3 fade-in">
+            <span id="draft-banner-text" class="flex-grow">Saisie précédente restaurée.</span>
+            <button onclick="startNewCalcul()" class="k-btn-outline min-h-[36px] px-3 text-2xs whitespace-nowrap flex-shrink-0">Nouveau calcul</button>
         </div>
 
         <!-- Brand Selector -->
-        <section id="brand-section" class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 fade-in">
-            <h2 class="text-lg font-semibold text-klimo-dark flex items-center gap-2 mb-4">
-                <span class="w-2 h-6 bg-[var(--brand-accent)] rounded-full"></span>
-                Marque
-            </h2>
+        <section id="brand-section" class="k-card fade-in">
+            <h2 class="k-section-title mb-3">Marque</h2>
             <!-- Boutons générés depuis MARQUES_CONNUES (js/marques.js) — voir
                  genererBoutonsMarque() dans app.js. Ajouter une marque au catalogue suffit à
                  lui faire un bouton ; ce fichier n'a plus à être touché. -->
-            <div id="brand-buttons" class="flex p-1 bg-gray-100 rounded-lg"></div>
+            <div id="brand-buttons" class="k-seg"></div>
         </section>
 
         <!-- Configuration Card -->
-        <section class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 fade-in">
+        <section class="k-card fade-in">
             <div class="flex flex-col gap-4">
-                <h2 class="text-lg font-semibold text-klimo-dark flex items-center gap-2">
-                    <span class="w-2 h-6 bg-[var(--brand-accent)] rounded-full"></span>
-                    1. Paramètres Techniques & Localisation
-                </h2>
+                <h2 class="k-section-title">Paramètres &amp; localisation</h2>
 
-                <div class="grid grid-cols-1 gap-4 bg-gray-50 p-4 rounded-xl border border-gray-100">
-                    <div class="flex flex-col gap-2">
-                        <label for="isolationCoef" class="text-xs font-bold uppercase text-gray-500 tracking-wider">Niveau d'Isolation (G)</label>
+                <div class="k-sunken flex flex-col gap-4">
+                    <div>
+                        <label for="isolationCoef" class="k-label">Niveau d'isolation (G)</label>
                         <div class="flex gap-2">
-                            <select id="isolationCoef" onchange="toggleCustomCoef(); updateClimateInfo(); persistDraft(); marquerResultatsObsoletes();" class="select-custom flex-grow p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all">
-                                <option value="2.0">Avant 1974 (Aucune isolation) - G: 2.0</option>
-                                <option value="1.2">1974 à 1988 (Isolation basique) - G: 1.2</option>
-                                <option value="1.1">1989 à 2000 (Années 90) - G: 1.1</option>
-                                <option value="0.8" selected>2001 à 2012 (RT 2000/2005) - G: 0.8</option>
-                                <option value="0.35">2013 à 2021 (Maison récente RT 2012) - G: 0.35</option>
-                                <option value="0.25">Après 2022 (Neuf RE 2020) - G: 0.25</option>
-                                <option value="3.0">Véranda (Très déperditif) - G: 3.0</option>
-                                <option value="custom">Saisie personnalisée...</option>
+                            <select id="isolationCoef" onchange="toggleCustomCoef(); updateClimateInfo(); persistDraft(); marquerResultatsObsoletes();" class="k-select flex-grow min-w-0">
+                                <!-- Le coefficient passe en tête : c'est la valeur qui entre dans le calcul, et
+                                     l'ancien libellé, plus long que le champ, la coupait sur mobile. -->
+                                <option value="2.0">G 2.0 — avant 1974, non isolé</option>
+                                <option value="1.2">G 1.2 — 1974 à 1988</option>
+                                <option value="1.1">G 1.1 — 1989 à 2000</option>
+                                <option value="0.8" selected>G 0.8 — 2001 à 2012 (RT 2005)</option>
+                                <option value="0.35">G 0.35 — 2013 à 2021 (RT 2012)</option>
+                                <option value="0.25">G 0.25 — après 2022 (RE 2020)</option>
+                                <option value="3.0">G 3.0 — véranda</option>
+                                <option value="custom">Saisie personnalisée…</option>
                             </select>
-                            <input type="text" inputmode="decimal" id="customCoef" value="0.65" oninput="updateClimateInfo(); persistDraft(); marquerResultatsObsoletes();" class="hidden w-24 p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all" placeholder="Ex: 0.65">
+                            <input type="text" inputmode="decimal" id="customCoef" value="0.65" oninput="updateClimateInfo(); persistDraft(); marquerResultatsObsoletes();" class="k-input hidden w-24 flex-shrink-0" placeholder="0.65" aria-label="Coefficient G personnalisé">
                         </div>
                     </div>
 
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div class="flex flex-col gap-2">
-                            <label for="deptSelect" class="text-xs font-bold uppercase text-[var(--brand-accent)] tracking-wider">Département</label>
-                            <select id="deptSelect" onchange="updateClimateInfo(); persistDraft(); marquerResultatsObsoletes();" class="select-custom p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all"></select>
+                        <div>
+                            <label for="deptSelect" class="k-label">Département</label>
+                            <select id="deptSelect" onchange="updateClimateInfo(); persistDraft(); marquerResultatsObsoletes();" class="k-select"></select>
                         </div>
-                        <div class="flex flex-col gap-2">
-                            <label for="altitude" class="text-xs font-bold uppercase text-[var(--brand-accent)] tracking-wider">Altitude</label>
-                            <select id="altitude" onchange="updateClimateInfo(); persistDraft(); marquerResultatsObsoletes();" class="select-custom p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all">
+                        <div>
+                            <label for="altitude" class="k-label">Altitude</label>
+                            <select id="altitude" onchange="updateClimateInfo(); persistDraft(); marquerResultatsObsoletes();" class="k-select">
                                 <option value="0 à 200m" selected>0 à 200m</option>
                                 <option value="200 à 400m">200 à 400m</option>
                                 <option value="400 à 600m">400 à 600m</option>
@@ -174,88 +170,112 @@
                         </div>
                     </div>
 
-                    <div class="flex flex-col gap-2">
-                        <label for="consigneInt" class="text-xs font-bold uppercase text-[var(--brand-accent)] tracking-wider">Consigne Intérieure Été</label>
-                        <select id="consigneInt" onchange="updateClimateInfo(); persistDraft(); marquerResultatsObsoletes();" class="select-custom p-3 border border-gray-200 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none transition-all">
-                            <option value="25">25°C – Confort maximal</option>
-                            <option value="26" selected>26°C – Standard (référence)</option>
-                            <option value="27">27°C – Optimisé</option>
-                            <option value="28">28°C – Sobre / Budget</option>
+                    <div>
+                        <label for="consigneInt" class="k-label">Consigne intérieure été</label>
+                        <select id="consigneInt" onchange="updateClimateInfo(); persistDraft(); marquerResultatsObsoletes();" class="k-select">
+                            <option value="25">25 °C — confort maximal</option>
+                            <option value="26" selected>26 °C — standard (référence)</option>
+                            <option value="27">27 °C — optimisé</option>
+                            <option value="28">28 °C — sobre / budget</option>
                         </select>
                     </div>
 
-                    <div id="climate-diagnostic" class="bg-white border border-[var(--brand-accent)]/20 rounded-lg p-3 text-xs text-center font-medium text-[var(--brand-accent)] shadow-inner">
+                    <div id="climate-diagnostic" class="rounded-xl bg-accent-50 border border-accent-100 px-3 py-2.5 text-xs leading-relaxed text-accent-900 k-num">
                         Zone détectée : -- | Température de base : --
                     </div>
 
-                    <div class="flex flex-col gap-2">
-                        <label class="text-xs font-bold uppercase text-gray-500 tracking-wider">Usage souhaité</label>
-                        <div class="flex p-1 bg-white border border-gray-200 rounded-lg">
-                            <button id="btn-usage-reversible" onclick="setUsage('reversible')" class="flex-1 py-2 text-sm font-medium rounded-md shadow-sm bg-gray-100 text-[var(--brand-accent)] transition-all">Réversible (froid + chaud)</button>
-                            <button id="btn-usage-froid_seul" onclick="setUsage('froid_seul')" class="flex-1 py-2 text-sm font-medium rounded-md text-gray-500 hover:text-gray-700 transition-all">Froid seul</button>
+                    <div>
+                        <span class="k-label">Usage souhaité</span>
+                        <div class="k-seg bg-white border border-line">
+                            <!-- « Réversible » se suffit à lui-même dans le métier ; la glose
+                                 « (froid + chaud) » passait à la ligne dès que la colonne se
+                                 resserrait (mobile, et colonne de gauche sur grand écran) et
+                                 déséquilibrait le contrôle à chaque fois. -->
+                            <button type="button" id="btn-usage-reversible" onclick="setUsage('reversible')" aria-pressed="true" class="k-seg-item">Réversible</button>
+                            <button type="button" id="btn-usage-froid_seul" onclick="setUsage('froid_seul')" aria-pressed="false" class="k-seg-item">Froid seul</button>
                         </div>
-                        <p id="usage-note" class="hidden text-[11px] text-gray-400 leading-snug">❄️ Le besoin chauffage n'est pas pris en compte pour la sélection du matériel (affiché à titre indicatif). Les machines proposées restent des PAC réversibles standard. L'éligibilité TVA 5,5% affichée suppose un usage chauffage (base légale rénovation énergétique) : à vérifier si l'installation est motivée uniquement par le rafraîchissement.</p>
+                        <p id="usage-note" class="hidden k-hint mt-2">Le besoin chauffage n'est pas pris en compte pour la sélection du matériel (affiché à titre indicatif). Les machines proposées restent des PAC réversibles standard. L'éligibilité TVA 5,5% affichée suppose un usage chauffage (base légale rénovation énergétique) : à vérifier si l'installation est motivée uniquement par le rafraîchissement.</p>
                     </div>
                 </div>
             </div>
 
-            <div class="flex p-1 bg-gray-100 rounded-lg mt-6">
-                <button id="btn-mono" onclick="setMode('mono')" class="flex-1 py-2 text-sm font-medium rounded-md shadow-sm bg-white text-[var(--brand-accent)] transition-all">Monosplit</button>
-                <button id="btn-multi" onclick="setMode('multi')" class="flex-1 py-2 text-sm font-medium rounded-md text-gray-500 hover:text-gray-700 transition-all">Multisplit</button>
+            <div class="mt-5">
+                <span class="k-label">Type d'installation</span>
+                <div class="k-seg">
+                    <button type="button" id="btn-mono" onclick="setMode('mono')" aria-pressed="true" class="k-seg-item">Monosplit</button>
+                    <button type="button" id="btn-multi" onclick="setMode('multi')" aria-pressed="false" class="k-seg-item">Multisplit</button>
+                </div>
             </div>
         </section>
 
         <!-- Rooms Section -->
         <section id="rooms-container" class="flex flex-col gap-4 fade-in"></section>
 
-        <!-- Calculate Button : sticky pour rester atteignable en multisplit (jusqu'à 5 pièces à
-             faire défiler avant de l'atteindre autrement, sur mobile en particulier). -->
-        <button onclick="calculate()" class="sticky bottom-4 z-30 w-full bg-[var(--brand-accent)] hover:bg-[var(--brand-accent-dark)] text-white font-bold py-4 rounded-xl shadow-xl transition-colors flex justify-center items-center gap-2 text-lg active:scale-95 transform transition">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
-            Rechercher les solutions
-        </button>
+        <!-- Calculate Button : collant pour rester atteignable en multisplit (jusqu'à 5 pièces à
+             faire défiler avant de l'atteindre autrement, sur mobile en particulier). Le dégradé
+             de .k-action-bar sépare le bouton du contenu qui défile dessous. -->
+        <div class="k-action-bar">
+            <button onclick="calculate()" class="k-btn-primary w-full min-h-[56px] text-base shadow-cardHover active:scale-[0.99]">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+                Rechercher les solutions
+            </button>
+        </div>
 
-        <!-- Results Section -->
+      </div>
+
+      <!-- Colonne des solutions -->
+      <div class="flex flex-col gap-4 min-w-0">
+
         <!-- Avertissement de péremption : les hypothèses (département, isolation, surfaces…) ont
              changé depuis le dernier calcul, donc le matériel affiché plus bas ne correspond plus.
              Signalé plutôt qu'effacé, pour ne pas faire disparaître un résultat sous les doigts. -->
-        <div id="stale-banner" class="hidden p-3 bg-amber-50 border border-amber-300 text-amber-900 rounded-lg text-xs font-bold flex items-center justify-between gap-3 fade-in" role="status">
-            <span>⚠️ Les hypothèses ont changé — les solutions ci-dessous ne sont plus à jour.</span>
-            <button onclick="calculate()" class="text-[11px] font-bold text-amber-900 border border-amber-400 hover:bg-amber-100 px-3 py-2 rounded whitespace-nowrap">Recalculer</button>
+        <div id="stale-banner" class="hidden k-note k-note-warn items-center justify-between gap-3 fade-in" role="status">
+            <span class="flex-grow"><span class="k-note-icon">⚠️</span> Les hypothèses ont changé — les solutions ci-dessous ne sont plus à jour.</span>
+            <button onclick="calculate()" class="k-btn-outline min-h-[36px] px-3 text-2xs whitespace-nowrap flex-shrink-0">Recalculer</button>
         </div>
 
-        <!-- Zone résultats : bordure/espacement distincts de la saisie au-dessus, pour que les
-             solutions produites se lisent clairement comme la sortie de l'outil, pas un formulaire de plus. -->
-        <section id="results-container" aria-live="polite" class="flex flex-col gap-4 pb-10 border-t-2 border-gray-200 pt-6"></section>
+        <!-- Zone résultats. Le contenu est produit par renderResults() (js/app.js), y compris
+             l'état vide affiché tant qu'aucun calcul n'a été lancé. -->
+        <section id="results-container" aria-live="polite" class="flex flex-col gap-4"></section>
+
+      </div>
 
     </main>
 
     <!-- ==== VUE 2 : DASHBOARD CHANTIERS ==== -->
-    <main id="app-dashboard" class="hidden flex-grow max-w-3xl mx-auto w-full px-4 py-6 flex-col gap-6 fade-in">
-        <div class="flex items-center justify-between mb-4 border-b border-gray-200 pb-4">
-            <h2 class="text-2xl font-extrabold text-klimo-dark flex items-center gap-2">
-                <svg class="w-6 h-6 text-[var(--brand-accent)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
-                Mes Chantiers
-            </h2>
-            <button onclick="toggleDashboard(false)" class="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm font-bold hover:bg-gray-300 transition-colors">Fermer</button>
+    <main id="app-dashboard" class="hidden flex flex-col flex-grow max-w-3xl mx-auto w-full px-4 py-6 gap-5 fade-in">
+        <div class="flex items-center justify-between gap-3">
+            <h2 class="k-section-title text-xl">Mes chantiers</h2>
+            <button onclick="toggleDashboard(false)" class="k-btn-soft">Fermer</button>
         </div>
 
         <!-- Sauvegarde locale : seul filet contre la perte de données tant que les
              chantiers ne vivent que dans le stockage de cet appareil. -->
-        <div id="dashboard-actions" class="flex flex-wrap items-center gap-2 -mt-2">
-            <button data-action="export-chantiers" class="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-2 rounded-lg text-xs font-bold transition-colors" title="Télécharger un fichier contenant tous vos chantiers">
-                💾 Sauvegarder mes chantiers
+        <div id="dashboard-actions" class="flex flex-wrap items-center gap-2">
+            <button data-action="export-chantiers" class="k-btn-outline min-h-[40px] text-xs" title="Télécharger un fichier contenant tous vos chantiers">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"></path></svg>
+                Sauvegarder mes chantiers
             </button>
-            <button data-action="import-chantiers" class="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-2 rounded-lg text-xs font-bold transition-colors" title="Restaurer des chantiers depuis un fichier de sauvegarde">
-                📂 Restaurer une sauvegarde
+            <button data-action="import-chantiers" class="k-btn-outline min-h-[40px] text-xs" title="Restaurer des chantiers depuis un fichier de sauvegarde">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 9l5-5 5 5M12 4v12"></path></svg>
+                Restaurer une sauvegarde
             </button>
             <input type="file" id="import-file" accept="application/json,.json" class="hidden">
         </div>
-        <p id="backup-msg" class="text-xs font-bold" aria-live="polite"></p>
+        <p id="backup-msg" class="text-xs font-semibold" aria-live="polite"></p>
 
         <div id="chantiers-list" class="flex flex-col gap-4 pb-10"></div>
     </main>
 
+    <!-- ==== PIED DE PAGE ====
+         Version du moteur de calcul : information de support, à sa place ici plutôt que dans la
+         barre du haut où elle disputait la place aux actions. -->
+    <footer class="mt-auto border-t border-line bg-white">
+        <div class="max-w-3xl xl:max-w-6xl mx-auto px-4 py-4 flex flex-wrap items-center justify-between gap-2 text-2xs text-ink-400" style="padding-bottom: max(1rem, env(safe-area-inset-bottom));">
+            <span>Klimo — dimensionnement indicatif, à valider par un professionnel avant installation.</span>
+            <span class="k-num">V18 · Froid physique</span>
+        </div>
+    </footer>
 
     <!-- ==== SCRIPTS ==== -->
     <script type="module" src="js/app.js"></script>
