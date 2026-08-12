@@ -267,15 +267,49 @@ function toggleDashboard(show) {
     if (show) renderDashboard();
 }
 
-// Encart d'information (climat, arbitrage, impasse…). Un seul point d'entrée pour les cinq
-// tonalités du système visuel : les notes étaient jusqu'ici écrites une par une, chacune avec
-// sa propre couleur de fond, si bien que « zone chaude » sortait en orange, « grand froid » en
-// bleu ciel et « froid seul » en cyan — trois teintes voisines pour trois messages sans rapport,
-// et un bleu de note impossible à distinguer du bleu qui désigne partout ailleurs la puissance
-// froid. `ton` : 'info' | 'ok' | 'warn' | 'danger' | 'neutral'. `corps` est du HTML déjà sûr
+// --- ICONOGRAPHIE ---
+// Jeu d'icônes filaires de l'interface : un seul tracé (1.75px, bouts arrondis), monochrome,
+// héritant de la couleur du texte parent.
+//
+// Ce sont les emojis qui tenaient ce rôle (☀️ 🥶 ❄️ ⚡ ✅ ⚠️ 📝 💾 📂 🖨️ 📤). Chacun apportait
+// son propre style de dessin, sa propre palette et son propre rendu selon la plateforme — un
+// soleil plat et orange à côté d'un visage bleu en volume à côté d'un triangle jaune vif —,
+// si bien que trois blocs voisins semblaient empruntés à trois interfaces différentes. Sur une
+// fiche que l'artisan montre au client, ça se remarque.
+const ICONES = {
+    soleil:   '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.5 1.5m11.2 11.2 1.5 1.5M2 12h2m16 0h2M4.9 19.1l1.5-1.5m11.2-11.2 1.5-1.5"/>',
+    flocon:   '<path d="M12 2v20M4.2 7l15.6 10M4.2 17 19.8 7"/><path d="M12 6.5 9.8 4.3M12 6.5l2.2-2.2M12 17.5l-2.2 2.2M12 17.5l2.2 2.2"/>',
+    alerte:   '<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4m0 4h.01"/>',
+    check:    '<path d="M20 6 9 17l-5-5"/>',
+    checkRond:'<circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-5"/>',
+    info:     '<circle cx="12" cy="12" r="9"/><path d="M12 16v-4.5M12 8h.01"/>',
+    scinder:  '<path d="M3 6h5l4 6 4-6h5M3 18h5l4-6"/>',
+    document: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
+    moins:    '<path d="M5 12h14"/>',
+    chevron:  '<path d="m6 9 6 6 6-6"/>'
+};
+
+function icone(nom, classes = 'w-4 h-4') {
+    return `<svg class="${classes} flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONES[nom] || ''}</svg>`;
+}
+
+// Couleur de l'icône par tonalité — la note elle-même reste sur surface neutre (voir .k-note
+// dans build/input.css). `alert` réserve le fond teinté à ce qui doit interrompre.
+const TON_ICONE = {
+    info:    'text-froid-600',
+    ok:      'text-emerald-600',
+    warn:    'text-amber-600',
+    danger:  'text-rose-600',
+    neutral: 'text-ink-400'
+};
+
+// Encart d'information (climat, arbitrage, impasse…). `ton` : clé de TON_ICONE, éventuellement
+// suffixée de ' alert' pour les cas qui doivent interrompre. `corps` est du HTML déjà sûr
 // (texte de l'application) — tout ce qui vient de l'utilisateur passe par escapeHtml en amont.
-function note(ton, icone, corps) {
-    return `<div class="k-note k-note-${ton} fade-in">${icone ? `<span class="k-note-icon" aria-hidden="true">${icone}</span>` : ''}<span class="min-w-0">${corps}</span></div>`;
+function note(ton, nomIcone, corps, { alerte = false } = {}) {
+    const classeAlerte = alerte ? ` k-note-alert k-note-alert-${ton === 'danger' ? 'danger' : 'warn'}` : '';
+    const couleur = alerte ? '' : ` ${TON_ICONE[ton] || TON_ICONE.neutral}`;
+    return `<div class="k-note${classeAlerte} fade-in">${nomIcone ? `<span class="k-note-icon${couleur}">${icone(nomIcone)}</span>` : ''}<div class="min-w-0">${corps}</div></div>`;
 }
 
 // Échappe une valeur avant insertion dans du innerHTML (noms de clients / zones saisis
@@ -308,8 +342,8 @@ function renderDashboard() {
     // le plus rassurant possible au pire moment. On dit ce qui se passe, et on annonce que
     // rien ne sera écrit tant que la situation dure.
     if (degrade) {
-        list.innerHTML = note('danger', '⚠️', `
-            <b class="block font-semibold text-sm mb-1">Chantiers illisibles sur cet appareil</b>
+        list.innerHTML = note('danger', 'alerte', `
+            <span class="k-note-title block mb-1">Chantiers illisibles sur cet appareil</span>
             <p>
                 ${degrade === 'illisible'
                     ? "Le navigateur refuse l'accès au stockage local (navigation privée, ou espace saturé)."
@@ -348,7 +382,7 @@ function renderDashboard() {
     if (conflits.length > 0) {
         html += `
         <div class="rounded-2xl border border-amber-200 bg-amber-50 p-4 sm:p-5 fade-in">
-            <h3 class="text-sm font-semibold text-amber-900 mb-1">⚠️ ${conflits.length} version(s) à arbitrer</h3>
+            <h3 class="text-sm font-semibold text-amber-900 mb-1">${conflits.length} version(s) à arbitrer</h3>
             <p class="text-xs text-amber-900/80 mb-3 leading-relaxed">
                 Ces modifications ont été faites sur cet appareil, mais un autre appareil avait
                 déjà enregistré une version plus récente. Rien n'est perdu : récupérez-les comme
@@ -382,9 +416,8 @@ function renderDashboard() {
                 detailsHtml = `
                 <details class="mt-2.5 group">
                     <summary class="k-disclosure text-2xs">
-                        <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                         <span>Détail des unités et des pièces</span>
-                        <svg class="w-3.5 h-3.5 flex-shrink-0 text-ink-400 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"></path></svg>
+                        <span class="text-ink-400 transition-transform group-open:rotate-180">${icone('chevron', 'w-3.5 h-3.5')}</span>
                     </summary>
                     <div class="mt-2 rounded-xl border border-line bg-white p-3 text-2xs text-ink-700 flex flex-col gap-2.5 leading-relaxed">
                         ${eqs.length > 0 ? `<div><div class="k-eyebrow mb-1">Matériel proposé</div>${eqs.map(e => `<div class="text-ink-900">• ${escapeHtml(e)}</div>`).join('')}</div>` : ''}
@@ -472,7 +505,7 @@ function afficherMessageSauvegarde(texte, succes) {
 
 function exportChantiers() {
     if (store.isDegraded()) {
-        afficherMessageSauvegarde("❌ Chantiers illisibles : sauvegarde impossible depuis cet appareil.", false);
+        afficherMessageSauvegarde("Chantiers illisibles : sauvegarde impossible depuis cet appareil.", false);
         return;
     }
     const blob = store.exportLegacyBlob();
@@ -493,7 +526,7 @@ function exportChantiers() {
     URL.revokeObjectURL(url);
 
     const { configs } = compterChantiers(blob);
-    afficherMessageSauvegarde(`✅ ${nbClients} client(s), ${configs} zone(s) sauvegardés dans un fichier.`, true);
+    afficherMessageSauvegarde(`${nbClients} client(s), ${configs} zone(s) sauvegardés dans un fichier.`, true);
 }
 
 async function importChantiers(event) {
@@ -506,15 +539,15 @@ async function importChantiers(event) {
     try {
         charge = JSON.parse(await fichier.text());
     } catch (e) {
-        afficherMessageSauvegarde("❌ Fichier illisible : ce n'est pas un fichier de sauvegarde valide.", false);
+        afficherMessageSauvegarde("Fichier illisible : ce n'est pas un fichier de sauvegarde valide.", false);
         return;
     }
     if (!sauvegardeValide(charge)) {
-        afficherMessageSauvegarde("❌ Ce fichier n'est pas une sauvegarde de chantiers.", false);
+        afficherMessageSauvegarde("Ce fichier n'est pas une sauvegarde de chantiers.", false);
         return;
     }
     if (store.isDegraded()) {
-        afficherMessageSauvegarde("❌ Chantiers actuels illisibles : restauration refusée pour ne rien écraser.", false);
+        afficherMessageSauvegarde("Chantiers actuels illisibles : restauration refusée pour ne rien écraser.", false);
         return;
     }
 
@@ -522,7 +555,7 @@ async function importChantiers(event) {
     renderDashboard();
     populateClientDatalist();
     afficherMessageSauvegarde(
-        `✅ ${ajoutes} zone(s) restaurée(s)` + (ignores ? `, ${ignores} déjà présente(s).` : '.'),
+        `${ajoutes} zone(s) restaurée(s)` + (ignores ? `, ${ignores} déjà présente(s).` : '.'),
         true
     );
 }
@@ -533,7 +566,7 @@ function deleteChantier(clientName) {
         // refusé par le stockage se réaffichait comme réussi, jusqu'au prochain rechargement
         // où le chantier « supprimé » réapparaissait.
         if (!store.softDeleteByClient(clientName)) {
-            afficherMessageSauvegarde("❌ Suppression impossible : le stockage local est indisponible.", false);
+            afficherMessageSauvegarde("Suppression impossible : le stockage local est indisponible.", false);
         }
         renderDashboard();
         planifierSync();
@@ -544,7 +577,7 @@ function deleteConfig(id) {
     const cfg = store.getConfig(id);
     if (cfg && !confirm(`Supprimer définitivement la zone « ${cfg.zone} » ?`)) return;
     if (!store.softDelete(id)) {
-        afficherMessageSauvegarde("❌ Suppression impossible : le stockage local est indisponible.", false);
+        afficherMessageSauvegarde("Suppression impossible : le stockage local est indisponible.", false);
     }
     renderDashboard();
     planifierSync();
@@ -716,8 +749,8 @@ function restoreDraftIfAny() {
     const bannerText = document.getElementById('draft-banner-text');
     if (bannerText) {
         bannerText.textContent = marqueAjustee
-            ? `📝 Saisie précédente restaurée — marque ajustée en ${libelleMarque(state.brand)} (${libelleMarque(draft.brand)} n'est plus proposée sur ce poste). Vérifiez le matériel avant d'enregistrer.`
-            : '📝 Saisie précédente restaurée.';
+            ? `Saisie précédente restaurée — marque ajustée en ${libelleMarque(state.brand)} (${libelleMarque(draft.brand)} n'est plus proposée sur ce poste). Vérifiez le matériel avant d'enregistrer.`
+            : 'Saisie précédente restaurée.';
     }
     if (banner) banner.classList.remove('hidden');
 }
@@ -769,7 +802,7 @@ function saveChantier() {
 
     const id = store.saveConfig({ clientName: client, zone, body: captureCorpsChantier() });
     if (id === null) {
-        msgBox.innerHTML = "❌ Échec de la sauvegarde (stockage local indisponible ou plein).";
+        msgBox.innerHTML = "Échec de la sauvegarde (stockage local indisponible ou plein).";
         msgBox.className = "mt-3 text-xs font-semibold text-center text-rose-600 block";
         return;
     }
@@ -778,7 +811,7 @@ function saveChantier() {
     state.loadedConfigId = null;
     document.getElementById('save-zone').value = '';
     planifierSync();
-    msgBox.innerHTML = "✅ Sauvegardé avec succès dans 'Mes Chantiers' !";
+    msgBox.innerHTML = "Enregistré dans Mes chantiers.";
     msgBox.className = "mt-3 text-xs font-semibold text-center text-emerald-700 block";
     populateClientDatalist();
 }
@@ -799,14 +832,14 @@ function updateChantier() {
 
     const ok = store.updateConfig(state.loadedConfigId, { clientName: client, zone, body: captureCorpsChantier() });
     if (!ok) {
-        msgBox.innerHTML = "❌ Échec de la mise à jour (stockage local indisponible, ou fiche introuvable).";
+        msgBox.innerHTML = "Échec de la mise à jour (stockage local indisponible, ou fiche introuvable).";
         msgBox.className = "mt-3 text-xs font-semibold text-center text-rose-600 block";
         return;
     }
 
     clearDraft();
     planifierSync();
-    msgBox.innerHTML = "✅ Configuration mise à jour.";
+    msgBox.innerHTML = "Configuration mise à jour.";
     msgBox.className = "mt-3 text-xs font-semibold text-center text-emerald-700 block";
     populateClientDatalist();
 }
@@ -1138,7 +1171,7 @@ function calculate() {
     if (erreur) {
         state.currentCalc = null;
         effacerMarqueObsolescence();
-        resultsContainer.innerHTML = `<div class="k-note k-note-danger text-sm fade-in" role="alert"><span class="k-note-icon">⚠️</span><span>${escapeHtml(erreur)}</span></div>`;
+        resultsContainer.innerHTML = `<div class="k-note k-note-alert k-note-alert-danger text-sm fade-in" role="alert"><span class="k-note-icon">${icone('alerte')}</span><div class="min-w-0">${escapeHtml(erreur)}</div></div>`;
         resultsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
         return;
     }
@@ -1147,23 +1180,47 @@ function calculate() {
     const { tBaseHiver, tBaseEte } = getClimateContext();
     const froidSeul = state.usage === 'froid_seul';
 
+    // Corrections appliquées au besoin brut avant sélection. Elles sortaient jusqu'ici en trois
+    // encarts pastel empilés, chacun avec sa couleur et son paragraphe : entre le bilan
+    // thermique et la première solution, l'artisan traversait une dizaine de lignes de prose
+    // avant de voir une machine. Elles tiennent maintenant en trois lignes chiffrées dans un
+    // seul bloc (voir renderHypotheses) — la justification reste accessible, repliée, parce
+    // qu'elle est le fond du métier de cet outil ; c'est son volume à l'écran qui changeait
+    // l'ordre de lecture, pas son existence.
+    const hypotheses = [];
+
     // Marge canicule : au-delà de la température de base été, la puissance froid réelle chute
     // (catalogue donné à 35°C ext.). Interpolée sur la Tbase été elle-même, pas sur une liste de
     // zones : voir data.js pour la régression que ça corrige.
     const facteurCanicule = getFacteurCanicule(tBaseEte);
-    const caniculeNote = facteurCanicule > 1
-        ? note('warn', '☀️', `<b class="font-semibold">Zone chaude</b> — marge canicule de +${Math.round((facteurCanicule - 1) * 100)}% appliquée à la sélection (pointes 40-42 °C).`)
-        : '';
+    if (facteurCanicule > 1) {
+        hypotheses.push({
+            libelle: 'Marge canicule',
+            valeur: `+${Math.round((facteurCanicule - 1) * 100)} %`,
+            detail: `Zone sujette à des pointes de 40-42 °C. Le catalogue donne la puissance froid à 35 °C extérieur : au-delà, la puissance réelle chute, d'où la marge appliquée à la sélection.`
+        });
+    }
 
     // Déclassement chaud : la puissance catalogue (+7°C) chute par grand froid. Sans objet en
     // "Froid seul" puisque le chaud n'entre alors plus dans le dimensionnement.
     const facteurDeclassementChaud = getFacteurDeclassementChaud(tBaseHiver);
-    const declassementNote = (!froidSeul && facteurDeclassementChaud > 1.05)
-        ? note('info', '🥶', `<b class="font-semibold">Grand froid</b> — puissance chaud requise majorée de +${Math.round((facteurDeclassementChaud - 1) * 100)}% en catalogue pour compenser la perte de capacité de la PAC à température de base (estimation générique, à affiner avec les courbes constructeur).`)
-        : '';
-    const usageNote = froidSeul
-        ? note('info', '❄️', `<b class="font-semibold">Froid seul</b> — la sélection ignore le besoin chauffage (affiché à titre indicatif ci-dessous). Les machines proposées restent des PAC réversibles standard.`)
-        : '';
+    if (!froidSeul && facteurDeclassementChaud > 1.05) {
+        hypotheses.push({
+            libelle: 'Déclassement chaud',
+            valeur: `+${Math.round((facteurDeclassementChaud - 1) * 100)} %`,
+            detail: `La puissance chaud du catalogue est donnée à +7 °C extérieur ; elle chute à la température de base hiver (${tBaseHiver} °C ici). Estimation générique, à affiner avec les courbes constructeur.`
+        });
+    }
+
+    if (froidSeul) {
+        hypotheses.push({
+            libelle: 'Sélection',
+            valeur: 'Froid seul',
+            detail: `Le besoin chauffage reste affiché à titre indicatif mais n'entre pas dans le choix du matériel. Les machines proposées restent des PAC réversibles standard.`
+        });
+    }
+
+    const hypothesesHtml = renderHypotheses(hypotheses);
 
     // Reset des choix utilisateur à chaque nouveau calcul. loadedConfigId aussi : un calcul
     // fraîchement lancé n'est plus l'édition d'une fiche existante, sauf si reloadConfig() le
@@ -1184,8 +1241,8 @@ function calculate() {
             req: req,
             bilan: { froid: req.froid, chaud: req.chaud },
             besoinsHtml: renderBesoinsCard([req]),
-            caniculeNote: caniculeNote + declassementNote + usageNote,
-            roomDetails: [`Pièce 1 : ${req.froid.toFixed(1)}kW F / ${req.chaud.toFixed(1)}kW C ➔ Taille ${size || 'HORS LIMITE'}`],
+            hypothesesHtml: hypothesesHtml,
+            roomDetails: [`Pièce 1 : ${req.froid.toFixed(1)}kW F / ${req.chaud.toFixed(1)}kW C → Taille ${size || 'HORS LIMITE'}`],
             mono: { options: trierMonosParTva(findBestMonos(froidMatch, chaudMatch, state.brand), state.brand), froidSeul }
         };
     } else {
@@ -1196,7 +1253,7 @@ function calculate() {
             let size = getUiSizeForKw(froidMatch, chaudMatch, state.brand);
             return { index: i + 1, nom: r.nom || '', req: req, froidMatch: froidMatch, chaudMatch: chaudMatch, size: size, maxKw: Math.max(froidMatch, chaudMatch) };
         });
-        const roomDetails = roomsData.map(r => `Pièce ${r.index}${r.nom ? ' (' + r.nom + ')' : ''} : ${r.req.froid.toFixed(1)}kW F / ${r.req.chaud.toFixed(1)}kW C ➔ Taille ${r.size || 'HORS LIMITE'}`);
+        const roomDetails = roomsData.map(r => `Pièce ${r.index}${r.nom ? ' (' + r.nom + ')' : ''} : ${r.req.froid.toFixed(1)}kW F / ${r.req.chaud.toFixed(1)}kW C → Taille ${r.size || 'HORS LIMITE'}`);
 
         let extractedForMono = roomsData.filter(r => r.size === null);
         let standardRooms = roomsData.filter(r => r.size !== null);
@@ -1216,7 +1273,7 @@ function calculate() {
         // Cartes "monosplit dédié" (pièces trop grosses / délestées du groupe).
         let dedicated = extractedForMono.map(room => ({
             room: room,
-            label: `Monosplit Dédié (Pièce ${room.index}${room.nom ? ' — ' + escapeHtml(room.nom) : ''})`,
+            label: `Monosplit dédié · Pièce ${room.index}${room.nom ? ' — ' + room.nom : ''}`,
             options: trierMonosParTva(findBestMonos(room.froidMatch, room.chaudMatch, state.brand), state.brand)
         }));
 
@@ -1225,7 +1282,7 @@ function calculate() {
             // Une seule pièce restante après délestage : traitée comme un mono dédié de plus.
             dedicated.push({
                 room: standardRooms[0],
-                label: `Monosplit Restant (Pièce ${standardRooms[0].index}${standardRooms[0].nom ? ' — ' + escapeHtml(standardRooms[0].nom) : ''})`,
+                label: `Monosplit restant · Pièce ${standardRooms[0].index}${standardRooms[0].nom ? ' — ' + standardRooms[0].nom : ''}`,
                 options: trierMonosParTva(findBestMonos(standardRooms[0].froidMatch, standardRooms[0].chaudMatch, state.brand), state.brand)
             });
         } else if (bestGroup && bestGroup !== "MONO") {
@@ -1263,7 +1320,7 @@ function calculate() {
                 chaud: roomsData.reduce((sum, r) => sum + r.req.chaud, 0)
             },
             besoinsHtml: renderBesoinsCard(roomsData.map(r => r.req), true, roomsData),
-            caniculeNote: caniculeNote + declassementNote + usageNote,
+            hypothesesHtml: hypothesesHtml,
             roomDetails: roomDetails,
             multi: { dedicated: dedicated, groupOptions: groupOptions, standardRooms: standardRooms, hybridNote: hybridNote, froidSeul, groupEquilibre: groupEquilibre }
         };
@@ -1276,9 +1333,12 @@ function calculate() {
 // Explique l'ordre des options équivalentes (trierMonosParTva, calcul.js) : sans ce texte, un
 // artisan qui compare des puissances quasi identiques ne peut pas deviner pourquoi l'une est
 // proposée en premier — c'est l'éligibilité TVA 5,5% qui départage, pas la puissance.
+// Renvoie le sous-titre du bloc plutôt qu'un paragraphe à part : la phrase occupait une ligne
+// pleine entre l'intertitre et la première carte, pour dire ce qui tient en quatre mots à côté
+// du titre. Vide quand il n'y a qu'une option — il n'y a alors rien à trier ni à comparer.
 function noteTriTva(options) {
     if (options.length < 2) return '';
-    return `<p class="text-2xs text-ink-400 leading-relaxed">Options techniquement équivalentes, triées par éligibilité TVA 5,5% en premier.</p>`;
+    return `${options.length} options équivalentes · TVA 5,5% en tête`;
 }
 
 // État vide de la colonne des solutions. Il tient deux rôles, l'un pour chaque format d'écran :
@@ -1302,6 +1362,33 @@ function viderResultats() {
     if (c) c.innerHTML = etatVideResultats();
 }
 
+// Corrections appliquées au besoin brut avant la sélection du matériel : une ligne chiffrée
+// par correction, la justification repliée derrière « Pourquoi ». Voir le commentaire dans
+// calculate() sur ce que ce bloc remplace.
+function renderHypotheses(lignes) {
+    if (lignes.length === 0) return '';
+    // La ligne entière est le déclencheur du dépliant : un lien « Pourquoi » sous chaque ligne
+    // doublait la hauteur du bloc pour n'ajouter qu'une invite. Le chevron suffit à dire qu'il
+    // y a quelque chose dessous, et la valeur chiffrée reste alignée à droite.
+    return `
+    <div class="k-card fade-in">
+        <span class="k-eyebrow">Corrections appliquées</span>
+        <div class="mt-1 divide-y divide-line">
+            ${lignes.map(l => `
+            <details class="group/hyp py-2 first:pt-1 last:pb-0">
+                <summary class="flex items-baseline justify-between gap-4 cursor-pointer select-none list-none py-0.5 -mx-1 px-1 rounded-lg hover:bg-slate-50 transition-colors">
+                    <span class="flex items-baseline gap-1.5 min-w-0 text-xs text-ink-700">
+                        ${l.libelle}
+                        <span class="text-ink-400 transition-transform group-open/hyp:rotate-180 self-center">${icone('chevron', 'w-3.5 h-3.5')}</span>
+                    </span>
+                    <span class="text-xs font-semibold text-ink-900 k-num whitespace-nowrap">${l.valeur}</span>
+                </summary>
+                <p class="k-hint mt-1.5 pr-6">${l.detail}</p>
+            </details>`).join('')}
+        </div>
+    </div>`;
+}
+
 // Intertitre d'un bloc de solutions. Il remplace la répétition du même badge « Monosplit
 // recommandé » en tête de chacune des six cartes : un intitulé recopié à l'identique sur toutes
 // les options ne distingue plus rien, il occupe seulement la ligne la plus visible de la carte.
@@ -1323,7 +1410,7 @@ function renderResults() {
     if (!calc) { resultsContainer.innerHTML = etatVideResultats(); return; }
 
     let html = `<h2 class="k-section-title text-lg">Solutions recommandées</h2>`;
-    html += calc.besoinsHtml + calc.caniculeNote;
+    html += calc.besoinsHtml + calc.hypothesesHtml;
 
     let summaryParts = [];
     let equipments = [];
@@ -1331,10 +1418,9 @@ function renderResults() {
     if (calc.mode === 'mono') {
         const options = calc.mono.options;
         if (options.length === 0) {
-            html += note('warn', '⚠️', 'Aucun monosplit du catalogue ne couvre ce niveau de puissance.');
+            html += note('warn', 'alerte', 'Aucun monosplit du catalogue ne couvre ce niveau de puissance.');
         } else {
-            html += blocTitre('Monosplit', options.length > 1 ? `${options.length} options équivalentes` : '');
-            html += noteTriTva(options);
+            html += blocTitre('Monosplit', noteTriTva(options));
             const selIdx = Math.min(state.selection.mono || 0, options.length - 1);
             options.forEach((sol, idx) => {
                 const selectOpts = options.length > 1 ? { selected: idx === selIdx, onclick: `selectMono(${idx})` } : null;
@@ -1350,15 +1436,14 @@ function renderResults() {
         const m = calc.multi;
 
         if (m.hybridNote) {
-            html += note('neutral', '⚡', `<b class="font-semibold">Architecture hybride</b> — délestage requis : un ou plusieurs monosplits dédiés pour la ou les plus grandes pièces, et un multisplit pour le reste.`);
+            html += note('neutral', 'scinder', `<span class="k-note-title">Architecture hybride</span> — un monosplit dédié pour la ou les plus grandes pièces, un multisplit pour le reste.`);
         }
 
         m.dedicated.forEach(dedItem => {
             const room = dedItem.room;
             const options = dedItem.options;
             if (options.length > 0) {
-                html += blocTitre(escapeHtml(dedItem.label), options.length > 1 ? `${options.length} options équivalentes` : '');
-                html += noteTriTva(options);
+                html += blocTitre(escapeHtml(dedItem.label), noteTriTva(options));
                 const selIdx = Math.min(state.selection.dedicated[room.index] || 0, options.length - 1);
                 options.forEach((sol, idx) => {
                     const selectOpts = options.length > 1 ? { selected: idx === selIdx, onclick: `selectDedicated(${room.index}, ${idx})` } : null;
@@ -1370,7 +1455,7 @@ function renderResults() {
                 summaryParts.push(`1x Mono ${chosen.gamme}`);
                 equipments.push(`${dedItem.label} — Modèle sélectionné : ${chosen.gamme} (${chosen.reference_ensemble})${tvaSuffixText(chosenTva)}`);
             } else {
-                html += note('warn', '⚠️', `<b class="font-semibold">Pièce ${room.index}</b> — puissance requise (${room.maxKw.toFixed(1)} kW) hors catalogue.`);
+                html += note('warn', 'alerte', `<span class="k-note-title">Pièce ${room.index}</span> — puissance requise (${room.maxKw.toFixed(1)} kW) hors catalogue.`);
                 equipments.push(`Pièce ${room.index} : Aucune machine assez puissante`);
             }
         });
@@ -1400,7 +1485,7 @@ function renderResults() {
             });
             html += renderMultiRoomsGuide(m.standardRooms, bestGroup);
             summaryParts.push(`1x Multi ${bestGroup.reference} (${m.standardRooms.length} UI)`);
-            if (equilibre) equipments.push(`Équilibre du groupe : ${equilibre.message}`);
+            if (equilibre) equipments.push(`Équilibre du groupe : ${equilibre.resume} ${equilibre.detail}`);
 
             const uiChoices = m.standardRooms.map(r => {
                 const selGamme = state.selection.group[r.index];
@@ -1456,7 +1541,7 @@ function renderResults() {
         <div class="k-card fade-in">
             <h3 class="k-section-title mb-4">Enregistrer au chantier</h3>
             ${state.loadedConfigId ? `
-            <div class="k-note k-note-info mb-4 items-center justify-between gap-3 flex-wrap">
+            <div class="k-note mb-4 items-center justify-between gap-3 flex-wrap">
                 <span class="min-w-0">Configuration chargée — vous pouvez la mettre à jour au lieu d'en créer une nouvelle.</span>
                 <button onclick="oublierConfigChargee()" class="k-btn-outline min-h-[36px] px-3 text-2xs whitespace-nowrap flex-shrink-0">Nouvelle fiche</button>
             </div>` : ''}
@@ -1660,8 +1745,8 @@ function gammeGuideContent(gammeName) {
             <span class="k-eyebrow block mb-0.5">Idéal pour</span>${g.ideal}
         </div>
         <ul class="flex flex-col gap-1.5">
-            ${g.plus.map(p => `<li class="flex items-start gap-2 text-emerald-800"><span class="text-emerald-600 font-bold leading-4" aria-hidden="true">✓</span><span>${p}</span></li>`).join('')}
-            ${g.moins.map(m => `<li class="flex items-start gap-2 text-amber-800"><span class="text-amber-600 font-bold leading-4" aria-hidden="true">!</span><span>${m}</span></li>`).join('')}
+            ${g.plus.map(p => `<li class="flex items-start gap-2 text-ink-700"><span class="text-emerald-600 mt-0.5">${icone('check', 'w-3.5 h-3.5')}</span><span>${p}</span></li>`).join('')}
+            ${g.moins.map(m => `<li class="flex items-start gap-2 text-ink-700"><span class="text-amber-600 mt-0.5">${icone('moins', 'w-3.5 h-3.5')}</span><span>${m}</span></li>`).join('')}
         </ul>
         <div class="text-ink-500">Wifi : <span class="${wifiColor} font-semibold">${g.wifi}</span></div>
     </div>`;
@@ -1676,10 +1761,10 @@ function renderGammeGuide(gammeName) {
     return `
     <details class="mt-4 pt-3 k-divider group/guide">
         <summary class="k-disclosure">
-            <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            ${icone('info')}
             <span>Guide de la gamme</span>
             <span class="ml-auto k-pill k-pill-neutral font-medium normal-case">${g.tier}</span>
-            <svg class="w-4 h-4 flex-shrink-0 text-ink-400 transition-transform group-open/guide:rotate-180" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"></path></svg>
+            <span class="text-ink-400 transition-transform group-open/guide:rotate-180">${icone('chevron')}</span>
         </summary>
         <div class="mt-3">${gammeGuideContent(gammeName)}</div>
     </details>`;
@@ -1713,11 +1798,11 @@ function renderMultiRoomsGuide(roomsData, group) {
             return `
             <div class="flex flex-col items-start gap-1.5">
                 <button type="button" onclick="selectGroupGamme(${r.index}, '${gEsc}')" aria-pressed="${isSel}" class="k-chip">
-                    ${isSel ? `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path></svg>` : ''}${g}
+                    ${isSel ? icone('check', 'w-3.5 h-3.5') : ''}${g}
                 </button>
                 <div class="flex flex-wrap gap-1.5">${renderTvaBadge(tvaInfo)}</div>
                 <details class="group/mg" onclick="event.stopPropagation()">
-                    <summary class="k-disclosure text-2xs font-medium text-ink-400">Détails</summary>
+                    <summary class="k-disclosure text-2xs font-medium text-ink-400 group/d">Détails<span class="transition-transform group-open/d:rotate-180">${icone('chevron', 'w-3 h-3')}</span></summary>
                     <div class="mt-2 mb-1">${gammeGuideContent(g)}</div>
                 </details>
             </div>`;
@@ -1735,13 +1820,13 @@ function renderMultiRoomsGuide(roomsData, group) {
     return `
     <div class="k-card fade-in">
         <h3 class="k-section-title">Unités intérieures</h3>
-        <p class="k-hint mt-2">Sélectionnez la gamme souhaitée pour chaque pièce${allowedGammes ? ` (compatibles avec ${escapeHtml(allowedGammes.join(' / '))})` : ''}. Vous pouvez mixer les gammes sur un même groupe extérieur pour éviter de surdimensionner une petite pièce.</p>
+        <p class="k-hint mt-1.5">Une gamme par pièce, mixables sur le même groupe.</p>
         <details class="mt-2 group/tva">
-            <summary class="k-disclosure">
-                <span>TVA 5,5% en multisplit : comment elle se transmet</span>
-                <svg class="w-4 h-4 flex-shrink-0 text-ink-400 transition-transform group-open/tva:rotate-180" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"></path></svg>
+            <summary class="k-disclosure text-2xs font-medium text-ink-400">
+                <span>TVA 5,5% en multisplit</span>
+                <span class="text-ink-400 transition-transform group-open/tva:rotate-180">${icone('chevron', 'w-3.5 h-3.5')}</span>
             </summary>
-            <p class="k-hint mt-2">L'éligibilité est portée par le groupe extérieur : toutes les unités intérieures raccordées à un groupe éligible en bénéficient, sans condition de module Wifi — y compris les gammes et tailles refusées en monosplit (Naka, Yukai 18 et 24).</p>
+            <p class="k-hint mt-1.5">Portée par le groupe extérieur : toutes les unités raccordées à un groupe éligible en bénéficient, sans condition de module Wifi — y compris les gammes et tailles refusées en monosplit (Naka, Yukai 18 et 24).${allowedGammes ? ` Gammes compatibles avec ce groupe : ${escapeHtml(allowedGammes.join(', '))}.` : ''}</p>
         </details>
         <div class="mt-3">${rows}</div>
     </div>`;
@@ -1796,7 +1881,8 @@ function analyseEquilibreGroupe(m, selectedGroup) {
             : '';
         return {
             ton: 'ok',
-            message: `Groupe supérieur retenu automatiquement pour tenir la demande simultanée : ${roomLabel(dominante)} ne représente plus que ${pct(ratioSel)}% de la puissance du ${selectedGroup.reference} (limite ${seuilPct}%).${detailBase}${detailSousCharge}`
+            resume: `Groupe supérieur retenu : ${roomLabel(dominante)} n'absorbe plus que ${pct(ratioSel)}% du ${selectedGroup.reference} (limite ${seuilPct}%).`,
+            detail: `Ce cran supérieur a été choisi automatiquement pour tenir la demande simultanée.${detailBase}${detailSousCharge}`.trim()
         };
     }
 
@@ -1806,7 +1892,8 @@ function analyseEquilibreGroupe(m, selectedGroup) {
             : ` Aucun groupe plus puissant du catalogue ne rééquilibre cette configuration : un monosplit dédié pour cette pièce est à envisager.`;
         return {
             ton: equil ? 'escalade' : 'alerte',
-            message: `${roomLabel(dominante)} représente à elle seule ${pct(ratioSel)}% de la puissance du ${selectedGroup.reference} (limite ${seuilPct}%) : les autres pièces peuvent manquer de capacité en cas de forte demande simultanée.${solution}`
+            resume: `${roomLabel(dominante)} absorbe ${pct(ratioSel)}% du ${selectedGroup.reference} (limite ${seuilPct}%).`,
+            detail: `Les autres pièces peuvent manquer de capacité en cas de forte demande simultanée.${solution}`
         };
     }
 
@@ -1815,13 +1902,22 @@ function analyseEquilibreGroupe(m, selectedGroup) {
 
 // Bandeau de la note d'équilibre, au-dessus des cartes de groupe extérieur (contrairement aux notes
 // climat, elle dépend du groupe sélectionné : sa place est donc à côté des solutions concernées).
+// Le résumé chiffré reste visible, le raisonnement est replié. La note faisait jusqu'à six
+// lignes de prose au-dessus des cartes de groupe : l'arbitrage qu'elle explique est le plus
+// technique de l'outil, mais il se vérifie d'abord sur un pourcentage et une limite — le reste
+// se lit quand on conteste le choix, pas à chaque calcul.
 function renderBalanceNote(analyse) {
     const styles = {
-        ok:       { ton: 'ok', icone: '✅' },
-        escalade: { ton: 'warn', icone: '⚠️' },
-        alerte:   { ton: 'warn', icone: '⚠️' }
+        ok:       { ton: 'ok',   icone: 'checkRond' },
+        escalade: { ton: 'warn', icone: 'alerte' },
+        alerte:   { ton: 'warn', icone: 'alerte' }
     }[analyse.ton];
-    return note(styles.ton, styles.icone, escapeHtml(analyse.message));
+    return note(styles.ton, styles.icone, `
+        <span class="k-note-title">${escapeHtml(analyse.resume)}</span>
+        <details class="mt-1">
+            <summary class="k-disclosure text-2xs font-medium text-ink-400 group/b">En détail<span class="transition-transform group-open/b:rotate-180">${icone('chevron', 'w-3 h-3')}</span></summary>
+            <p class="k-hint mt-1.5">${escapeHtml(analyse.detail)}</p>
+        </details>`);
 }
 
 // Taux de charge = besoin réel / puissance nominale catalogue. En dessous de ~50%, un
@@ -1847,13 +1943,13 @@ function renderChargeBadge(reqFroid, reqChaud, nominalFroid, nominalChaud) {
     const t = tauxCharge(reqFroid, reqChaud, nominalFroid, nominalChaud);
     if (!t) return '';
     const label = `Charge ${Math.round(t.chargeF * 100)}% F${t.chargeC !== null ? ` · ${Math.round(t.chargeC * 100)}% C` : ''}`;
-    return `<span class="k-pill ${t.sousCharge ? 'k-pill-warn' : 'k-pill-neutral'} k-num">${t.sousCharge ? '⚠️ ' : ''}${label}</span>`;
+    return `<span class="k-pill ${t.sousCharge ? 'k-pill-warn' : 'k-pill-neutral'} k-num">${t.sousCharge ? icone('alerte', 'w-3 h-3') : ''}${label}</span>`;
 }
 
 function renderChargeWarning(reqFroid, reqChaud, nominalFroid, nominalChaud) {
     const t = tauxCharge(reqFroid, reqChaud, nominalFroid, nominalChaud);
     if (!t || !t.sousCharge) return '';
-    return `<p class="text-2xs text-amber-800 mt-2 leading-relaxed">Machine surdimensionnée pour ce besoin : cycles courts, confort et rendement réel dégradés.</p>`;
+    return `<p class="text-2xs text-amber-800 mt-2 leading-relaxed">Surdimensionnée pour ce besoin : cycles courts, rendement réel dégradé.</p>`;
 }
 
 // selectOpts = null (carte simple, non sélectionnable) ou { selected: bool, onclick: string }
@@ -1892,7 +1988,7 @@ function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = fals
         wrapperClasses += ' k-result-selectable';
         radio = `
         <span class="k-radio" aria-hidden="true">
-            ${selectOpts.selected ? `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path></svg>` : ''}
+            ${selectOpts.selected ? icone('check', 'w-3.5 h-3.5') : ''}
         </span>`;
         // Empêche l'ouverture du guide de gamme de déclencher aussi la sélection de la carte.
         gammeGuideBlock = `<div onclick="event.stopPropagation()">${gammeGuideBlock}</div>`;
@@ -1954,7 +2050,7 @@ function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = fals
 // sélection (voir renderCard) — ouvrir l'explication ne doit pas aussi sélectionner la carte.
 function pastilleTva(variante, texte, explication) {
     return `<details onclick="event.stopPropagation()" class="inline-block align-top">
-        <summary class="k-pill k-pill-${variante} cursor-pointer">${texte} <span class="opacity-50" aria-hidden="true">ⓘ</span></summary>
+        <summary class="k-pill k-pill-${variante} cursor-pointer">${texte}<span class="opacity-45">${icone('info', 'w-3 h-3')}</span></summary>
         <p class="text-2xs text-ink-500 mt-1.5 max-w-xs leading-relaxed">${explication}</p>
     </details>`;
 }
@@ -1974,7 +2070,7 @@ function renderTvaBadge(tvaInfo) {
         a_verifier:   pastilleTva('neutral', 'TVA à vérifier', `Référence absente du tableau d'éligibilité ${marque} (vérifié le ${dateVerif}) : à confirmer auprès du constructeur avant de facturer en 5,5%.`)
     };
     const wifi = tvaInfo.wifiRequired
-        ? `<span class="k-pill k-pill-warn">Module Wifi requis</span>`
+        ? `<span class="k-pill k-pill-neutral">Module Wifi requis</span>`
         : '';
     return (badges[tvaInfo.statut] || badges.a_verifier) + wifi;
 }

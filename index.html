@@ -108,8 +108,11 @@
       <div class="flex flex-col gap-5 min-w-0">
 
         <!-- Bannière de reprise de saisie (autosave) -->
-        <div id="draft-banner" class="hidden k-note k-note-info items-center justify-between gap-3 fade-in">
-            <span id="draft-banner-text" class="flex-grow">Saisie précédente restaurée.</span>
+        <div id="draft-banner" class="hidden k-note items-center justify-between gap-3 fade-in">
+            <span class="k-note-icon text-ink-400">
+                <svg class="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>
+            </span>
+            <span id="draft-banner-text" class="flex-grow min-w-0">Saisie précédente restaurée.</span>
             <button onclick="startNewCalcul()" class="k-btn-outline min-h-[36px] px-3 text-2xs whitespace-nowrap flex-shrink-0">Nouveau calcul</button>
         </div>
 
@@ -194,7 +197,16 @@
                             <button type="button" id="btn-usage-reversible" onclick="setUsage('reversible')" aria-pressed="true" class="k-seg-item">Réversible</button>
                             <button type="button" id="btn-usage-froid_seul" onclick="setUsage('froid_seul')" aria-pressed="false" class="k-seg-item">Froid seul</button>
                         </div>
-                        <p id="usage-note" class="hidden k-hint mt-2">Le besoin chauffage n'est pas pris en compte pour la sélection du matériel (affiché à titre indicatif). Les machines proposées restent des PAC réversibles standard. L'éligibilité TVA 5,5% affichée suppose un usage chauffage (base légale rénovation énergétique) : à vérifier si l'installation est motivée uniquement par le rafraîchissement.</p>
+                        <!-- Le corps du message est replié : trois phrases s'affichaient en clair sous
+                             le sélecteur, dont deux ne concernent que le cas où l'artisan facture en
+                             5,5% — une question qui se pose au devis, pas pendant la saisie. -->
+                        <details id="usage-note" class="hidden mt-2 group/usage">
+                            <summary class="k-disclosure text-2xs font-medium text-ink-400">
+                                <span>Ce que « froid seul » change</span>
+                                <svg class="w-3.5 h-3.5 flex-shrink-0 transition-transform group-open/usage:rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+                            </summary>
+                            <p class="k-hint mt-1.5">Le besoin chauffage reste affiché à titre indicatif mais n'entre pas dans le choix du matériel ; les machines proposées restent des PAC réversibles standard. L'éligibilité TVA 5,5% affichée suppose un usage chauffage (base légale rénovation énergétique) : à vérifier si l'installation est motivée uniquement par le rafraîchissement.</p>
+                        </details>
                     </div>
                 </div>
             </div>
@@ -229,8 +241,11 @@
         <!-- Avertissement de péremption : les hypothèses (département, isolation, surfaces…) ont
              changé depuis le dernier calcul, donc le matériel affiché plus bas ne correspond plus.
              Signalé plutôt qu'effacé, pour ne pas faire disparaître un résultat sous les doigts. -->
-        <div id="stale-banner" class="hidden k-note k-note-warn items-center justify-between gap-3 fade-in" role="status">
-            <span class="flex-grow"><span class="k-note-icon">⚠️</span> Les hypothèses ont changé — les solutions ci-dessous ne sont plus à jour.</span>
+        <div id="stale-banner" class="hidden k-note k-note-alert k-note-alert-warn items-center justify-between gap-3 fade-in" role="status">
+            <span class="k-note-icon">
+                <svg class="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4m0 4h.01"/></svg>
+            </span>
+            <span class="flex-grow min-w-0">Les hypothèses ont changé — ces solutions ne sont plus à jour.</span>
             <button onclick="calculate()" class="k-btn-outline min-h-[36px] px-3 text-2xs whitespace-nowrap flex-shrink-0">Recalculer</button>
         </div>
 

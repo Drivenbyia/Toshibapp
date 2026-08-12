@@ -42,7 +42,7 @@ function renderOverlayContent(erreur) {
             <h2 class="text-lg font-semibold text-ink-900">Compte</h2>
             <p class="text-sm text-ink-500 mb-4 break-words">${echapper(account.getUserEmail() || '')}</p>
             ${status === 'stale' ? `
-            <div class="k-note k-note-warn mb-4">
+            <div class="k-note k-note-alert k-note-alert-warn mb-4">
                 <span class="min-w-0">Hors ligne : la session n'a pas pu être reconfirmée, mais vos chantiers restent
                 pleinement accessibles sur cet appareil.</span>
             </div>` : ''}
@@ -64,7 +64,7 @@ function renderOverlayContent(erreur) {
     zone.innerHTML = `
         <h2 class="text-lg font-semibold text-ink-900 mb-4">Connexion</h2>
         ${status === 'revoked' ? `
-        <div class="k-note k-note-danger mb-4">
+        <div class="k-note k-note-alert k-note-alert-danger mb-4">
             <span class="min-w-0">Votre session a expiré. Reconnectez-vous, ou continuez sans compte : vos chantiers
             restent disponibles sur cet appareil.</span>
         </div>` : ''}
