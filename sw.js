@@ -1,12 +1,18 @@
 // Service worker réel de Klimo, servi en same-origin (contrairement à l'ancienne
 // version enregistrée depuis une blob: URL, que les navigateurs refusent silencieusement).
-const CACHE_VERSION = 'v5';
+const CACHE_VERSION = 'v6';
 const CACHE_NAME = `klimo-${CACHE_VERSION}`;
 const PRECACHE_URLS = [
     './',
     './index.html',
     './manifest.json',
     './assets/tailwind.css',
+    // Police auto-hébergée. Sans cette entrée, un premier chargement hors ligne retombe sur
+    // la pile système, puis bascule de rendu dès le retour du réseau.
+    // NB : pas de guillemet simple dans les commentaires de ce tableau — readPrecacheUrls()
+    // (tests/precache.test.mjs) extrait les chaînes par appariement de quotes, et une
+    // apostrophe isolée décale tout le reste de la liste.
+    './assets/archivo-variable-latin.woff2',
     './js/data.js',
     './js/calcul.js',
     './js/sauvegarde.js',

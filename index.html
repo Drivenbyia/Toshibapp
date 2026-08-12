@@ -17,6 +17,11 @@
     <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png">
     <link rel="apple-touch-icon" href="icons/icon-192.png">
 
+    <!-- La police est déclarée dans la feuille compilée (voir @font-face dans build/input.css).
+         Ce préchargement la demande en parallèle du CSS plutôt qu'après lui : sans lui, le
+         navigateur ne découvre le fichier qu'une fois la feuille analysée, et le premier rendu
+         se fait en police système avant de basculer sous les yeux de l'artisan. -->
+    <link rel="preload" as="font" type="font/woff2" href="assets/archivo-variable-latin.woff2" crossorigin>
     <link rel="stylesheet" href="assets/tailwind.css">
     <style>
         /* Accent Klimo fixe, indépendant de la marque de matériel sélectionnée : l'application
