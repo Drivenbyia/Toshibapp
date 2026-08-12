@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Klimo - Dimensionnement Climatisation</title>
-    <meta name="theme-color" content="#0F766E">
+    <meta name="theme-color" content="#062F28">
 
     <!-- Balises PWA -->
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -12,25 +12,30 @@
     <meta name="mobile-web-app-capable" content="yes">
     <link rel="manifest" href="manifest.json">
 
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%230F766E'/%3E%3Cpath d='M4 7h16v2H4V7zm4 4h8v2H8v-2zm-4 4h16v2H4v-2z' fill='%23ffffff'/%3E%3C/svg%3E">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='3' fill='%23062F28'/%3E%3Cg fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M3 9h11a2.5 2.5 0 1 0-2.5-2.5'/%3E%3Cpath d='M3 15h13a2.5 2.5 0 1 1-2.5 2.5'/%3E%3C/g%3E%3C/svg%3E">
     <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png">
     <link rel="apple-touch-icon" href="icons/icon-192.png">
 
+    <!-- La police est déclarée dans la feuille compilée (voir @font-face dans build/input.css).
+         Ce préchargement la demande en parallèle du CSS plutôt qu'après lui : sans lui, le
+         navigateur ne découvre le fichier qu'une fois la feuille analysée, et le premier rendu
+         se fait en police système avant de basculer sous les yeux de l'artisan. -->
+    <link rel="preload" as="font" type="font/woff2" href="assets/archivo-variable-latin.woff2" crossorigin>
     <link rel="stylesheet" href="assets/tailwind.css">
     <style>
         /* Accent Klimo fixe, indépendant de la marque de matériel sélectionnée : l'application
            doit se présenter comme l'outil de l'installateur, pas comme le configurateur d'un
-           constructeur. Teal #0F766E : contraste ~5.2:1 sur blanc, au-dessus du seuil AA de
+           constructeur. Teal #0A6E5F : contraste ~5.3:1 sur blanc, au-dessus du seuil AA de
            4.5:1 pour du texte normal, et n'appartient à aucune des marques du catalogue.
            Il n'y a ici que ce qui ne peut pas passer par Tailwind (pseudo-éléments de la barre
            de défilement, feuille d'impression) : couleurs, composants et jetons du système
            visuel vivent dans build/tailwind.config.js et build/input.css — voir le README. */
-        :root { --brand-accent: #0F766E; }
+        :root { --brand-accent: #0A6E5F; }
 
         ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb { background: #9CADA8; border-radius: 2px; }
         ::-webkit-scrollbar-thumb:hover { background: var(--brand-accent); }
 
         input[type=number]::-webkit-inner-spin-button,
@@ -67,22 +72,26 @@
          Un seul niveau d'information : l'identité, l'état du compte, l'accès aux chantiers.
          Le numéro de version, qui occupait ici la place d'une action, est descendu en pied de
          page : il sert au support, jamais à l'artisan en cours de saisie. -->
-    <header class="bg-white/95 backdrop-blur border-b border-line sticky top-0 z-50">
-        <div class="max-w-3xl xl:max-w-6xl mx-auto px-4 h-16 flex items-center justify-between gap-3">
-            <button type="button" onclick="toggleDashboard(false)" class="flex items-center gap-2.5 -ml-2 px-2 py-1.5 rounded-xl hover:bg-slate-50 transition-colors" title="Retour au dimensionnement">
-                <span class="w-9 h-9 rounded-xl bg-accent-500 flex items-center justify-center flex-shrink-0">
-                    <svg class="w-5 h-5 text-white" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                        <path d="M4 7h16v2H4V7zm4 4h8v2H8v-2zm-4 4h16v2H4v-2z"/>
+    <header class="k-appbar">
+        <div class="max-w-3xl duo:max-w-6xl mx-auto px-4 h-16 flex items-center justify-between gap-3">
+            <button type="button" onclick="toggleDashboard(false)" class="flex items-center gap-2.5 -ml-1 px-1 py-1.5 rounded-lg hover:bg-white/10 transition-colors" title="Retour au dimensionnement">
+                <span class="k-appbar-mark">
+                    <!-- Deux courants d'air soufflés : le seul geste que fait la machine, et de
+                         quoi distinguer la marque de l'icône de menu que les trois barres
+                         horizontales précédentes imitaient à cette taille. -->
+                    <svg class="w-[18px] h-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                        <path d="M3 9h11a2.5 2.5 0 1 0-2.5-2.5"/>
+                        <path d="M3 15h13a2.5 2.5 0 1 1-2.5 2.5"/>
                     </svg>
                 </span>
-                <span class="text-lg font-bold tracking-tight text-ink-900">Klimo</span>
+                <span class="k-appbar-wordmark">Klimo</span>
             </button>
 
             <div class="flex items-center gap-1.5 sm:gap-2 min-w-0">
                 <span id="sync-badge" class="hidden k-pill k-pill-neutral"></span>
-                <button id="account-badge" data-status="anonymous" class="k-btn-soft px-3 max-w-[8.5rem] sm:max-w-[12rem] truncate" title="Compte">Se connecter</button>
-                <button onclick="toggleDashboard(true)" class="k-icon-btn hover:text-accent-700 hover:bg-accent-50" title="Mes Chantiers" aria-label="Mes Chantiers">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
+                <button id="account-badge" data-status="anonymous" class="k-btn-onband max-w-[8.5rem] sm:max-w-[12rem] truncate" title="Compte">Se connecter</button>
+                <button onclick="toggleDashboard(true)" class="k-icon-btn-onband" title="Mes Chantiers" aria-label="Mes Chantiers">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
                 </button>
             </div>
         </div>
@@ -98,12 +107,15 @@
     </div>
 
     <!-- ==== VUE 1 : SIMULATEUR ====
-         Deux colonnes à partir de xl (≥1280px) : la saisie à gauche, les solutions à droite.
+         Deux colonnes à partir de `duo` (≥1000px) : la saisie à gauche, les solutions à droite.
+         Le palier était calé à xl (1280px), si bien que toute tablette en PAYSAGE — le format le
+         plus courant sur le terrain — recevait la mise en page téléphone : 736px de contenu dans
+         1194px d'écran, et tout le formulaire à dérouler avant d'atteindre le matériel.
          En dessous, une seule colonne — l'app est d'abord un outil de terrain, tenu à une main.
          La grille est permanente (et non déclenchée par l'apparition des résultats) pour que la
          saisie ne se réorganise pas sous les doigts au moment du calcul ; la colonne de droite
          porte un état vide tant qu'aucun calcul n'a été lancé. -->
-    <main id="app-main" class="flex-grow w-full max-w-3xl xl:max-w-6xl mx-auto px-4 py-6 grid grid-cols-1 xl:grid-cols-[minmax(0,7fr)_minmax(0,8fr)] gap-6 xl:gap-8 items-start">
+    <main id="app-main" class="flex-grow w-full max-w-3xl duo:max-w-6xl mx-auto px-4 py-6 grid grid-cols-1 duo:grid-cols-[minmax(0,7fr)_minmax(0,8fr)] gap-6 duo:gap-8 items-start">
 
       <div class="flex flex-col gap-5 min-w-0">
 
@@ -183,7 +195,7 @@
                         </select>
                     </div>
 
-                    <div id="climate-diagnostic" class="rounded-xl bg-accent-50 border border-accent-100 px-3 py-2.5 text-xs leading-relaxed text-accent-900 k-num">
+                    <div id="climate-diagnostic" class="k-climate k-num">
                         Zone détectée : -- | Température de base : --
                     </div>
 
@@ -286,7 +298,7 @@
          Version du moteur de calcul : information de support, à sa place ici plutôt que dans la
          barre du haut où elle disputait la place aux actions. -->
     <footer class="mt-auto border-t border-line bg-white">
-        <div class="max-w-3xl xl:max-w-6xl mx-auto px-4 py-4 flex flex-wrap items-center justify-between gap-2 text-2xs text-ink-400" style="padding-bottom: max(1rem, env(safe-area-inset-bottom));">
+        <div class="max-w-3xl duo:max-w-6xl mx-auto px-4 py-4 flex flex-wrap items-center justify-between gap-2 text-2xs text-ink-400" style="padding-bottom: max(1rem, env(safe-area-inset-bottom));">
             <span>Klimo — dimensionnement indicatif, à valider par un professionnel avant installation.</span>
             <span class="k-num">V18 · Froid physique</span>
         </div>

@@ -3,6 +3,39 @@
 @tailwind utilities;
 
 /* =============================================================================
+   Police — Archivo variable (SIL Open Font License 1.1)
+   -----------------------------------------------------------------------------
+   Auto-hébergée, jamais servie par un CDN : l'application doit fonctionner hors
+   ligne sur un chantier sans réseau, et une police chargée depuis fonts.gstatic
+   retomberait sur la pile système au premier sous-sol.
+
+   UN SEUL fichier couvre les deux rôles typographiques. Archivo porte un axe de
+   largeur (`wdth` 62–125) en plus de la graisse (100–900) : la condensée des
+   titres, des valeurs et des actions n'est pas une seconde famille à télécharger,
+   c'est la même police pilotée par `font-stretch` (voir .k-display). 88 Ko pour
+   l'ensemble, sous-ensemble latin — il couvre tous les accents français, œ, °, ²
+   et les guillemets. Deux signes de l'application en sortent (≈ et →) et
+   retombent sur la police système : sans conséquence, ils n'apparaissent que dans
+   du texte courant.
+
+   Le chemin est relatif à assets/tailwind.css, où cette règle est compilée.
+   ============================================================================= */
+@font-face {
+    font-family: 'Archivo';
+    font-style: normal;
+    font-weight: 100 900;
+    font-stretch: 62% 125%;
+    /* `swap` : le texte s'affiche immédiatement dans la police système et bascule
+       à l'arrivée du fichier. Sur un chantier, lire tout de suite prime sur lire
+       dans la bonne police. */
+    font-display: swap;
+    src: url('./archivo-variable-latin.woff2') format('woff2-variations');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+                   U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+                   U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* =============================================================================
    Klimo — couche de composants
    -----------------------------------------------------------------------------
    Le vocabulaire visuel de l'application est défini ICI, une fois, et non recopié
@@ -19,6 +52,16 @@
 
    Toute règle ci-dessous est bâtie sur les jetons de build/tailwind.config.js :
    aucune couleur, ombre ou rayon n'est écrit en dur ailleurs que là-bas.
+
+   REGISTRE VISUEL — « affirmé »
+   Trois principes, dont découle tout le reste :
+   - la typographie condensée porte les titres, les valeurs et les actions ; le
+     reste est en romain, discret ;
+   - les sections sont ANNONCÉES par un bandeau plein (.k-band), pas seulement
+     étiquetées par un intertitre gris ;
+   - la structure tient par des arêtes franches — bordures visibles, rayons bas,
+     ombres quasi nulles — et non par des écarts de luminance que le plein soleil
+     efface.
    ============================================================================= */
 
 @layer base {
@@ -27,12 +70,15 @@
     }
 
     body {
-        @apply bg-canvas text-ink-700;
-        font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+        @apply bg-canvas text-ink-700 font-sans;
     }
 
+    /* Les titres passent en condensée : c'est le trait le plus reconnaissable du
+       registre, et il s'applique sans toucher un seul gabarit puisque tous les
+       intertitres de l'app sont des h2/h3/h4. */
     h1, h2, h3, h4 {
-        @apply text-ink-900;
+        @apply text-ink-900 font-display;
+        font-stretch: 82%;
     }
 
     /* Anneau de focus unique pour toute l'application, y compris sur les cartes
@@ -50,36 +96,106 @@
 
 @layer components {
 
+    /* --- Typographie utilitaire ---------------------------------------------- */
+
+    /* Condensée de titrage. `font-stretch` pilote l'axe `wdth` de la police variable
+       cible (Archivo) ; sur la pile de secours macOS / iOS la famille est déjà
+       condensée et la propriété est simplement sans effet. */
+    .k-display {
+        @apply font-display;
+        font-stretch: 82%;
+    }
+
     /* --- Surfaces ------------------------------------------------------------ */
 
     .k-card {
-        @apply bg-white rounded-2xl border border-line shadow-card p-4 sm:p-5;
+        @apply bg-white rounded-xl border border-line shadow-card p-4 sm:p-5;
     }
 
     .k-sunken {
-        @apply bg-slate-50 rounded-xl border border-line p-4;
+        @apply bg-mute-50 rounded-xl border border-line p-4;
     }
 
     /* --- Titres et libellés -------------------------------------------------- */
 
-    /* Barre d'accent + titre : la signature des sections de l'app. */
+    /* La barre d'accent en ::before a disparu : identique devant « Paramètres »,
+       « Solutions recommandées », « Exporter la fiche » et « Enregistrer au
+       chantier », elle n'encodait rien — c'était de la décoration au rang de
+       dispositif structurel. C'est la condensée en capitales qui distingue
+       désormais un intertitre. */
     .k-section-title {
-        @apply flex items-center gap-2.5 text-base font-semibold text-ink-900;
+        @apply flex items-center gap-2.5 text-base font-semibold uppercase tracking-[0.03em] text-ink-900;
     }
 
-    .k-section-title::before {
-        content: '';
-        @apply block w-1 h-5 rounded-full bg-accent-500 flex-shrink-0;
+    /* Bandeau de section : la signature du registre. Une section n'est plus
+       étiquetée par une ligne grise, elle est annoncée par un aplat. Deux fentes :
+       le titre, et une méta facultative à droite (nombre d'options, hypothèses). */
+    .k-band {
+        @apply flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1
+               rounded-xl bg-accent-900 px-4 py-3;
     }
 
-    /* Surtitre : petite capitale d'étiquetage. Le seul endroit où l'application
-       met des majuscules — partout ailleurs elles nuisent à la vitesse de lecture. */
+    .k-band-title {
+        @apply font-display text-lg font-semibold uppercase tracking-[0.04em] leading-none text-white;
+        font-stretch: 82%;
+    }
+
+    .k-band-meta {
+        @apply text-2xs font-medium text-accent-200;
+    }
+
+    /* Relevé climatique : les quatre valeurs que l'artisan vérifie en premier pour
+       s'assurer que le département saisi correspond bien au chantier. Même aplat que
+       les bandeaux — c'est un relevé, pas une remarque, et en teinte pâle il se lisait
+       au même niveau sonore qu'une note de méthode. */
+    .k-climate {
+        @apply rounded-xl bg-accent-900 px-3.5 py-3 text-xs leading-relaxed text-accent-100;
+    }
+
+    .k-climate b {
+        @apply font-semibold text-white;
+    }
+
+    /* --- Barre d'application ------------------------------------------------- */
+
+    /* Même aplat que les bandeaux de section : l'en-tête cesse d'être une bande
+       blanche indistincte du contenu et devient le bord haut de l'outil. Les zones
+       sûres iOS (encoche, Dynamic Island) se remplissent alors de l'accent plutôt
+       que de blanc — voir la règle `header` dans index.html. */
+    .k-appbar {
+        @apply bg-accent-900 sticky top-0 z-50;
+    }
+
+    .k-appbar-mark {
+        @apply w-8 h-8 rounded-[3px] bg-white text-accent-900
+               flex items-center justify-center flex-shrink-0;
+    }
+
+    .k-appbar-wordmark {
+        @apply font-display text-xl font-semibold uppercase tracking-[0.05em] leading-none text-white;
+        font-stretch: 82%;
+    }
+
+    /* Contrôles posés sur l'aplat : bordure et fond en blanc translucide, pour
+       rester lisibles sans introduire une deuxième couleur dans la barre. */
+    .k-btn-onband {
+        @apply k-btn min-h-[38px] px-3 bg-white/10 border border-white/30 text-white
+               hover:bg-white/20 hover:border-white/50;
+    }
+
+    .k-icon-btn-onband {
+        @apply inline-flex items-center justify-center w-11 h-11 rounded-lg text-white/85
+               transition-colors hover:text-white hover:bg-white/15 flex-shrink-0;
+    }
+
+    /* Surtitre : petite capitale d'étiquetage, pour les blocs qui ne méritent pas
+       un bandeau plein. */
     .k-eyebrow {
-        @apply text-2xs font-semibold uppercase tracking-[0.08em] text-ink-500;
+        @apply text-2xs font-bold uppercase tracking-[0.09em] text-ink-500;
     }
 
     .k-label {
-        @apply block text-2xs font-semibold uppercase tracking-[0.06em] text-ink-500 mb-1.5;
+        @apply block text-2xs font-bold uppercase tracking-[0.09em] text-ink-500 mb-1.5;
     }
 
     .k-hint {
@@ -97,97 +213,113 @@
        perd sa place dans le formulaire. 48px de haut : cible tactile confortable
        avec des gants. */
     .k-input {
-        @apply w-full min-h-[48px] px-3.5 py-2.5 bg-white border border-line-strong rounded-xl
+        @apply w-full min-h-[48px] px-3.5 py-2.5 bg-white border border-line-strong rounded-lg
                text-base text-ink-900 placeholder:text-ink-400 transition
                focus:border-accent-500 focus:ring-4 focus:ring-accent-500/20 outline-none;
     }
 
     .k-select {
         @apply k-input pr-11 appearance-none bg-no-repeat cursor-pointer;
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2364748B' stroke-width='2.5'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23556661' stroke-width='2.5'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
         background-position: right 0.875rem center;
         background-size: 1.125em;
     }
 
     /* --- Contrôle segmenté (Marque, Usage, Mono/Multi) ----------------------- */
 
+    /* Boutons franchement bordés et espacés, plutôt qu'une piste grise dans
+       laquelle une pastille blanche glisse : à ce niveau de contraste la piste
+       disparaissait au soleil et l'état sélectionné avec elle. */
     .k-seg {
-        @apply flex gap-1 p-1 bg-slate-100 rounded-xl;
+        @apply flex gap-1.5;
     }
 
     .k-seg-item {
-        @apply flex-1 min-h-[44px] px-2 flex items-center justify-center text-center
-               text-sm font-semibold leading-tight rounded-lg text-ink-500
-               transition-colors hover:text-ink-700;
+        @apply flex-1 min-h-[46px] px-2 flex items-center justify-center text-center
+               bg-white border border-line-strong rounded-lg
+               text-sm font-semibold leading-tight text-ink-600
+               transition-colors hover:border-ink-400 hover:text-ink-900;
     }
 
     .k-seg-item[aria-pressed="true"] {
-        @apply bg-white text-accent-700 shadow-seg hover:text-accent-700;
+        @apply bg-accent-500 border-accent-500 text-white hover:bg-accent-600 hover:border-accent-600 hover:text-white;
     }
 
     /* --- Boutons ------------------------------------------------------------- */
 
+    /* Les actions passent en condensée capitales : elles se distinguent du texte
+       courant par la forme des lettres, plus seulement par un fond coloré. */
     .k-btn {
-        @apply inline-flex items-center justify-center gap-2 min-h-[44px] px-4 rounded-xl
-               text-sm font-semibold transition-colors select-none;
+        @apply inline-flex items-center justify-center gap-2 min-h-[46px] px-4 rounded-lg
+               font-display text-sm font-semibold uppercase tracking-[0.05em]
+               transition-colors select-none;
+        font-stretch: 82%;
     }
 
     .k-btn-primary {
         @apply k-btn bg-accent-500 text-white hover:bg-accent-600 active:bg-accent-700;
     }
 
+    /* Anciennement `bg-ink-900` : une troisième famille de bouton principal, d'une
+       couleur qui n'appartenait à rien. Ramenée dans la famille d'accent, elle dit
+       « action engageante » sans ouvrir un registre chromatique de plus. */
     .k-btn-dark {
-        @apply k-btn bg-ink-900 text-white hover:bg-black;
+        @apply k-btn bg-accent-900 text-white hover:bg-accent-700;
     }
 
-    /* Bordure obligatoire : le fond de page (canvas) et slate-100 sont la même valeur, un
-       bouton « doux » posé sur la page disparaissait donc purement et simplement. */
     .k-btn-soft {
-        @apply k-btn bg-slate-100 border border-line text-ink-700 hover:bg-slate-200 hover:border-line-strong;
+        @apply k-btn bg-mute-100 border border-line text-ink-700 hover:bg-mute-200 hover:border-line-strong;
     }
 
     .k-btn-outline {
-        @apply k-btn bg-white border border-line-strong text-ink-700 hover:bg-slate-50 hover:border-ink-400;
+        @apply k-btn bg-white border border-line-strong text-ink-700 hover:bg-mute-50 hover:border-ink-400;
     }
 
     .k-btn-ghost {
-        @apply k-btn px-3 text-ink-500 hover:text-ink-900 hover:bg-slate-100;
+        @apply k-btn px-3 text-ink-500 hover:text-ink-900 hover:bg-mute-100;
     }
 
     /* Bouton d'icône : 44px de cible tactile pour une icône de 20px. */
     .k-icon-btn {
-        @apply inline-flex items-center justify-center w-11 h-11 rounded-xl text-ink-400
-               transition-colors hover:text-ink-900 hover:bg-slate-100 flex-shrink-0;
+        @apply inline-flex items-center justify-center w-11 h-11 rounded-lg text-ink-500
+               transition-colors hover:text-ink-900 hover:bg-mute-100 flex-shrink-0;
     }
 
     .k-icon-btn-danger {
-        @apply k-icon-btn hover:text-rose-600 hover:bg-rose-50;
+        @apply k-icon-btn hover:text-rose-700 hover:bg-rose-50;
     }
 
     /* Ajout d'une pièce : affordance en pointillés, jamais confondue avec une carte. */
     .k-btn-add {
         @apply w-full min-h-[56px] flex items-center justify-center gap-2 bg-white
-               border-2 border-dashed border-line-strong rounded-2xl text-sm font-semibold
-               text-ink-500 transition-colors hover:border-accent-500 hover:text-accent-700 hover:bg-accent-50;
+               border-2 border-dashed border-line-strong rounded-xl
+               font-display text-sm font-semibold uppercase tracking-[0.05em]
+               text-ink-600 transition-colors hover:border-accent-500 hover:text-accent-700 hover:bg-accent-50;
+        font-stretch: 82%;
     }
 
     /* --- Pastilles ----------------------------------------------------------- */
 
+    /* Arête franche plutôt que gélule : à côté de bordures droites, la pastille
+       entièrement arrondie était le seul objet à ne pas suivre la règle. */
     .k-pill {
-        @apply inline-flex items-center gap-1.5 min-h-[28px] px-2.5 py-1 rounded-full
+        @apply inline-flex items-center gap-1.5 min-h-[26px] px-2 py-1 rounded-[2px]
                text-2xs font-semibold border leading-none;
     }
 
-    .k-pill-neutral  { @apply bg-slate-50 text-ink-600 border-line; }
+    .k-pill-neutral  { @apply bg-mute-50 text-ink-600 border-line; }
     .k-pill-accent   { @apply bg-accent-500 text-white border-accent-500; }
-    .k-pill-ok       { @apply bg-emerald-50 text-emerald-700 border-emerald-200; }
-    .k-pill-warn     { @apply bg-amber-50 text-amber-800 border-amber-200; }
-    .k-pill-danger   { @apply bg-rose-50 text-rose-700 border-rose-200; }
+    .k-pill-ok       { @apply bg-emerald-50 text-emerald-800 border-emerald-200; }
+    .k-pill-warn     { @apply bg-amber-50 text-amber-900 border-amber-300; }
+    .k-pill-danger   { @apply bg-rose-50 text-rose-800 border-rose-200; }
     .k-pill-froid    { @apply bg-froid-50 text-froid-700 border-froid-100; }
 
-    /* Pastille cliquable (choix de gamme par pièce en multisplit). */
+    /* Pastille cliquable (choix de gamme par pièce en multisplit). 40px de haut :
+       c'est un bouton qu'on vise au doigt, pas une étiquette. */
     .k-chip {
-        @apply k-pill k-pill-neutral cursor-pointer transition-colors hover:bg-slate-100 hover:border-line-strong;
+        @apply inline-flex items-center gap-1.5 min-h-[40px] px-3 rounded-lg border
+               bg-white border-line-strong text-xs font-semibold text-ink-700
+               cursor-pointer transition-colors hover:border-ink-400 hover:bg-mute-50;
     }
 
     .k-chip[aria-pressed="true"] {
@@ -222,46 +354,52 @@
 
     /* --- Mesures froid / chaud ---------------------------------------------- */
 
-    /* Deux tuiles de largeur égale : les puissances se comparent d'une carte à
-       l'autre en balayant la colonne du regard, ce qu'empêchaient les anciens blocs
-       de hauteurs différentes selon que le libellé passait ou non à la ligne. */
+    /* Aplat saturé et non plus teinte pastel : le froid et le chaud sont les deux
+       seules grandeurs mesurées de l'écran, ce sont les seuls objets à porter une
+       couleur pleine. Deux tuiles de largeur égale, donc comparables d'une carte à
+       l'autre en balayant la colonne du regard. */
     .k-stat {
-        @apply flex flex-col justify-center rounded-xl border px-3 py-2;
+        @apply flex flex-col justify-center rounded-xl px-3 py-2.5 text-white;
     }
 
     .k-stat-label {
-        @apply text-[10px] font-semibold uppercase tracking-[0.06em] leading-none opacity-80;
+        @apply text-[10px] font-bold uppercase tracking-[0.09em] leading-none text-white/85;
     }
 
     .k-stat-value {
-        @apply text-[15px] font-bold leading-none mt-1.5;
+        @apply font-display text-[26px] font-semibold leading-none mt-1.5 tracking-[0.005em];
+        font-stretch: 82%;
         font-variant-numeric: tabular-nums;
     }
 
-    .k-stat-froid { @apply bg-froid-50 border-froid-100 text-froid-700; }
-    .k-stat-chaud { @apply bg-chaud-50 border-chaud-100 text-chaud-700; }
+    .k-stat-froid { @apply bg-froid-600; }
+    .k-stat-chaud { @apply bg-chaud-600; }
 
     /* --- Carte résultat ------------------------------------------------------ */
 
     /* Les options non retenues gardaient un `opacity-60 saturate-50` : du texte
        technique (références, kW) délavé sous le seuil de contraste, illisible en
        extérieur, alors que ce sont précisément les options à comparer. La
-       sélection se lit désormais à la bordure et à la coche, pas à l'effacement. */
+       sélection se lit à l'arête d'accent, au fond teinté et à la coche, pas à
+       l'effacement. */
     .k-result {
-        @apply relative bg-white rounded-2xl border border-line shadow-card p-4 sm:p-5 transition;
+        @apply relative bg-white rounded-xl border border-line border-l-4 border-l-line
+               shadow-card p-4 sm:p-5 transition;
     }
 
     .k-result-selectable {
-        @apply cursor-pointer hover:border-line-strong hover:shadow-cardHover;
+        @apply cursor-pointer hover:border-line-strong hover:border-l-ink-400 hover:shadow-cardHover;
     }
 
     .k-result[aria-pressed="true"] {
-        @apply border-accent-500 ring-1 ring-accent-500 shadow-cardHover;
+        @apply bg-accent-50 border-accent-200 border-l-accent-500
+               hover:border-accent-200 hover:border-l-accent-500;
     }
 
-    /* Puce de sélection façon bouton radio, alignée en haut à droite des cartes. */
+    /* Puce de sélection façon bouton radio, alignée en haut à droite des cartes.
+       Seul objet circulaire de l'interface : la forme y porte le sens. */
     .k-radio {
-        @apply w-6 h-6 rounded-full border-2 border-line-strong flex items-center justify-center
+        @apply w-6 h-6 rounded-full border-2 border-line-strong bg-white flex items-center justify-center
                text-white flex-shrink-0 transition-colors;
     }
 
@@ -272,26 +410,29 @@
 
     /* --- Dépliants (guide de gamme, explication TVA) ------------------------- */
 
+    /* ink-500 et non plus ink-400 : ces résumés sont des déclencheurs cliquables,
+       et l'ancien gris tenait 2,6:1 sur blanc — invisible au soleil, et sous le
+       seuil AA pour du texte de 11px. */
     .k-disclosure {
-        @apply flex items-center gap-1.5 cursor-pointer select-none text-xs font-semibold
-               text-ink-500 transition-colors hover:text-accent-700;
+        @apply flex items-center gap-1.5 min-h-[32px] cursor-pointer select-none
+               text-xs font-semibold text-ink-500 transition-colors hover:text-accent-700;
     }
 
     /* --- Barre d'action collante -------------------------------------------- */
 
     /* Le bouton flottait au-dessus du contenu sans rien pour l'en séparer : un dégradé
        court fait la coupure sans masquer la ligne qui passe dessous.
-       À partir de xl la barre redevient un bloc ordinaire : la saisie et les solutions sont
+       À partir de `duo` la barre redevient un bloc ordinaire : la saisie et les solutions sont
        alors côte à côte, le bouton est visible sans défilement, et une barre collante ne
        ferait plus que recouvrir les champs de la colonne de gauche. */
     .k-action-bar {
-        @apply sticky z-30 -mx-4 px-4 pt-6 pb-4 xl:static xl:mx-0 xl:px-0 xl:pt-2 xl:pb-0 xl:bg-none;
+        @apply sticky z-30 -mx-4 px-4 pt-6 pb-4 duo:static duo:mx-0 duo:px-0 duo:pt-2 duo:pb-0;
         bottom: 0;
         padding-bottom: max(1rem, env(safe-area-inset-bottom));
-        background: linear-gradient(to bottom, rgb(241 245 249 / 0), rgb(241 245 249 / 0.92) 38%, rgb(241 245 249) 100%);
+        background: linear-gradient(to bottom, rgb(220 228 225 / 0), rgb(220 228 225 / 0.92) 38%, rgb(220 228 225) 100%);
     }
 
-    @screen xl {
+    @screen duo {
         .k-action-bar { padding-bottom: 0; background: none; }
     }
 

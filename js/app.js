@@ -318,6 +318,18 @@ function escapeHtml(str) {
     return String(str).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 }
 
+// Nombres à la française. L'application acceptait déjà la virgule en SAISIE
+// (parseNombreSaisi, calcul.js) mais écrivait le point en SORTIE : « 2.19 kW »
+// sur un outil francophone destiné à des artisans français. Décimales fixes au
+// passage, pour que les puissances s'alignent réellement en colonne — le
+// catalogue donne 4 là où la ligne d'à côté donne 3.5, et « 4 kW » face à
+// « 3,5 kW » casse la comparaison que l'œil fait verticalement.
+function nb(valeur, decimales = 1) {
+    const n = Number(valeur);
+    if (!Number.isFinite(n)) return '—';
+    return n.toFixed(decimales).replace('.', ',');
+}
+
 // Groupe une liste de configurations (déjà triées par le magasin, savedAt décroissant) par
 // client, en préservant l'ordre de première apparition — donc les clients les plus récemment
 // actifs en tête, sans logique de tri séparée à maintenir ici.
@@ -365,7 +377,7 @@ function renderDashboard() {
     if (groupes.length === 0 && conflits.length === 0) {
         list.innerHTML = `
         <div class="rounded-2xl border-2 border-dashed border-line bg-white/60 px-5 py-12 text-center">
-            <div class="w-12 h-12 mx-auto mb-3 rounded-2xl bg-slate-100 text-ink-400 flex items-center justify-center">
+            <div class="w-12 h-12 mx-auto mb-3 rounded-2xl bg-mute-100 text-ink-400 flex items-center justify-center">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
             </div>
             <p class="text-sm font-semibold text-ink-700">Aucun chantier enregistré</p>
@@ -879,11 +891,11 @@ function updateClimateInfo() {
     if (consigne !== CONSIGNE_REFERENCE) {
         const ecart = estimerEcartConsigne(consigne, coefG, tBaseEte);
         const signe = ecart > 0 ? '+' : '';
-        ecartHtml = `<div class="mt-1.5 pt-1.5 border-t border-accent-100 text-accent-700">≈ ${signe}${ecart.toFixed(0)}% de besoin froid vs 26 °C (pièce type)</div>`;
+        ecartHtml = `<div class="mt-2 pt-2 border-t border-white/20 text-accent-200">≈ ${signe}${nb(ecart, 0)} % de besoin froid vs 26 °C (pièce type)</div>`;
     }
     // Quatre mesures en paires libellé/valeur plutôt qu'une phrase à puces : lues d'un coup
     // d'œil pour vérifier que le département saisi correspond bien au chantier.
-    const mesure = (libelle, valeur) => `<span class="inline-flex items-baseline gap-1.5"><span class="opacity-70">${libelle}</span><b class="font-semibold">${valeur}</b></span>`;
+    const mesure = (libelle, valeur) => `<span class="inline-flex items-baseline gap-1.5"><span class="text-accent-200">${libelle}</span><b>${valeur}</b></span>`;
     document.getElementById('climate-diagnostic').innerHTML =
         `<div class="flex flex-wrap gap-x-4 gap-y-1">
             ${mesure('Zone', zone)}
@@ -1242,7 +1254,7 @@ function calculate() {
             bilan: { froid: req.froid, chaud: req.chaud },
             besoinsHtml: renderBesoinsCard([req]),
             hypothesesHtml: hypothesesHtml,
-            roomDetails: [`Pièce 1 : ${req.froid.toFixed(1)}kW F / ${req.chaud.toFixed(1)}kW C → Taille ${size || 'HORS LIMITE'}`],
+            roomDetails: [`Pièce 1 : ${nb(req.froid)} kW F / ${nb(req.chaud)} kW C → Taille ${size || 'HORS LIMITE'}`],
             mono: { options: trierMonosParTva(findBestMonos(froidMatch, chaudMatch, state.brand), state.brand), froidSeul }
         };
     } else {
@@ -1253,7 +1265,7 @@ function calculate() {
             let size = getUiSizeForKw(froidMatch, chaudMatch, state.brand);
             return { index: i + 1, nom: r.nom || '', req: req, froidMatch: froidMatch, chaudMatch: chaudMatch, size: size, maxKw: Math.max(froidMatch, chaudMatch) };
         });
-        const roomDetails = roomsData.map(r => `Pièce ${r.index}${r.nom ? ' (' + r.nom + ')' : ''} : ${r.req.froid.toFixed(1)}kW F / ${r.req.chaud.toFixed(1)}kW C → Taille ${r.size || 'HORS LIMITE'}`);
+        const roomDetails = roomsData.map(r => `Pièce ${r.index}${r.nom ? ' (' + r.nom + ')' : ''} : ${nb(r.req.froid)} kW F / ${nb(r.req.chaud)} kW C → Taille ${r.size || 'HORS LIMITE'}`);
 
         let extractedForMono = roomsData.filter(r => r.size === null);
         let standardRooms = roomsData.filter(r => r.size !== null);
@@ -1330,15 +1342,42 @@ function calculate() {
     resultsContainer.scrollIntoView({ behavior: 'smooth' });
 }
 
-// Explique l'ordre des options équivalentes (trierMonosParTva, calcul.js) : sans ce texte, un
-// artisan qui compare des puissances quasi identiques ne peut pas deviner pourquoi l'une est
-// proposée en premier — c'est l'éligibilité TVA 5,5% qui départage, pas la puissance.
-// Renvoie le sous-titre du bloc plutôt qu'un paragraphe à part : la phrase occupait une ligne
-// pleine entre l'intertitre et la première carte, pour dire ce qui tient en quatre mots à côté
-// du titre. Vide quand il n'y a qu'une option — il n'y a alors rien à trier ni à comparer.
-function noteTriTva(options) {
-    if (options.length < 2) return '';
-    return `${options.length} options équivalentes · TVA 5,5% en tête`;
+// --- TVA : dite une fois par bloc plutôt qu'une fois par carte -----------------------
+//
+// Une pastille verte « TVA 5,5% » recopiée sur chaque option — et, en multisplit, sur
+// chacune des gammes de chacune des pièces, soit douze fois sur un seul écran — n'informe
+// de rien : elle occupe la couleur de succès, donc le premier point de fixation de l'œil,
+// sur toute la colonne où l'artisan cherche justement ce qui DISTINGUE les options.
+//
+// Le statut remonte donc au bandeau du bloc quand il est commun à toutes les options, et
+// les cartes n'en portent plus. Dès qu'une seule option s'écarte, tvaCommune() renvoie
+// `commun: false` et les pastilles réapparaissent sur chaque carte — c'est alors une vraie
+// différence, qui mérite d'être vue.
+function tvaCommune(infos) {
+    if (infos.length === 0) return { commun: false };
+    const cle = (i) => (i ? `${i.statut}|${i.wifiRequired ? 'wifi' : ''}` : 'aucun');
+    const reference = cle(infos[0]);
+    return infos.every(i => cle(i) === reference) ? { commun: true, info: infos[0] } : { commun: false };
+}
+
+function mentionTvaBloc(tvaBloc, nbOptions) {
+    if (!tvaBloc.commun) return '';
+    const info = tvaBloc.info;
+    if (!info) return 'TVA non renseignée';
+    if (info.statut === 'a_verifier') return nbOptions > 1 ? 'TVA à vérifier sur tous' : 'TVA à vérifier';
+    const libelle = info.statut === 'eligible' ? 'TVA 5,5 %' : 'TVA 20 %';
+    return `${nbOptions > 1 ? 'Tous en ' : ''}${libelle}${info.wifiRequired ? ' · module Wifi requis' : ''}`;
+}
+
+// Méta du bandeau de bloc : le nombre de modèles comparables, et le statut TVA quand il
+// est commun. L'ancien texte annonçait « TVA 5,5% en tête » pour expliquer l'ordre de tri
+// (trierMonosParTva, calcul.js) — une explication qui n'a plus lieu d'être une fois le
+// statut énoncé pour l'ensemble du bloc.
+function metaBloc(nbOptions, tvaBloc) {
+    return [
+        nbOptions > 1 ? `${nbOptions} modèles` : '',
+        mentionTvaBloc(tvaBloc, nbOptions)
+    ].filter(Boolean).join(' · ');
 }
 
 // État vide de la colonne des solutions. Il tient deux rôles, l'un pour chaque format d'écran :
@@ -1349,7 +1388,7 @@ function noteTriTva(options) {
 function etatVideResultats() {
     return `
     <div class="rounded-2xl border-2 border-dashed border-line bg-white/60 px-5 py-10 text-center">
-        <div class="w-12 h-12 mx-auto mb-3 rounded-2xl bg-slate-100 text-ink-400 flex items-center justify-center">
+        <div class="w-12 h-12 mx-auto mb-3 rounded-2xl bg-mute-100 text-ink-400 flex items-center justify-center">
             <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
         </div>
         <p class="text-sm font-semibold text-ink-700">Aucune solution calculée</p>
@@ -1376,7 +1415,7 @@ function renderHypotheses(lignes) {
         <div class="mt-1 divide-y divide-line">
             ${lignes.map(l => `
             <details class="group/hyp py-2 first:pt-1 last:pb-0">
-                <summary class="flex items-baseline justify-between gap-4 cursor-pointer select-none list-none py-0.5 -mx-1 px-1 rounded-lg hover:bg-slate-50 transition-colors">
+                <summary class="flex items-baseline justify-between gap-4 cursor-pointer select-none list-none py-0.5 -mx-1 px-1 rounded-lg hover:bg-mute-50 transition-colors">
                     <span class="flex items-baseline gap-1.5 min-w-0 text-xs text-ink-700">
                         ${l.libelle}
                         <span class="text-ink-400 transition-transform group-open/hyp:rotate-180 self-center">${icone('chevron', 'w-3.5 h-3.5')}</span>
@@ -1394,9 +1433,9 @@ function renderHypotheses(lignes) {
 // les options ne distingue plus rien, il occupe seulement la ligne la plus visible de la carte.
 // Le type d'installation et le nombre d'options se disent une fois, au-dessus de la liste.
 function blocTitre(titre, sousTitre) {
-    return `<div class="flex flex-wrap items-baseline gap-x-2 gap-y-1 pt-2">
-        <h3 class="k-eyebrow">${titre}</h3>
-        ${sousTitre ? `<span class="text-2xs text-ink-400 k-num">${sousTitre}</span>` : ''}
+    return `<div class="k-band mt-1">
+        <h3 class="k-band-title">${titre}</h3>
+        ${sousTitre ? `<span class="k-band-meta k-num">${sousTitre}</span>` : ''}
     </div>`;
 }
 
@@ -1420,12 +1459,13 @@ function renderResults() {
         if (options.length === 0) {
             html += note('warn', 'alerte', 'Aucun monosplit du catalogue ne couvre ce niveau de puissance.');
         } else {
-            html += blocTitre('Monosplit', noteTriTva(options));
+            const tvaInfos = options.map(sol => getTvaInfo(sol.gamme, sol.reference_ensemble, 'mono', state.brand));
+            const tvaBloc = tvaCommune(tvaInfos);
+            html += blocTitre('Monosplit', metaBloc(options.length, tvaBloc));
             const selIdx = Math.min(state.selection.mono || 0, options.length - 1);
             options.forEach((sol, idx) => {
                 const selectOpts = options.length > 1 ? { selected: idx === selIdx, onclick: `selectMono(${idx})` } : null;
-                const tvaInfo = getTvaInfo(sol.gamme, sol.reference_ensemble, 'mono', state.brand);
-                html += renderCard(idx === 0 ? 'Recommandé' : '', sol.gamme, sol.reference_ensemble, sol.puissance_froid_kw, sol.puissance_chaud_kw, false, [], selectOpts, tvaInfo, { reqFroid: calc.req.froid, reqChaud: calc.mono.froidSeul ? null : calc.req.chaud });
+                html += renderCard(idx === 0 ? 'Recommandé' : '', sol.gamme, sol.reference_ensemble, sol.puissance_froid_kw, sol.puissance_chaud_kw, false, [], selectOpts, tvaInfos[idx], { reqFroid: calc.req.froid, reqChaud: calc.mono.froidSeul ? null : calc.req.chaud }, { tvaMasquee: tvaBloc.commun });
             });
             const chosen = options[selIdx];
             const chosenTva = getTvaInfo(chosen.gamme, chosen.reference_ensemble, 'mono', state.brand);
@@ -1443,25 +1483,30 @@ function renderResults() {
             const room = dedItem.room;
             const options = dedItem.options;
             if (options.length > 0) {
-                html += blocTitre(escapeHtml(dedItem.label), noteTriTva(options));
+                const tvaInfos = options.map(sol => getTvaInfo(sol.gamme, sol.reference_ensemble, 'mono', state.brand));
+                const tvaBloc = tvaCommune(tvaInfos);
+                html += blocTitre(escapeHtml(dedItem.label), metaBloc(options.length, tvaBloc));
                 const selIdx = Math.min(state.selection.dedicated[room.index] || 0, options.length - 1);
                 options.forEach((sol, idx) => {
                     const selectOpts = options.length > 1 ? { selected: idx === selIdx, onclick: `selectDedicated(${room.index}, ${idx})` } : null;
-                    const tvaInfo = getTvaInfo(sol.gamme, sol.reference_ensemble, 'mono', state.brand);
-                    html += renderCard(idx === 0 ? 'Recommandé' : '', sol.gamme, sol.reference_ensemble, sol.puissance_froid_kw, sol.puissance_chaud_kw, false, [], selectOpts, tvaInfo, { reqFroid: room.req.froid, reqChaud: m.froidSeul ? null : room.req.chaud });
+                    html += renderCard(idx === 0 ? 'Recommandé' : '', sol.gamme, sol.reference_ensemble, sol.puissance_froid_kw, sol.puissance_chaud_kw, false, [], selectOpts, tvaInfos[idx], { reqFroid: room.req.froid, reqChaud: m.froidSeul ? null : room.req.chaud }, { tvaMasquee: tvaBloc.commun });
                 });
                 const chosen = options[selIdx];
                 const chosenTva = getTvaInfo(chosen.gamme, chosen.reference_ensemble, 'mono', state.brand);
                 summaryParts.push(`1x Mono ${chosen.gamme}`);
                 equipments.push(`${dedItem.label} — Modèle sélectionné : ${chosen.gamme} (${chosen.reference_ensemble})${tvaSuffixText(chosenTva)}`);
             } else {
-                html += note('warn', 'alerte', `<span class="k-note-title">Pièce ${room.index}</span> — puissance requise (${room.maxKw.toFixed(1)} kW) hors catalogue.`);
+                html += note('warn', 'alerte', `<span class="k-note-title">Pièce ${room.index}</span> — puissance requise (${nb(room.maxKw)} kW) hors catalogue.`);
                 equipments.push(`Pièce ${room.index} : Aucune machine assez puissante`);
             }
         });
 
         if (m.groupOptions.length > 0) {
-            const sizesArr = m.standardRooms.map(r => r.size);
+            // Les tailles d'UI sortaient en pastilles nues — « 13 · 05 · 05 » — sur la carte
+            // du groupe : des codes catalogue zéro-paddés, sans unité et sans rattachement à
+            // une pièce, à recopier de tête sur le bon de commande. Elles portent désormais
+            // le nom de la pièce à laquelle elles se raccordent.
+            const sizesArr = m.standardRooms.map(r => ({ label: roomLabel(r), size: r.size }));
             const groupReqFroid = m.standardRooms.reduce((sum, r) => sum + r.req.froid, 0);
             const groupReqChaud = m.standardRooms.reduce((sum, r) => sum + r.req.chaud, 0);
             const selIdx = Math.min(state.selection.groupChoice || 0, m.groupOptions.length - 1);
@@ -1471,7 +1516,9 @@ function renderResults() {
             // suit donc le choix de l'utilisateur quand il passe d'une option à l'autre.
             const equilibre = analyseEquilibreGroupe(m, bestGroup);
 
-            html += blocTitre(`Groupe multisplit · ${m.standardRooms.length} sorties`, m.groupOptions.length > 1 ? `${m.groupOptions.length} références possibles` : '');
+            const tvaInfosGroupe = m.groupOptions.map(g => getGroupTvaInfo(g.reference, state.brand));
+            const tvaBlocGroupe = tvaCommune(tvaInfosGroupe);
+            html += blocTitre(`Groupe multisplit · ${m.standardRooms.length} sorties`, metaBloc(m.groupOptions.length, tvaBlocGroupe));
             if (equilibre) html += renderBalanceNote(equilibre);
 
             // La référence commandée passe en titre de carte, « Groupe extérieur » en sous-titre :
@@ -1481,7 +1528,7 @@ function renderResults() {
                 const selectOpts = m.groupOptions.length > 1 ? { selected: idx === selIdx, onclick: `selectGroup(${idx})` } : null;
                 const estEquilibre = m.groupEquilibre && g.reference === m.groupEquilibre.reference;
                 const badge = estEquilibre ? 'Équilibré' : (idx === 0 ? 'Recommandé' : '');
-                html += renderCard(badge, g.reference, 'Groupe extérieur', g.puissance_nominale_froid_kw, g.puissance_nominale_chaud_kw, true, sizesArr, selectOpts, getGroupTvaInfo(g.reference, state.brand), { reqFroid: groupReqFroid, reqChaud: m.froidSeul ? null : groupReqChaud });
+                html += renderCard(badge, g.reference, 'Groupe extérieur', g.puissance_nominale_froid_kw, g.puissance_nominale_chaud_kw, true, sizesArr, selectOpts, tvaInfosGroupe[idx], { reqFroid: groupReqFroid, reqChaud: m.froidSeul ? null : groupReqChaud }, { tvaMasquee: tvaBlocGroupe.commun });
             });
             html += renderMultiRoomsGuide(m.standardRooms, bestGroup);
             summaryParts.push(`1x Multi ${bestGroup.reference} (${m.standardRooms.length} UI)`);
@@ -1607,7 +1654,7 @@ function buildResultSummaryLines() {
     const installateur = (document.getElementById('save-installateur') || {}).value?.trim() || getInstallateur();
     const dateStr = new Date().toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
     const bilan = calc.bilan
-        ? `Bilan thermique cumulé : ${calc.bilan.froid.toFixed(2)} kW froid / ${calc.bilan.chaud.toFixed(2)} kW chaud`
+        ? `Bilan thermique cumulé : ${nb(calc.bilan.froid, 2)} kW froid / ${nb(calc.bilan.chaud, 2)} kW chaud`
         : null;
     return {
         client, zone, installateur, dateStr, bilan,
@@ -1713,7 +1760,7 @@ function renderBesoinsCard(reqs, isMulti = false, roomsData = []) {
     let details = '';
     if (isMulti) {
         details = `<div class="mt-3 pt-3 k-divider flex flex-col gap-1.5">` +
-            roomsData.map(r => `<div class="flex justify-between gap-3 text-2xs"><span class="text-ink-500 min-w-0 truncate">Pièce ${r.index}${r.nom ? ' — ' + escapeHtml(r.nom) : ''}</span><span class="text-ink-700 k-num whitespace-nowrap">${r.req.froid.toFixed(1)} kW F · ${r.req.chaud.toFixed(1)} kW C</span></div>`).join('') + `</div>`;
+            roomsData.map(r => `<div class="flex justify-between gap-3 text-2xs"><span class="text-ink-500 min-w-0 truncate">Pièce ${r.index}${r.nom ? ' — ' + escapeHtml(r.nom) : ''}</span><span class="text-ink-700 k-num whitespace-nowrap">${nb(r.req.froid)} kW F · ${nb(r.req.chaud)} kW C</span></div>`).join('') + `</div>`;
     }
     // Même vocabulaire visuel que les puissances des cartes (tuiles froid/chaud de largeur
     // égale) : le besoin calculé et la puissance machine se lisent alors dans la même unité
@@ -1723,11 +1770,11 @@ function renderBesoinsCard(reqs, isMulti = false, roomsData = []) {
         <div class="grid grid-cols-2 gap-2 mt-2">
             <div class="k-stat k-stat-froid">
                 <span class="k-stat-label">Besoin froid</span>
-                <span class="k-stat-value">${totF.toFixed(2)} kW</span>
+                <span class="k-stat-value">${nb(totF, 2)} kW</span>
             </div>
             <div class="k-stat k-stat-chaud">
                 <span class="k-stat-label">Besoin chaud</span>
-                <span class="k-stat-value">${totC.toFixed(2)} kW</span>
+                <span class="k-stat-value">${nb(totC, 2)} kW</span>
             </div>
         </div>
         ${details}
@@ -1741,7 +1788,7 @@ function gammeGuideContent(gammeName) {
     const wifiColor = g.wifi === 'De série' ? 'text-emerald-700' : 'text-amber-700';
     return `
     <div class="flex flex-col gap-2.5 text-2xs leading-relaxed">
-        <div class="bg-slate-50 rounded-xl border border-line p-3 text-ink-700">
+        <div class="bg-mute-50 rounded-xl border border-line p-3 text-ink-700">
             <span class="k-eyebrow block mb-0.5">Idéal pour</span>${g.ideal}
         </div>
         <ul class="flex flex-col gap-1.5">
@@ -1758,13 +1805,16 @@ function renderGammeGuide(gammeName) {
     if (!g) return '';
     // Le positionnement de gamme (€, €€€, « haut de gamme design »…) sort du dépliant : c'est
     // un critère de choix, il doit être lisible carte fermée et non après un geste de plus.
+    // Le positionnement de gamme ne figure plus ici : il est remonté en clair sous la
+    // référence, dans la tête de carte (voir renderCard). Logé dans ce résumé, il passait à
+    // la ligne dès que la colonne se resserrait, et le seul critère commercial lisible carte
+    // fermée était donc aussi le seul à casser.
     return `
-    <details class="mt-4 pt-3 k-divider group/guide">
+    <details class="mt-3 pt-3 k-divider group/guide">
         <summary class="k-disclosure">
             ${icone('info')}
             <span>Guide de la gamme</span>
-            <span class="ml-auto k-pill k-pill-neutral font-medium normal-case">${g.tier}</span>
-            <span class="text-ink-400 transition-transform group-open/guide:rotate-180">${icone('chevron')}</span>
+            <span class="ml-auto transition-transform group-open/guide:rotate-180">${icone('chevron')}</span>
         </summary>
         <div class="mt-3">${gammeGuideContent(gammeName)}</div>
     </details>`;
@@ -1787,31 +1837,40 @@ function renderMultiRoomsGuide(roomsData, group) {
         const sols = findBestMonos(r.froidMatch, r.chaudMatch, state.brand);
         const storedGamme = state.selection.group[r.index];
         const selectedGamme = gammesUniques.includes(storedGamme) ? storedGamme : gammesUniques[0];
-        const chips = gammesUniques.map(g => {
+        // Statut TVA de CETTE pièce : masqué sur les pastilles quand toutes les gammes
+        // éligibles partagent le même, ce qui est le cas courant en multisplit — l'éligibilité
+        // y est portée par le groupe extérieur, donc identique pour toutes les unités qui s'y
+        // raccordent (voir TVA_RULES.multi). Douze pastilles vertes strictement identiques
+        // couvraient l'écran pendant que l'artisan y cherchait ce qui sépare les gammes.
+        const tvaParGamme = gammesUniques.map(g => {
+            const solForG = sols.find(s => s.gamme === g);
+            return getTvaInfo(g, solForG.reference_ensemble, 'multiUi', state.brand, group.reference);
+        });
+        const tvaBlocPiece = tvaCommune(tvaParGamme);
+
+        const chips = gammesUniques.map((g, i) => {
             const isSel = g === selectedGamme;
             const gEsc = g.replace(/'/g, "\\'");
-            const solForG = sols.find(s => s.gamme === g);
-            const tvaInfo = getTvaInfo(g, solForG.reference_ensemble, 'multiUi', state.brand, group.reference);
-            // Chaque gamme devient une colonne autonome (pastille de choix, statut TVA, détails)
-            // au lieu d'une file de pastilles dont les « Détails » se retrouvaient alignés en bas
-            // sans qu'on sache plus lequel appartenait à laquelle.
+            // Chaque gamme devient une colonne autonome (bouton de choix, statut TVA quand il
+            // se distingue, détails) au lieu d'une file de pastilles dont les « Détails » se
+            // retrouvaient alignés en bas sans qu'on sache plus lequel appartenait à laquelle.
             return `
-            <div class="flex flex-col items-start gap-1.5">
+            <div class="flex flex-col items-start gap-1.5 min-w-0">
                 <button type="button" onclick="selectGroupGamme(${r.index}, '${gEsc}')" aria-pressed="${isSel}" class="k-chip">
                     ${isSel ? icone('check', 'w-3.5 h-3.5') : ''}${g}
                 </button>
-                <div class="flex flex-wrap gap-1.5">${renderTvaBadge(tvaInfo)}</div>
+                ${tvaBlocPiece.commun ? '' : `<div class="flex flex-wrap gap-1.5">${renderTvaBadge(tvaParGamme[i])}</div>`}
                 <details class="group/mg" onclick="event.stopPropagation()">
-                    <summary class="k-disclosure text-2xs font-medium text-ink-400 group/d">Détails<span class="transition-transform group-open/d:rotate-180">${icone('chevron', 'w-3 h-3')}</span></summary>
+                    <summary class="k-disclosure text-2xs font-medium group/d">Détails<span class="transition-transform group-open/d:rotate-180">${icone('chevron', 'w-3 h-3')}</span></summary>
                     <div class="mt-2 mb-1">${gammeGuideContent(g)}</div>
                 </details>
             </div>`;
         }).join('');
         return `
-        <div class="py-3.5 border-b border-line last:border-0 last:pb-0">
-            <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 mb-2.5">
+        <div class="py-4 border-b border-line last:border-0 last:pb-0">
+            <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 mb-3">
                 <span class="text-xs font-semibold text-ink-900">Pièce ${r.index}${r.nom ? ' — ' + escapeHtml(r.nom) : ''}</span>
-                <span class="text-2xs text-ink-500 k-num">${r.req.froid.toFixed(1)} kW F · ${r.req.chaud.toFixed(1)} kW C</span>
+                <span class="text-2xs text-ink-500 k-num">${nb(r.req.froid)} kW F · ${nb(r.req.chaud)} kW C${tvaBlocPiece.commun ? ` · ${mentionTvaBloc(tvaBlocPiece, 1)}` : ''}</span>
             </div>
             <div class="flex flex-wrap gap-x-5 gap-y-3">${chips}</div>
         </div>`;
@@ -1823,7 +1882,7 @@ function renderMultiRoomsGuide(roomsData, group) {
         <p class="k-hint mt-1.5">Une gamme par pièce, mixables sur le même groupe.</p>
         <details class="mt-2 group/tva">
             <summary class="k-disclosure text-2xs font-medium text-ink-400">
-                <span>TVA 5,5% en multisplit</span>
+                <span>TVA 5,5 % en multisplit</span>
                 <span class="text-ink-400 transition-transform group-open/tva:rotate-180">${icone('chevron', 'w-3.5 h-3.5')}</span>
             </summary>
             <p class="k-hint mt-1.5">Portée par le groupe extérieur : toutes les unités raccordées à un groupe éligible en bénéficient, sans condition de module Wifi — y compris les gammes et tailles refusées en monosplit (Naka, Yukai 18 et 24).${allowedGammes ? ` Gammes compatibles avec ce groupe : ${escapeHtml(allowedGammes.join(', '))}.` : ''}</p>
@@ -1939,17 +1998,30 @@ function tauxCharge(reqFroid, reqChaud, nominalFroid, nominalChaud) {
     return { chargeF, chargeC, sousCharge: minCharge < SEUIL_SOUS_CHARGE };
 }
 
-function renderChargeBadge(reqFroid, reqChaud, nominalFroid, nominalChaud) {
-    const t = tauxCharge(reqFroid, reqChaud, nominalFroid, nominalChaud);
-    if (!t) return '';
-    const label = `Charge ${Math.round(t.chargeF * 100)}% F${t.chargeC !== null ? ` · ${Math.round(t.chargeC * 100)}% C` : ''}`;
-    return `<span class="k-pill ${t.sousCharge ? 'k-pill-warn' : 'k-pill-neutral'} k-num">${t.sousCharge ? icone('alerte', 'w-3 h-3') : ''}${label}</span>`;
-}
+// Pied de carte : le besoin calculé face au taux de charge, sur UNE ligne.
+//
+// La même relation — la machine est-elle à la bonne taille pour ce besoin ? — sortait
+// jusqu'ici en trois fragments dispersés dans la carte : deux tuiles de puissance
+// nominale, une ligne grise « Besoin calculé : … » en 11px, et une pastille « Charge
+// 62% F · 66% C » perdue dans une rangée avec la TVA. Trois représentations d'un seul
+// jugement, dont aucune ne le portait, et l'arithmétique laissée à l'artisan devant le
+// client. Réunies ici, elles se lisent d'un trait : ce qu'il faut, ce que ça donne.
+function renderPiedMesures(chargeInfo, nominalFroid, nominalChaud) {
+    if (!chargeInfo) return '';
+    const aChaud = chargeInfo.reqChaud !== null && chargeInfo.reqChaud !== undefined;
+    const besoin = `${nb(chargeInfo.reqFroid)} kW F${aChaud ? ` · ${nb(chargeInfo.reqChaud)} kW C` : ''}`;
 
-function renderChargeWarning(reqFroid, reqChaud, nominalFroid, nominalChaud) {
-    const t = tauxCharge(reqFroid, reqChaud, nominalFroid, nominalChaud);
-    if (!t || !t.sousCharge) return '';
-    return `<p class="text-2xs text-amber-800 mt-2 leading-relaxed">Surdimensionnée pour ce besoin : cycles courts, rendement réel dégradé.</p>`;
+    const t = tauxCharge(chargeInfo.reqFroid, chargeInfo.reqChaud, nominalFroid, nominalChaud);
+    const charge = t
+        ? `Charge ${Math.round(t.chargeF * 100)} % F${t.chargeC !== null ? ` · ${Math.round(t.chargeC * 100)} % C` : ''}`
+        : '';
+
+    return `
+    <div class="mt-3 pt-3 k-divider flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <span class="text-2xs text-ink-500 k-num">Besoin ${besoin}</span>
+        ${charge ? `<span class="text-2xs font-semibold k-num ${t.sousCharge ? 'text-amber-800' : 'text-ink-700'}">${charge}</span>` : ''}
+    </div>
+    ${t && t.sousCharge ? `<p class="text-2xs text-amber-800 mt-1.5 leading-relaxed">Surdimensionnée pour ce besoin : cycles courts, rendement réel dégradé.</p>` : ''}`;
 }
 
 // selectOpts = null (carte simple, non sélectionnable) ou { selected: bool, onclick: string }
@@ -1967,12 +2039,19 @@ function renderChargeWarning(reqFroid, reqChaud, nominalFroid, nominalChaud) {
 //     contraste : ce sont les options à comparer, les effacer va contre leur raison d'être.
 //     La sélection se lit à la bordure, à l'anneau et à la puce cochée ;
 //   - le filigrane décoratif en coin est retiré : il n'apportait rien et passait sous du texte.
-function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = false, sizes = [], selectOpts = null, tvaInfo = null, chargeInfo = null) {
+function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = false, sizes = [], selectOpts = null, tvaInfo = null, chargeInfo = null, { tvaMasquee = false } = {}) {
     let footer = '';
     if (isMulti) {
-        footer = `<div class="mt-4 pt-4 k-divider flex flex-wrap gap-2 items-center">
-            <span class="k-eyebrow">Tailles UI à connecter</span>
-            ${sizes.map(s => `<span class="k-pill k-pill-neutral k-num">${s}</span>`).join('')}
+        // Une taille par pièce, nommée : c'est cette correspondance-là qui part sur le bon
+        // de commande, et elle n'existait nulle part à l'écran.
+        footer = `<div class="mt-4 pt-4 k-divider">
+            <span class="k-eyebrow">Unités à connecter</span>
+            <div class="mt-2 flex flex-col gap-1">
+                ${sizes.map(s => `<div class="flex items-baseline justify-between gap-3 text-2xs">
+                    <span class="text-ink-600 min-w-0 truncate">${escapeHtml(s.label)}</span>
+                    <span class="font-semibold text-ink-900 k-num whitespace-nowrap">taille ${escapeHtml(String(s.size))}</span>
+                </div>`).join('')}
+            </div>
         </div>`;
     }
 
@@ -1998,35 +2077,43 @@ function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = fals
         ? `<span class="k-pill ${selectOpts && !selectOpts.selected ? 'k-pill-neutral' : 'k-pill-accent'} mb-2">${escapeHtml(badgeText)}</span>`
         : '';
 
+    // Positionnement de gamme (€€€, « haut de gamme design »…) : c'est un critère de choix,
+    // sa place est ici, en clair sous la référence. Il était logé dans le résumé du dépliant
+    // « Guide de la gamme », où il passait à la ligne dès que la colonne se resserrait.
+    const infoGamme = GAMMES_INFO[state.brand]?.[mainTitle];
+    const tier = infoGamme
+        ? `<p class="text-xs text-ink-600 mt-1.5"><b class="font-semibold text-ink-900 k-num">${escapeHtml(infoGamme.tier)}</b></p>`
+        : '';
+
+    // La pastille TVA ne s'affiche que si le bloc ne l'a pas déjà énoncée pour toutes ses
+    // options (voir tvaCommune) : sinon elle est identique sur chaque carte et ne signale rien.
+    const pastilles = tvaMasquee ? '' : `<div class="flex flex-wrap gap-1.5 mt-3">${renderTvaBadge(tvaInfo)}</div>`;
+
     return `
     <div class="${wrapperClasses}"${attrs}>
         <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
                 ${badge}
-                <h4 class="text-lg font-semibold text-ink-900 leading-tight break-words">${mainTitle}</h4>
-                <p class="text-xs text-ink-500 mt-1 break-words">${subtitle}</p>
+                <h4 class="text-xl font-semibold text-ink-900 uppercase tracking-[0.015em] leading-tight break-words">${mainTitle}</h4>
+                <p class="text-xs text-ink-500 mt-1 break-words k-num">${subtitle}</p>
+                ${tier}
             </div>
             ${radio}
         </div>
 
-        <div class="grid grid-cols-2 gap-2 mt-3">
+        <div class="grid grid-cols-2 gap-2 mt-4">
             <div class="k-stat k-stat-froid">
-                <span class="k-stat-label">Froid nom.</span>
-                <span class="k-stat-value">${froid} kW</span>
+                <span class="k-stat-label">Froid nominal</span>
+                <span class="k-stat-value">${nb(froid)} kW</span>
             </div>
             <div class="k-stat k-stat-chaud">
-                <span class="k-stat-label">Chaud nom.</span>
-                <span class="k-stat-value">${chaud} kW</span>
+                <span class="k-stat-label">Chaud nominal</span>
+                <span class="k-stat-value">${nb(chaud)} kW</span>
             </div>
         </div>
 
-        ${chargeInfo ? `<p class="text-2xs text-ink-500 mt-2 k-num">Besoin calculé : ${chargeInfo.reqFroid.toFixed(1)} kW F${chargeInfo.reqChaud !== null && chargeInfo.reqChaud !== undefined ? ` · ${chargeInfo.reqChaud.toFixed(1)} kW C` : ''}</p>` : ''}
-
-        <div class="flex flex-wrap gap-1.5 mt-2.5">
-            ${renderTvaBadge(tvaInfo)}
-            ${chargeInfo ? renderChargeBadge(chargeInfo.reqFroid, chargeInfo.reqChaud, froid, chaud) : ''}
-        </div>
-        ${chargeInfo ? renderChargeWarning(chargeInfo.reqFroid, chargeInfo.reqChaud, froid, chaud) : ''}
+        ${renderPiedMesures(chargeInfo, froid, chaud)}
+        ${pastilles}
         ${gammeGuideBlock}
         ${footer}
     </div>`;
@@ -2065,9 +2152,9 @@ function renderTvaBadge(tvaInfo) {
     const marque = escapeHtml(libelleMarque(state.brand));
     const dateVerif = new Date(TVA_DATE_VERIFICATION).toLocaleDateString('fr-FR');
     const badges = {
-        eligible:     pastilleTva('ok', 'TVA 5,5%', `Éligibilité vérifiée face au tableau ${marque} le ${dateVerif}.`),
-        non_eligible: pastilleTva('danger', 'TVA 20%', `Éligibilité vérifiée face au tableau ${marque} le ${dateVerif}.`),
-        a_verifier:   pastilleTva('neutral', 'TVA à vérifier', `Référence absente du tableau d'éligibilité ${marque} (vérifié le ${dateVerif}) : à confirmer auprès du constructeur avant de facturer en 5,5%.`)
+        eligible:     pastilleTva('ok', 'TVA 5,5 %', `Éligibilité vérifiée face au tableau ${marque} le ${dateVerif}.`),
+        non_eligible: pastilleTva('danger', 'TVA 20 %', `Éligibilité vérifiée face au tableau ${marque} le ${dateVerif}.`),
+        a_verifier:   pastilleTva('neutral', 'TVA à vérifier', `Référence absente du tableau d'éligibilité ${marque} (vérifié le ${dateVerif}) : à confirmer auprès du constructeur avant de facturer en 5,5 %.`)
     };
     const wifi = tvaInfo.wifiRequired
         ? `<span class="k-pill k-pill-neutral">Module Wifi requis</span>`
@@ -2077,7 +2164,7 @@ function renderTvaBadge(tvaInfo) {
 
 function tvaSuffixText(tvaInfo) {
     if (!tvaInfo) return ` — TVA non renseignée pour ${libelleMarque(state.brand)}`;
-    const libelles = { eligible: 'TVA 5,5%', non_eligible: 'TVA 20%', a_verifier: `TVA à vérifier (référence absente du tableau ${libelleMarque(state.brand)})` };
+    const libelles = { eligible: 'TVA 5,5 %', non_eligible: 'TVA 20 %', a_verifier: `TVA à vérifier (référence absente du tableau ${libelleMarque(state.brand)})` };
     return ` — ${libelles[tvaInfo.statut] || libelles.a_verifier}${tvaInfo.wifiRequired ? ' (Module Wifi requis)' : ''}`;
 }
 
