@@ -106,8 +106,12 @@ function setBrand(brand) {
         btn.setAttribute('aria-pressed', String(btn.dataset.brand === brand));
         btn.classList.toggle('hidden', !actives.includes(btn.dataset.brand));
     });
-    state.currentCalc = null;
-    viderResultats();
+    // Marque plutôt qu'efface (voir marquerResultatsObsoletes) : changer de marque en cours de
+    // saisie ne doit pas faire disparaître un calcul affiché, exactement comme changer de
+    // département ne le fait pas. Sans effet quand aucun calcul n'est affiché (garde interne),
+    // et sans effet visible dans les chemins de restauration (reloadConfig, restoreDraftIfAny),
+    // qui appellent calculate() juste après et écrasent de toute façon le rendu avant peinture.
+    marquerResultatsObsoletes();
 }
 
 function initApp() {
@@ -928,13 +932,22 @@ function updateModeButtons(mode) {
     document.getElementById('btn-multi').setAttribute('aria-pressed', String(!isMono));
 }
 
+// Texte par défaut du bandeau de péremption — celui déjà présent dans index.html au premier
+// rendu. Réécrit ici après un passage éventuel par afficherErreurSaisie(), qui détourne le
+// même bandeau (voir plus bas).
+const STALE_TEXTE_DEFAUT = 'Les hypothèses ont changé — ces solutions ne sont plus à jour.';
+
 // Signale que les résultats affichés ne correspondent plus aux hypothèses saisies.
 //
 // Sans cela, modifier le département, l'isolation, l'altitude, la consigne ou n'importe quel
 // champ de pièce laissait les solutions précédentes à l'écran, sans la moindre marque
 // d'obsolescence : un artisan qui corrigeait « 69 » en « 13 » voyait le bandeau climat se
-// mettre à jour et recopiait le matériel calculé pour Lyon. setMode, setUsage et setBrand
-// effaçaient bien les résultats ; ces chemins-là, non.
+// mettre à jour et recopiait le matériel calculé pour Lyon.
+//
+// setMode, setUsage et setBrand appellent maintenant cette fonction eux aussi (ils appelaient
+// jusqu'ici viderResultats() : passer de « Réversible » à « Froid seul » pour vérifier une
+// hypothèse effaçait toute la colonne, exactement ce que ce mécanisme existe pour éviter
+// ailleurs — la même classe de changement se comportait différemment selon le contrôle tapé).
 //
 // On avertit au lieu d'effacer : faire disparaître un résultat sous les doigts à la première
 // frappe dans un champ est hostile, et l'information reste utile en comparaison. Le bandeau
@@ -942,7 +955,17 @@ function updateModeButtons(mode) {
 function marquerResultatsObsoletes() {
     if (!state.currentCalc) return;              // rien d'affiché : rien à périmer
     const banner = document.getElementById('stale-banner');
-    if (banner) banner.classList.remove('hidden');
+    if (banner) {
+        // Remet le bandeau dans son état « péremption » par défaut, au cas où le dernier
+        // passage ici était afficherErreurSaisie() (rôle, tonalité, texte, bouton diffèrent).
+        banner.classList.remove('hidden', 'k-note-alert-danger');
+        banner.classList.add('k-note-alert-warn');
+        banner.setAttribute('role', 'status');
+        const texte = document.getElementById('stale-banner-text');
+        if (texte) texte.textContent = STALE_TEXTE_DEFAUT;
+        const action = document.getElementById('stale-banner-action');
+        if (action) action.classList.remove('hidden');
+    }
     const results = document.getElementById('results-container');
     // Désaturation et non plus `opacity-50` : la mise en veille visuelle du bloc doit rester
     // lisible. À 50% d'opacité, les références machine et les kW — le contenu qu'on garde
@@ -959,6 +982,71 @@ function effacerMarqueObsolescence() {
     if (results) results.classList.remove('k-stale');
 }
 
+// --- Erreur de saisie : signalée sans effacer -----------------------------------------
+//
+// calculate() mettait `state.currentCalc = null` puis remplaçait TOUT #results-container par
+// le message d'erreur, quel que soit ce qui s'y trouvait — un calcul valide affiché disparaissait
+// donc au moindre champ mal rempli. Désormais : le dernier calcul valide reste affiché
+// (désaturé, comme pour toute autre péremption), l'erreur se lit dans le bandeau de tête de
+// colonne, et le champ fautif est marqué et reçoit le focus — voir calculate().
+
+// Élément actuellement marqué en erreur (ou null) : suivi pour pouvoir le nettoyer sans avoir
+// à parcourir tous les champs de toutes les pièces à chaque recalcul.
+let champFautifActuel = null;
+
+function effacerMarqueChampFautif() {
+    if (!champFautifActuel) return;
+    champFautifActuel.classList.remove('k-input-error');
+    champFautifActuel.removeAttribute('aria-invalid');
+    champFautifActuel = null;
+}
+
+function marquerChampFautif(roomId, champ) {
+    effacerMarqueChampFautif();
+    const el = document.getElementById(`room-${roomId}-${champ}`);
+    if (!el) return null;               // pièce retirée entre la saisie et le clic, par ex.
+    el.classList.add('k-input-error');
+    el.setAttribute('aria-invalid', 'true');
+    champFautifActuel = el;
+    return el;
+}
+
+// erreur = { message, roomId, champ } — voir validerSaisiePieces(). Réutilise le bandeau de
+// péremption plutôt que d'en ouvrir un second : les deux disent au fond la même chose (« ce
+// qui est affiché dessous ne correspond plus à ce qui est saisi ») et ne surviennent jamais
+// ensemble, une erreur de saisie empêchant justement le recalcul qui ferait apparaître l'autre.
+// Fonctionne aussi SANS calcul préalable (currentCalc null) — seul cas où ce bandeau doit
+// s'afficher avant le premier calcul réussi.
+function afficherErreurSaisie(erreur) {
+    const banner = document.getElementById('stale-banner');
+    if (banner) {
+        banner.classList.remove('hidden', 'k-note-alert-warn');
+        banner.classList.add('k-note-alert-danger');
+        banner.setAttribute('role', 'alert');
+        const texte = document.getElementById('stale-banner-text');
+        if (texte) texte.textContent = erreur.message;
+        // Pas de bouton ici : le champ fautif reçoit directement le focus juste après, et
+        // « Recalculer » n'aiderait de toute façon à rien tant que l'erreur n'est pas corrigée.
+        const action = document.getElementById('stale-banner-action');
+        if (action) action.classList.add('hidden');
+    }
+    // Ne désature les résultats que s'il y en a : sur un premier calcul jamais réussi,
+    // #results-container ne porte que l'état vide, que ça n'aiderait en rien à assombrir.
+    if (state.currentCalc) {
+        const results = document.getElementById('results-container');
+        if (results) results.classList.add('k-stale');
+    }
+    const champEl = marquerChampFautif(erreur.roomId, erreur.champ);
+    if (champEl) {
+        champEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        champEl.focus({ preventScroll: true });
+    } else {
+        // Repli : la pièce visée n'existe plus, mais l'erreur reste vraie ailleurs à l'écran —
+        // au moins amener le bandeau sous les yeux plutôt que ne rien montrer du tout.
+        document.getElementById('stale-banner')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+}
+
 // Passer en Monosplit ne garde que la première pièce : sans garde, un artisan qui teste "et si
 // je repassais en mono ?" perdait la saisie des pièces 2 à 5 en un clic, sans le moindre signe
 // avant-coureur (le bouton Monosplit/Multisplit ne ressemble à rien de destructeur). Le passage
@@ -970,9 +1058,11 @@ function setMode(mode) {
     state.mode = mode;
     state.rooms = [state.rooms[0]];
     updateModeButtons(mode);
-    state.currentCalc = null;
-    viderResultats();
-    effacerMarqueObsolescence();
+    // Marque plutôt qu'efface (voir marquerResultatsObsoletes) : passer en Multisplit pour
+    // ajouter des pièces ne doit pas faire disparaître le résultat mono déjà affiché — ce
+    // que la troncature de state.rooms ci-dessus n'affecte pas, currentCalc étant un
+    // instantané indépendant du formulaire courant.
+    marquerResultatsObsoletes();
     renderRooms();
 }
 
@@ -990,9 +1080,10 @@ function updateUsageButtons(usage) {
 function setUsage(usage) {
     state.usage = usage;
     updateUsageButtons(usage);
-    state.currentCalc = null;
-    viderResultats();
-    effacerMarqueObsolescence();
+    // Marque plutôt qu'efface (voir marquerResultatsObsoletes) : basculer sur « Froid seul »
+    // pour vérifier une hypothèse ne doit pas faire disparaître le calcul affiché — c'était
+    // jusqu'ici le seul contrôle qui punissait la curiosité de l'artisan par un écran vide.
+    marquerResultatsObsoletes();
     persistDraft();
 }
 
@@ -1155,22 +1246,32 @@ const BORNES_SAISIE = {
     occupants:{ min: 0,   max: 30,  label: "Le nombre d'occupants", unite: '' }
 };
 
-// Renvoie un message d'erreur, ou null si tout est cohérent. Nomme toujours la pièce fautive :
-// avec cinq pièces, « Saisie incomplète » obligeait à toutes les rouvrir pour trouver laquelle.
+// Renvoie { message, roomId, champ }, ou null si tout est cohérent. Nomme toujours la pièce
+// fautive dans le message : avec cinq pièces, « Saisie incomplète » obligeait à toutes les
+// rouvrir pour trouver laquelle. roomId + champ permettent en plus à calculate() de
+// retrouver le CHAMP DOM exact (id="room-${roomId}-${champ}", voir renderRooms()) pour le
+// marquer et lui donner le focus — la pièce fautive nommée en toutes lettres n'évite déjà
+// plus qu'il faille rouvrir les autres, mais laissait encore chercher le bon champ À
+// L'INTÉRIEUR de la bonne pièce quand elle en compte huit.
 function validerSaisiePieces(rooms, multi) {
     for (let i = 0; i < rooms.length; i++) {
         const r = rooms[i];
         const nom = r.nom ? `« ${r.nom} »` : (multi ? `Pièce ${i + 1}` : 'La pièce');
 
         if (r.surface === '' || r.surface === null || r.surface === undefined) {
-            return `${nom} : indiquez la surface.`;
+            return { message: `${nom} : indiquez la surface.`, roomId: r.id, champ: 'surface' };
         }
         for (const [champ, b] of Object.entries(BORNES_SAISIE)) {
             const v = r[champ];
             if (v === '' || v === null || v === undefined) continue;   // champ optionnel laissé vide
-            if (!Number.isFinite(v)) return `${nom} : ${b.label.toLowerCase()} n'est pas un nombre valide.`;
+            if (!Number.isFinite(v)) {
+                return { message: `${nom} : ${b.label.toLowerCase()} n'est pas un nombre valide.`, roomId: r.id, champ };
+            }
             if (v < b.min || v > b.max) {
-                return `${nom} : ${b.label.toLowerCase()} doit être comprise entre ${b.min} et ${b.max} ${b.unite}`.trim() + '.';
+                return {
+                    message: `${nom} : ${b.label.toLowerCase()} doit être comprise entre ${b.min} et ${b.max} ${b.unite}`.trim() + '.',
+                    roomId: r.id, champ
+                };
             }
         }
     }
@@ -1181,12 +1282,17 @@ function calculate() {
     const resultsContainer = document.getElementById('results-container');
     const erreur = validerSaisiePieces(state.rooms, state.mode === 'multi');
     if (erreur) {
-        state.currentCalc = null;
-        effacerMarqueObsolescence();
-        resultsContainer.innerHTML = `<div class="k-note k-note-alert k-note-alert-danger text-sm fade-in" role="alert"><span class="k-note-icon">${icone('alerte')}</span><div class="min-w-0">${escapeHtml(erreur)}</div></div>`;
-        resultsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        // currentCalc n'est PAS remis à null ici : une erreur de saisie ne rend pas caduc un
+        // calcul déjà réussi, elle empêche seulement d'en produire un nouveau tant qu'elle
+        // persiste. Le dernier résultat valide reste donc affiché, désaturé comme pour toute
+        // autre péremption, pendant que le bandeau et le champ fautif portent l'erreur — voir
+        // afficherErreurSaisie(). Avant ce correctif, remplacer #results-container par le seul
+        // message d'erreur détruisait un calcul valide pour une faute de frappe dans un champ
+        // sans rapport.
+        afficherErreurSaisie(erreur);
         return;
     }
+    effacerMarqueChampFautif();
     effacerMarqueObsolescence();
 
     const { tBaseHiver, tBaseEte } = getClimateContext();

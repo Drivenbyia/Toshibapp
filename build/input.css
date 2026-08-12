@@ -225,6 +225,14 @@
         background-size: 1.125em;
     }
 
+    /* Champ désigné par un message d'erreur de saisie (voir validerSaisiePieces et calculate(),
+       js/app.js) : bordure et anneau de focus passent au rose, la couleur réservée aux alertes
+       qui doivent interrompre. Combinée à `.k-input` / `.k-select`, jamais seule — placée après
+       elles dans la feuille pour l'emporter à spécificité égale. */
+    .k-input-error {
+        @apply border-rose-500 focus:border-rose-500 focus:ring-rose-500/20;
+    }
+
     /* --- Contrôle segmenté (Marque, Usage, Mono/Multi) ----------------------- */
 
     /* Boutons franchement bordés et espacés, plutôt qu'une piste grise dans

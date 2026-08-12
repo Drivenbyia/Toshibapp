@@ -250,15 +250,24 @@
       <!-- Colonne des solutions -->
       <div class="flex flex-col gap-4 min-w-0">
 
-        <!-- Avertissement de péremption : les hypothèses (département, isolation, surfaces…) ont
-             changé depuis le dernier calcul, donc le matériel affiché plus bas ne correspond plus.
-             Signalé plutôt qu'effacé, pour ne pas faire disparaître un résultat sous les doigts. -->
+        <!-- Bandeau de tête de colonne, à double emploi (voir js/app.js) :
+               - péremption : les hypothèses (département, isolation, surfaces…) ont changé
+                 depuis le dernier calcul, donc le matériel affiché plus bas ne correspond plus.
+                 Signalé plutôt qu'effacé, pour ne pas faire disparaître un résultat sous les
+                 doigts (marquerResultatsObsoletes) ;
+               - erreur de saisie : validerSaisiePieces a rejeté la saisie courante
+                 (afficherErreurSaisie). Même emplacement plutôt qu'un second bandeau : les deux
+                 disent au fond la même chose — « ce qui est affiché dessous ne correspond plus à
+                 ce qui est saisi » — et ne surviennent jamais ensemble, une erreur de saisie
+                 empêchant justement le recalcul qui ferait disparaître le premier cas.
+             Texte, tonalité et bouton d'action sont réécrits par JS selon le cas ; le contenu
+             ci-dessous n'est que l'état par défaut au premier rendu. -->
         <div id="stale-banner" class="hidden k-note k-note-alert k-note-alert-warn items-center justify-between gap-3 fade-in" role="status">
             <span class="k-note-icon">
                 <svg class="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4m0 4h.01"/></svg>
             </span>
-            <span class="flex-grow min-w-0">Les hypothèses ont changé — ces solutions ne sont plus à jour.</span>
-            <button onclick="calculate()" class="k-btn-outline min-h-[36px] px-3 text-2xs whitespace-nowrap flex-shrink-0">Recalculer</button>
+            <span id="stale-banner-text" class="flex-grow min-w-0">Les hypothèses ont changé — ces solutions ne sont plus à jour.</span>
+            <button id="stale-banner-action" onclick="calculate()" class="k-btn-outline min-h-[36px] px-3 text-2xs whitespace-nowrap flex-shrink-0">Recalculer</button>
         </div>
 
         <!-- Zone résultats. Le contenu est produit par renderResults() (js/app.js), y compris
