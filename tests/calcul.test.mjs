@@ -602,8 +602,8 @@ describe('TVA 5,5% (Toshiba) — monosplit', () => {
             assert.equal(info.eligible, false);
         }
     });
-    test('Shorai Edge : éligible sans wifi requis', () => {
-        const info = getTvaInfo('Shorai Edge', 'RAS-10J2AVSG-E1 / RAS-B10G3KVSG-E', 'mono', 'toshiba');
+    test('Shorai Curve : éligible sans wifi requis', () => {
+        const info = getTvaInfo('Shorai Curve', 'RAS-10P2AVSG-E / RAS-B10P2KVSG-E', 'mono', 'toshiba');
         assert.equal(info.statut, 'eligible');
         assert.equal(info.eligible, true);
         assert.equal(info.wifiRequired, false);
@@ -627,8 +627,8 @@ describe('TVA 5,5% (Toshiba) — monosplit', () => {
             assert.equal(info.wifiRequired, false, gamme);
         }
     });
-    test('Shorai Edge : toute la gamme est éligible, taille 24 comprise (absente du tableau v3)', () => {
-        const info = getTvaInfo('Shorai Edge', 'RAS-24J2AVSG-E1 / RAS-B24G3KVSG-E', 'mono', 'toshiba');
+    test('Shorai Curve : toute la gamme est éligible, taille 24 comprise (absente du tableau v3)', () => {
+        const info = getTvaInfo('Shorai Curve', 'RAS-24P2AVSG-E / RAS-B24P2KVSG-E', 'mono', 'toshiba');
         assert.equal(info.statut, 'eligible');
         assert.equal(info.wifiRequired, false);
     });
@@ -649,7 +649,7 @@ describe('TVA 5,5% (Toshiba) — monosplit', () => {
 // Garde-fou de dérive : chaque machine réellement proposable par l'application doit avoir un statut
 // TVA connu et conforme au tableau v3 — un ajout au catalogue sans mise à jour des règles se voit ici.
 describe('TVA — couverture de tout le catalogue monosplit Toshiba', () => {
-    const attendu = { 'Naka': 'non_eligible', 'Yukai': 'eligible', 'Shorai Edge': 'eligible', 'Haori': 'eligible', 'Daiseikai 10': 'eligible', 'Console Double-Flux': 'eligible' };
+    const attendu = { 'Naka': 'non_eligible', 'Yukai': 'eligible', 'Shorai Curve': 'eligible', 'Haori': 'eligible', 'Daiseikai 10': 'eligible', 'Console Double-Flux': 'eligible' };
     const exceptions = { 'Yukai:18': 'non_eligible', 'Yukai:24': 'non_eligible' };
 
     test('statut conforme pour chaque référence du catalogue', () => {
@@ -735,7 +735,7 @@ describe('TVA 5,5% (Toshiba) — multisplit : la règle change', () => {
     });
 
     test('plus aucune condition de module Wifi en multisplit (changement v2 -> v3)', () => {
-        for (const gamme of ['Naka', 'Yukai', 'Console Double-Flux', 'Shorai Edge', 'Haori', 'Daiseikai 10']) {
+        for (const gamme of ['Naka', 'Yukai', 'Console Double-Flux', 'Shorai Curve', 'Haori', 'Daiseikai 10']) {
             const info = getTvaInfo(gamme, 'RAS-10B2AVG-E / RAS-B10B2KVG-E', 'multiUi', 'toshiba', GROUPE);
             assert.equal(info.statut, 'eligible', gamme);
             assert.equal(info.wifiRequired, false, gamme);
@@ -744,11 +744,11 @@ describe('TVA 5,5% (Toshiba) — multisplit : la règle change', () => {
 
     test('groupe extérieur hors tableau : les UI raccordées passent en "à vérifier"', () => {
         assert.equal(getGroupTvaInfo('RAS-9M99XXXX-E', 'toshiba').statut, 'a_verifier');
-        assert.equal(getTvaInfo('Shorai Edge', 'RAS-10J2AVSG-E1 / RAS-B10G3KVSG-E', 'multiUi', 'toshiba', 'RAS-9M99XXXX-E').statut, 'a_verifier');
+        assert.equal(getTvaInfo('Shorai Curve', 'RAS-10P2AVSG-E / RAS-B10P2KVSG-E', 'multiUi', 'toshiba', 'RAS-9M99XXXX-E').statut, 'a_verifier');
     });
 
     test('référence de groupe absente (null) : "à vérifier" plutôt qu\'une promesse de 5,5%', () => {
-        assert.equal(getTvaInfo('Shorai Edge', 'RAS-10J2AVSG-E1 / RAS-B10G3KVSG-E', 'multiUi', 'toshiba').statut, 'a_verifier');
+        assert.equal(getTvaInfo('Shorai Curve', 'RAS-10P2AVSG-E / RAS-B10P2KVSG-E', 'multiUi', 'toshiba').statut, 'a_verifier');
     });
 });
 

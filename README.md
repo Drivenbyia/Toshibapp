@@ -28,7 +28,7 @@ S'y ajoutent quelques fichiers statiques (`manifest.json`, `sw.js`, `assets/tail
   l'altitude et la consigne intérieure d'été.
 - **Sélection automatique** du matériel dans le catalogue de la marque sélectionnée
   (monosplit / multisplit), avec proposition de gammes équivalentes.
-  - Toshiba : Naka, Yukai, Shorai Edge, Haori, Daiseikai 10, Console Double-Flux (mono) ;
+  - Toshiba : Naka, Yukai, Shorai Curve, Haori, Daiseikai 10, Console Double-Flux (mono) ;
     groupes RAS-xMxxG3AVG-E (multi).
   - Panasonic : TZ Ultra Compact, Etherea (mono) ; groupes Multi TZ CU-2TZ/CU-3TZ (multi,
     compatibles avec les unités intérieures TZ Ultra Compact).
