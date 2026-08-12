@@ -35,7 +35,10 @@
 
         ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #9CADA8; border-radius: 2px; }
+        /* #5A6D67 = line-strong (build/tailwind.config.js) : recopié en dur ici faute de
+           pouvoir référencer un jeton Tailwind dans un pseudo-élément, à tenir aligné à la
+           main si ce jeton change. */
+        ::-webkit-scrollbar-thumb { background: #5A6D67; border-radius: 2px; }
         ::-webkit-scrollbar-thumb:hover { background: var(--brand-accent); }
 
         input[type=number]::-webkit-inner-spin-button,
