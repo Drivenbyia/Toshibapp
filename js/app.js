@@ -1439,6 +1439,19 @@ function blocTitre(titre, sousTitre) {
     </div>`;
 }
 
+// Grille des cartes d'un bloc de solutions (monosplit, mono dédié par pièce, groupes
+// multisplit) : en une seule colonne empilée jusqu'ici quelle que soit la largeur d'écran, si
+// bien qu'en tablette paysage — le format le plus courant sur le terrain (voir PRODUCT.md) —
+// six cartes s'étirent sur près de 3000px de défilement pendant que la moitié de l'écran
+// reste vide à côté du formulaire. `auto-fill` avec un minimum plutôt qu'un palier de largeur
+// fixe : le nombre de colonnes se résout à la largeur RÉELLEMENT disponible pour ce bloc
+// (colonne de droite du simulateur, ou pleine largeur du tableau de bord), pas à la largeur de
+// la fenêtre — deux grandeurs différentes dès que le palier `duo` divise l'écran en deux. Un
+// palier fixe aurait fallu être recalé à la main à chaque changement du ratio des colonnes.
+function wrapGrilleResultats(cardsHtml) {
+    return `<div class="k-results-grid">${cardsHtml}</div>`;
+}
+
 // Reconstruit l'affichage des résultats à partir de state.currentCalc + state.selection,
 // sans relancer le calcul (utilisé quand l'utilisateur choisit une solution parmi les options).
 // Fonction de LECTURE uniquement : ne modifie jamais state (voir seedGroupGammeDefaults / selectGroup
@@ -1468,10 +1481,12 @@ function renderResults({ anime = false } = {}) {
             const tvaBloc = tvaCommune(tvaInfos);
             html += blocTitre('Monosplit', metaBloc(options.length, tvaBloc));
             const selIdx = Math.min(state.selection.mono || 0, options.length - 1);
+            let cardsMono = '';
             options.forEach((sol, idx) => {
                 const selectOpts = options.length > 1 ? { selected: idx === selIdx, onclick: `selectMono(${idx})` } : null;
-                html += renderCard(idx === 0 ? 'Recommandé' : '', sol.gamme, sol.reference_ensemble, sol.puissance_froid_kw, sol.puissance_chaud_kw, false, [], selectOpts, tvaInfos[idx], { reqFroid: calc.req.froid, reqChaud: calc.mono.froidSeul ? null : calc.req.chaud }, { tvaMasquee: tvaBloc.commun });
+                cardsMono += renderCard(idx === 0 ? 'Recommandé' : '', sol.gamme, sol.reference_ensemble, sol.puissance_froid_kw, sol.puissance_chaud_kw, false, [], selectOpts, tvaInfos[idx], { reqFroid: calc.req.froid, reqChaud: calc.mono.froidSeul ? null : calc.req.chaud }, { tvaMasquee: tvaBloc.commun });
             });
+            html += wrapGrilleResultats(cardsMono);
             const chosen = options[selIdx];
             const chosenTva = getTvaInfo(chosen.gamme, chosen.reference_ensemble, 'mono', state.brand);
             summaryParts.push(`1x Mono ${chosen.gamme}`);
@@ -1492,10 +1507,12 @@ function renderResults({ anime = false } = {}) {
                 const tvaBloc = tvaCommune(tvaInfos);
                 html += blocTitre(escapeHtml(dedItem.label), metaBloc(options.length, tvaBloc));
                 const selIdx = Math.min(state.selection.dedicated[room.index] || 0, options.length - 1);
+                let cardsDed = '';
                 options.forEach((sol, idx) => {
                     const selectOpts = options.length > 1 ? { selected: idx === selIdx, onclick: `selectDedicated(${room.index}, ${idx})` } : null;
-                    html += renderCard(idx === 0 ? 'Recommandé' : '', sol.gamme, sol.reference_ensemble, sol.puissance_froid_kw, sol.puissance_chaud_kw, false, [], selectOpts, tvaInfos[idx], { reqFroid: room.req.froid, reqChaud: m.froidSeul ? null : room.req.chaud }, { tvaMasquee: tvaBloc.commun });
+                    cardsDed += renderCard(idx === 0 ? 'Recommandé' : '', sol.gamme, sol.reference_ensemble, sol.puissance_froid_kw, sol.puissance_chaud_kw, false, [], selectOpts, tvaInfos[idx], { reqFroid: room.req.froid, reqChaud: m.froidSeul ? null : room.req.chaud }, { tvaMasquee: tvaBloc.commun });
                 });
+                html += wrapGrilleResultats(cardsDed);
                 const chosen = options[selIdx];
                 const chosenTva = getTvaInfo(chosen.gamme, chosen.reference_ensemble, 'mono', state.brand);
                 summaryParts.push(`1x Mono ${chosen.gamme}`);
@@ -1529,12 +1546,14 @@ function renderResults({ anime = false } = {}) {
             // La référence commandée passe en titre de carte, « Groupe extérieur » en sous-titre :
             // toutes les cartes s'intitulaient « Groupe Extérieur » et ne se distinguaient que par
             // la ligne grise en dessous — soit exactement l'inverse de ce qu'on compare ici.
+            let cardsGroupe = '';
             m.groupOptions.forEach((g, idx) => {
                 const selectOpts = m.groupOptions.length > 1 ? { selected: idx === selIdx, onclick: `selectGroup(${idx})` } : null;
                 const estEquilibre = m.groupEquilibre && g.reference === m.groupEquilibre.reference;
                 const badge = estEquilibre ? 'Équilibré' : (idx === 0 ? 'Recommandé' : '');
-                html += renderCard(badge, g.reference, 'Groupe extérieur', g.puissance_nominale_froid_kw, g.puissance_nominale_chaud_kw, true, sizesArr, selectOpts, tvaInfosGroupe[idx], { reqFroid: groupReqFroid, reqChaud: m.froidSeul ? null : groupReqChaud }, { tvaMasquee: tvaBlocGroupe.commun });
+                cardsGroupe += renderCard(badge, g.reference, 'Groupe extérieur', g.puissance_nominale_froid_kw, g.puissance_nominale_chaud_kw, true, sizesArr, selectOpts, tvaInfosGroupe[idx], { reqFroid: groupReqFroid, reqChaud: m.froidSeul ? null : groupReqChaud }, { tvaMasquee: tvaBlocGroupe.commun });
             });
+            html += wrapGrilleResultats(cardsGroupe);
             html += renderMultiRoomsGuide(m.standardRooms, bestGroup);
             summaryParts.push(`1x Multi ${bestGroup.reference} (${m.standardRooms.length} UI)`);
             if (equilibre) equipments.push(`Équilibre du groupe : ${equilibre.resume} ${equilibre.detail}`);
@@ -2035,47 +2054,49 @@ function tauxCharge(reqFroid, reqChaud, nominalFroid, nominalChaud) {
     return { chargeF, chargeC, sousCharge: minCharge < SEUIL_SOUS_CHARGE };
 }
 
-// Pied de carte : le besoin calculé face au taux de charge, sur UNE ligne.
-//
-// La même relation — la machine est-elle à la bonne taille pour ce besoin ? — sortait
-// jusqu'ici en trois fragments dispersés dans la carte : deux tuiles de puissance
-// nominale, une ligne grise « Besoin calculé : … » en 11px, et une pastille « Charge
-// 62% F · 66% C » perdue dans une rangée avec la TVA. Trois représentations d'un seul
-// jugement, dont aucune ne le portait, et l'arithmétique laissée à l'artisan devant le
-// client. Réunies ici, elles se lisent d'un trait : ce qu'il faut, ce que ça donne.
+// Pied de carte : le besoin calculé face à la puissance nominale de la machine, sur UNE
+// ligne. Le taux de charge n'y figure plus — il est monté dans les tuiles (voir renderCard),
+// qui sont l'objet le plus visible de la carte et doivent porter le jugement le plus utile,
+// pas la puissance nominale (quasi identique d'une option à l'autre, elle ne distinguait
+// rien). Le kW nominal reste utile — c'est la donnée qu'on recopie sur un bon de commande —
+// mais en pied, à côté du besoin qu'il couvre plutôt qu'en écriture géante.
 function renderPiedMesures(chargeInfo, nominalFroid, nominalChaud) {
     if (!chargeInfo) return '';
     const aChaud = chargeInfo.reqChaud !== null && chargeInfo.reqChaud !== undefined;
     const besoin = `${nb(chargeInfo.reqFroid)} kW F${aChaud ? ` · ${nb(chargeInfo.reqChaud)} kW C` : ''}`;
-
-    const t = tauxCharge(chargeInfo.reqFroid, chargeInfo.reqChaud, nominalFroid, nominalChaud);
-    const charge = t
-        ? `Charge ${Math.round(t.chargeF * 100)} % F${t.chargeC !== null ? ` · ${Math.round(t.chargeC * 100)} % C` : ''}`
-        : '';
+    const nominal = `${nb(nominalFroid)} kW F · ${nb(nominalChaud)} kW C`;
 
     return `
     <div class="mt-3 pt-3 k-divider flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <span class="text-2xs text-ink-500 k-num">Besoin ${besoin}</span>
-        ${charge ? `<span class="text-2xs font-semibold k-num ${t.sousCharge ? 'text-amber-800' : 'text-ink-700'}">${charge}</span>` : ''}
-    </div>
-    ${t && t.sousCharge ? `<p class="text-2xs text-amber-800 mt-1.5 leading-relaxed">Surdimensionnée pour ce besoin : cycles courts, rendement réel dégradé.</p>` : ''}`;
+        <span class="text-2xs font-semibold text-ink-700 k-num">Nominal ${nominal}</span>
+    </div>`;
+}
+
+function renderSousChargeWarning(sousCharge) {
+    if (!sousCharge) return '';
+    return `<p class="text-2xs text-amber-800 mt-2.5 leading-relaxed">Surdimensionnée pour ce besoin : cycles courts, rendement réel dégradé.</p>`;
 }
 
 // selectOpts = null (carte simple, non sélectionnable) ou { selected: bool, onclick: string }
 // quand plusieurs solutions équivalentes sont proposées et que l'utilisateur doit en choisir une.
 // Carte d'une solution. Réorganisée autour de ce qu'un installateur y cherche dans l'ordre :
-// le nom de la gamme, sa référence commandable, les deux puissances, puis les conditions
-// (TVA, Wifi, taux de charge) et enfin la fiche de gamme dépliable.
+// le nom de la gamme, sa référence commandable, le jugement le plus utile, puis les
+// conditions (TVA, Wifi) et enfin la fiche de gamme dépliable.
 //
-// Trois changements de fond par rapport à la version précédente :
-//   - les puissances passent d'une colonne étroite à droite (deux blocs de hauteurs
-//     différentes selon que « Chaud Nom. » tenait ou non sur une ligne) à deux tuiles de
-//     largeur égale sous le titre : elles s'alignent d'une carte à l'autre et se comparent
-//     en balayant la colonne ;
+// Quatre changements de fond par rapport à la version précédente :
+//   - les tuiles portent désormais le TAUX DE CHARGE (besoin / puissance machine), pas la
+//     puissance nominale : sur un jeu d'options catalogue, la puissance nominale varie peu
+//     (3,3 à 3,5 kW sur six modèles n'est pas ce qui les distingue), alors que la charge dit
+//     directement si la machine est à la bonne taille — c'est le jugement que l'artisan porte
+//     en comparant les cartes, il mérite l'objet le plus visible plutôt que l'arithmétique
+//     mentale. Le kW nominal descend en pied, à côté du besoin qu'il couvre ;
 //   - l'option non retenue n'est plus délavée (`opacity-60 saturate-50`) mais rendue en plein
 //     contraste : ce sont les options à comparer, les effacer va contre leur raison d'être.
 //     La sélection se lit à la bordure, à l'anneau et à la puce cochée ;
-//   - le filigrane décoratif en coin est retiré : il n'apportait rien et passait sous du texte.
+//   - le filigrane décoratif en coin est retiré : il n'apportait rien et passait sous du texte ;
+//   - même largeur de tuile, mêmes couleurs froid/chaud qu'avant : la lecture reste la même
+//     geste, seul ce qu'elle mesure change.
 function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = false, sizes = [], selectOpts = null, tvaInfo = null, chargeInfo = null, { tvaMasquee = false } = {}) {
     let footer = '';
     if (isMulti) {
@@ -2126,6 +2147,22 @@ function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = fals
     // options (voir tvaCommune) : sinon elle est identique sur chaque carte et ne signale rien.
     const pastilles = tvaMasquee ? '' : `<div class="flex flex-wrap gap-1.5 mt-3">${renderTvaBadge(tvaInfo, mainTitle)}</div>`;
 
+    // Taux de charge, calculé une seule fois ici : c'est lui qui pilote la tuile ET
+    // l'avertissement de sous-charge (voir le commentaire de renderCard ci-dessus). Repli sur
+    // la puissance nominale — l'ancien affichage — quand chargeInfo est absent, ce qui ne
+    // survient dans aucun appel actuel mais garde la fonction sûre si un futur appelant omet
+    // ce paramètre.
+    const t = chargeInfo ? tauxCharge(chargeInfo.reqFroid, chargeInfo.reqChaud, froid, chaud) : null;
+    const tuileFroid = t
+        ? { label: 'Charge froid', valeur: `${Math.round(t.chargeF * 100)} %` }
+        : { label: 'Froid nominal', valeur: `${nb(froid)} kW` };
+    // Le chaud retombe sur la puissance nominale en « Froid seul » : le besoin chaud n'entre
+    // alors plus dans le dimensionnement (reqChaud est null), donc aucun taux de charge chaud
+    // n'a de sens à afficher — voir calculate() dans ce même fichier.
+    const tuileChaud = (t && t.chargeC !== null)
+        ? { label: 'Charge chaud', valeur: `${Math.round(t.chargeC * 100)} %` }
+        : { label: 'Chaud nominal', valeur: `${nb(chaud)} kW` };
+
     return `
     <div class="${wrapperClasses}"${attrs}>
         <div class="flex items-start justify-between gap-3">
@@ -2140,14 +2177,15 @@ function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = fals
 
         <div class="grid grid-cols-2 gap-2 mt-4">
             <div class="k-stat k-stat-froid">
-                <span class="k-stat-label">Froid nominal</span>
-                <span class="k-stat-value">${nb(froid)} kW</span>
+                <span class="k-stat-label">${tuileFroid.label}</span>
+                <span class="k-stat-value">${tuileFroid.valeur}</span>
             </div>
             <div class="k-stat k-stat-chaud">
-                <span class="k-stat-label">Chaud nominal</span>
-                <span class="k-stat-value">${nb(chaud)} kW</span>
+                <span class="k-stat-label">${tuileChaud.label}</span>
+                <span class="k-stat-value">${tuileChaud.valeur}</span>
             </div>
         </div>
+        ${renderSousChargeWarning(t && t.sousCharge)}
 
         ${renderPiedMesures(chargeInfo, froid, chaud)}
         ${pastilles}

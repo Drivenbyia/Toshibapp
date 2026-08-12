@@ -375,6 +375,25 @@
     .k-stat-froid { @apply bg-froid-600; }
     .k-stat-chaud { @apply bg-chaud-600; }
 
+    /* --- Grille des cartes résultat ------------------------------------------ */
+
+    /* `auto-fit` + largeur minimale plutôt qu'un palier fixe (`duo:grid-cols-2`) : le nombre
+       de colonnes se résout à la largeur réellement disponible pour CE bloc, pas à celle de la
+       fenêtre — deux grandeurs différentes dès que la mise en page se scinde en deux colonnes
+       (voir wrapGrilleResultats, js/app.js). 17rem (272px) est le plus petit qui garde les deux
+       tuiles froid/chaud lisibles côte à côte dans une carte ; sous ce seuil elles se
+       tasseraient. `auto-fit` (et non `auto-fill`) : une piste inoccupée est repliée à 0 plutôt
+       que laissée vide, si bien qu'un bloc à une seule option (le cas courant des monosplits
+       dédiés et des groupes multisplit uniques) occupe toute la largeur au lieu de se retrouver
+       à moitié seul dans la rangée. Le gap reprend le rythme `gap-4` déjà en usage entre les
+       cartes empilées. Hauteurs de rangée égales par défaut (`align-items: stretch` hérité de
+       `grid`) : deux cartes voisines d'une même rangée s'alignent au pied, ce qui sert la
+       comparaison plutôt que la gêner. */
+    .k-results-grid {
+        @apply grid gap-4;
+        grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+    }
+
     /* --- Carte résultat ------------------------------------------------------ */
 
     /* Les options non retenues gardaient un `opacity-60 saturate-50` : du texte
@@ -422,18 +441,20 @@
 
     /* Le bouton flottait au-dessus du contenu sans rien pour l'en séparer : un dégradé
        court fait la coupure sans masquer la ligne qui passe dessous.
-       À partir de `duo` la barre redevient un bloc ordinaire : la saisie et les solutions sont
-       alors côte à côte, le bouton est visible sans défilement, et une barre collante ne
-       ferait plus que recouvrir les champs de la colonne de gauche. */
+       Reste collante à `duo` et au-delà : elle redevenait un bloc ordinaire dès ce palier,
+       sur l'hypothèse que la colonne de saisie tiendrait dans un écran. Fausse en multisplit —
+       3 pièces posent le bouton à ~2700px de défilement, dans la colonne où on le tape le
+       plus souvent. `items-start` sur la grille de #app-main (voir index.html) fait que la
+       barre reste collée au bas du VIEWPORT tout en défilant à travers les cartes de pièce,
+       puis se libère une fois la colonne de saisie entièrement défilée — jamais elle ne suit
+       la colonne des résultats, qui peut être plus haute ou plus basse selon le nombre
+       d'options. Seul le fondu plein-écran (`-mx-4 px-4`, nécessaire uniquement en une
+       colonne) est retiré à `duo`, où la colonne a déjà sa propre largeur. */
     .k-action-bar {
-        @apply sticky z-30 -mx-4 px-4 pt-6 pb-4 duo:static duo:mx-0 duo:px-0 duo:pt-2 duo:pb-0;
+        @apply sticky z-30 -mx-4 px-4 pt-6 pb-4 duo:mx-0 duo:px-0 duo:pt-3;
         bottom: 0;
         padding-bottom: max(1rem, env(safe-area-inset-bottom));
         background: linear-gradient(to bottom, rgb(220 228 225 / 0), rgb(220 228 225 / 0.92) 38%, rgb(220 228 225) 100%);
-    }
-
-    @screen duo {
-        .k-action-bar { padding-bottom: 0; background: none; }
     }
 
     /* Résultats périmés (les hypothèses ont changé depuis le calcul) : couleur drainée,
