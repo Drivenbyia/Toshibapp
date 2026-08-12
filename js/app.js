@@ -879,11 +879,11 @@ function updateClimateInfo() {
     if (consigne !== CONSIGNE_REFERENCE) {
         const ecart = estimerEcartConsigne(consigne, coefG, tBaseEte);
         const signe = ecart > 0 ? '+' : '';
-        ecartHtml = `<div class="mt-1.5 pt-1.5 border-t border-accent-100 text-accent-700">≈ ${signe}${ecart.toFixed(0)}% de besoin froid vs 26 °C (pièce type)</div>`;
+        ecartHtml = `<div class="mt-2 pt-2 border-t border-white/20 text-accent-200">≈ ${signe}${ecart.toFixed(0)} % de besoin froid vs 26 °C (pièce type)</div>`;
     }
     // Quatre mesures en paires libellé/valeur plutôt qu'une phrase à puces : lues d'un coup
     // d'œil pour vérifier que le département saisi correspond bien au chantier.
-    const mesure = (libelle, valeur) => `<span class="inline-flex items-baseline gap-1.5"><span class="opacity-70">${libelle}</span><b class="font-semibold">${valeur}</b></span>`;
+    const mesure = (libelle, valeur) => `<span class="inline-flex items-baseline gap-1.5"><span class="text-accent-200">${libelle}</span><b>${valeur}</b></span>`;
     document.getElementById('climate-diagnostic').innerHTML =
         `<div class="flex flex-wrap gap-x-4 gap-y-1">
             ${mesure('Zone', zone)}
