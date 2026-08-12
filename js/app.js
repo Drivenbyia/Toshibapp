@@ -1338,7 +1338,7 @@ function calculate() {
         };
     }
 
-    renderResults();
+    renderResults({ anime: true });
     resultsContainer.scrollIntoView({ behavior: 'smooth' });
 }
 
@@ -1414,7 +1414,7 @@ function renderHypotheses(lignes) {
         <span class="k-eyebrow">Corrections appliquées</span>
         <div class="mt-1 divide-y divide-line">
             ${lignes.map(l => `
-            <details class="group/hyp py-2 first:pt-1 last:pb-0">
+            <details data-k="hyp:${l.libelle}" class="group/hyp py-2 first:pt-1 last:pb-0">
                 <summary class="flex items-baseline justify-between gap-4 cursor-pointer select-none list-none py-0.5 -mx-1 px-1 rounded-lg hover:bg-mute-50 transition-colors">
                     <span class="flex items-baseline gap-1.5 min-w-0 text-xs text-ink-700">
                         ${l.libelle}
@@ -1443,8 +1443,13 @@ function blocTitre(titre, sousTitre) {
 // sans relancer le calcul (utilisé quand l'utilisateur choisit une solution parmi les options).
 // Fonction de LECTURE uniquement : ne modifie jamais state (voir seedGroupGammeDefaults / selectGroup
 // pour la logique d'initialisation des choix par défaut).
-function renderResults() {
+// `anime` : réservé au premier rendu d'un calcul (calculate). Les rendus suivants — un
+// choix d'option — rejouaient sinon le fondu de toute la colonne à chaque comparaison,
+// devant le client. La classe est posée AVANT l'injection du HTML, sinon l'animation a
+// déjà démarré au moment où le style s'applique.
+function renderResults({ anime = false } = {}) {
     const resultsContainer = document.getElementById('results-container');
+    resultsContainer.classList.toggle('k-sans-anim', !anime);
     const calc = state.currentCalc;
     if (!calc) { resultsContainer.innerHTML = etatVideResultats(); return; }
 
@@ -1717,34 +1722,66 @@ function shareResults() {
     }
 }
 
-// Ré-applique le choix de l'utilisateur et redessine les résultats, en conservant ce qui est
-// déjà saisi dans les champs Client / Zone (le rendu régénère tout le bloc résultats).
-function withSaveInputsPreserved(mutateFn) {
-    const clientEl = document.getElementById('save-client');
-    const zoneEl = document.getElementById('save-zone');
-    const clientVal = clientEl ? clientEl.value : '';
-    const zoneVal = zoneEl ? zoneEl.value : '';
+// --- Préservation de l'état d'interface à travers un rendu -------------------------
+//
+// renderResults() reconstruit tout le bloc résultats par innerHTML : c'est ce qui le
+// garde purement fonction de l'état, et c'est très bien. Mais chaque choix d'option
+// emportait avec lui tout ce que l'utilisateur avait ouvert ou saisi dedans — dépliants
+// « Guide de la gamme », explications TVA, détail d'une correction, champs Client /
+// Zone —, ainsi que le focus clavier et la position de défilement. Comparer deux
+// machines refermait donc la fiche qu'on venait justement d'ouvrir pour les comparer.
+//
+// Seuls les champs Client / Zone étaient rattrapés jusqu'ici, un à un. On capture
+// maintenant l'ensemble avant le rendu et on le repose après, via les clés stables
+// `data-k` portées par les éléments concernés.
+function capturerEtatUi(racine) {
+    const actif = document.activeElement;
+    return {
+        ouverts: new Set([...racine.querySelectorAll('details[data-k][open]')].map(d => d.dataset.k)),
+        focus: actif && racine.contains(actif) ? (actif.dataset.k || null) : null,
+        defilement: window.scrollY,
+        champs: [...racine.querySelectorAll('input[id]')].map(i => [i.id, i.value])
+    };
+}
+
+function restaurerEtatUi(racine, etat) {
+    racine.querySelectorAll('details[data-k]').forEach(d => { d.open = etat.ouverts.has(d.dataset.k); });
+    etat.champs.forEach(([id, valeur]) => {
+        const el = document.getElementById(id);
+        if (el) el.value = valeur;
+    });
+    if (etat.focus) {
+        const cible = racine.querySelector(`[data-k="${CSS.escape(etat.focus)}"]`);
+        if (cible) cible.focus();
+    }
+    // Le contenu peut changer de hauteur (choisir un autre groupe extérieur réécrit le
+    // guide des unités intérieures) : sans ça, la page glisse sous les doigts au moment
+    // même où l'on désigne une machine.
+    window.scrollTo({ top: etat.defilement });
+}
+
+function avecEtatUiPreserve(mutateFn) {
+    const racine = document.getElementById('results-container');
+    if (!racine) { mutateFn(); return; }
+    const etat = capturerEtatUi(racine);
     mutateFn();
-    const newClientEl = document.getElementById('save-client');
-    const newZoneEl = document.getElementById('save-zone');
-    if (newClientEl) newClientEl.value = clientVal;
-    if (newZoneEl) newZoneEl.value = zoneVal;
+    restaurerEtatUi(racine, etat);
 }
 
 function selectMono(idx) {
-    withSaveInputsPreserved(() => { state.selection.mono = idx; renderResults(); });
+    avecEtatUiPreserve(() => { state.selection.mono = idx; renderResults(); });
 }
 function selectDedicated(roomIndex, idx) {
-    withSaveInputsPreserved(() => { state.selection.dedicated[roomIndex] = idx; renderResults(); });
+    avecEtatUiPreserve(() => { state.selection.dedicated[roomIndex] = idx; renderResults(); });
 }
 function selectGroupGamme(roomIndex, gamme) {
-    withSaveInputsPreserved(() => { state.selection.group[roomIndex] = gamme; renderResults(); });
+    avecEtatUiPreserve(() => { state.selection.group[roomIndex] = gamme; renderResults(); });
 }
 // Changer de groupe extérieur peut changer les gammes d'UI compatibles (ex: Panasonic Multi TZ
 // vs Multi Z Deluxe) : on re-seede les choix par défaut pour rester cohérent, en préservant le
 // choix de l'utilisateur là où il reste valide pour le nouveau groupe (voir seedGroupGammeDefaults).
 function selectGroup(idx) {
-    withSaveInputsPreserved(() => {
+    avecEtatUiPreserve(() => {
         state.selection.groupChoice = idx;
         const m = state.currentCalc && state.currentCalc.multi;
         if (m && m.groupOptions[idx]) {
@@ -1810,7 +1847,7 @@ function renderGammeGuide(gammeName) {
     // la ligne dès que la colonne se resserrait, et le seul critère commercial lisible carte
     // fermée était donc aussi le seul à casser.
     return `
-    <details class="mt-3 pt-3 k-divider group/guide">
+    <details data-k="guide:${gammeName}" class="mt-3 pt-3 k-divider group/guide">
         <summary class="k-disclosure">
             ${icone('info')}
             <span>Guide de la gamme</span>
@@ -1856,11 +1893,11 @@ function renderMultiRoomsGuide(roomsData, group) {
             // retrouvaient alignés en bas sans qu'on sache plus lequel appartenait à laquelle.
             return `
             <div class="flex flex-col items-start gap-1.5 min-w-0">
-                <button type="button" onclick="selectGroupGamme(${r.index}, '${gEsc}')" aria-pressed="${isSel}" class="k-chip">
+                <button type="button" onclick="selectGroupGamme(${r.index}, '${gEsc}')" aria-pressed="${isSel}" data-k="chip:${r.index}:${g}" class="k-chip">
                     ${isSel ? icone('check', 'w-3.5 h-3.5') : ''}${g}
                 </button>
-                ${tvaBlocPiece.commun ? '' : `<div class="flex flex-wrap gap-1.5">${renderTvaBadge(tvaParGamme[i])}</div>`}
-                <details class="group/mg" onclick="event.stopPropagation()">
+                ${tvaBlocPiece.commun ? '' : `<div class="flex flex-wrap gap-1.5">${renderTvaBadge(tvaParGamme[i], `${r.index}:${g}`)}</div>`}
+                <details data-k="gamme:${r.index}:${g}" class="group/mg" onclick="event.stopPropagation()">
                     <summary class="k-disclosure text-2xs font-medium group/d">Détails<span class="transition-transform group-open/d:rotate-180">${icone('chevron', 'w-3 h-3')}</span></summary>
                     <div class="mt-2 mb-1">${gammeGuideContent(g)}</div>
                 </details>
@@ -1880,7 +1917,7 @@ function renderMultiRoomsGuide(roomsData, group) {
     <div class="k-card fade-in">
         <h3 class="k-section-title">Unités intérieures</h3>
         <p class="k-hint mt-1.5">Une gamme par pièce, mixables sur le même groupe.</p>
-        <details class="mt-2 group/tva">
+        <details data-k="tva-multi" class="mt-2 group/tva">
             <summary class="k-disclosure text-2xs font-medium text-ink-400">
                 <span>TVA 5,5 % en multisplit</span>
                 <span class="text-ink-400 transition-transform group-open/tva:rotate-180">${icone('chevron', 'w-3.5 h-3.5')}</span>
@@ -1973,7 +2010,7 @@ function renderBalanceNote(analyse) {
     }[analyse.ton];
     return note(styles.ton, styles.icone, `
         <span class="k-note-title">${escapeHtml(analyse.resume)}</span>
-        <details class="mt-1">
+        <details data-k="equilibre" class="mt-1">
             <summary class="k-disclosure text-2xs font-medium text-ink-400 group/b">En détail<span class="transition-transform group-open/b:rotate-180">${icone('chevron', 'w-3 h-3')}</span></summary>
             <p class="k-hint mt-1.5">${escapeHtml(analyse.detail)}</p>
         </details>`);
@@ -2063,7 +2100,7 @@ function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = fals
     if (selectOpts) {
         // role="button" + tabindex rend la carte focusable au clavier, mais un onclick seul ne
         // répond ni à Entrée ni à Espace : on délègue explicitement au clic déjà câblé.
-        attrs = ` onclick="${selectOpts.onclick}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}" role="button" tabindex="0" aria-pressed="${selectOpts.selected}"`;
+        attrs = ` onclick="${selectOpts.onclick}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}" role="button" tabindex="0" data-k="sol:${selectOpts.onclick}" aria-pressed="${selectOpts.selected}"`;
         wrapperClasses += ' k-result-selectable';
         radio = `
         <span class="k-radio" aria-hidden="true">
@@ -2087,7 +2124,7 @@ function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = fals
 
     // La pastille TVA ne s'affiche que si le bloc ne l'a pas déjà énoncée pour toutes ses
     // options (voir tvaCommune) : sinon elle est identique sur chaque carte et ne signale rien.
-    const pastilles = tvaMasquee ? '' : `<div class="flex flex-wrap gap-1.5 mt-3">${renderTvaBadge(tvaInfo)}</div>`;
+    const pastilles = tvaMasquee ? '' : `<div class="flex flex-wrap gap-1.5 mt-3">${renderTvaBadge(tvaInfo, mainTitle)}</div>`;
 
     return `
     <div class="${wrapperClasses}"${attrs}>
@@ -2135,8 +2172,8 @@ function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = fals
 // est visuellement identique à l'ancienne pastille (même forme, même couleur) ; ouvrir révèle
 // le texte. event.stopPropagation() : la carte parente peut porter son propre onclick de
 // sélection (voir renderCard) — ouvrir l'explication ne doit pas aussi sélectionner la carte.
-function pastilleTva(variante, texte, explication) {
-    return `<details onclick="event.stopPropagation()" class="inline-block align-top">
+function pastilleTva(variante, texte, explication, cle) {
+    return `<details data-k="tva:${cle}:${texte}" onclick="event.stopPropagation()" class="inline-block align-top">
         <summary class="k-pill k-pill-${variante} cursor-pointer">${texte}<span class="opacity-45">${icone('info', 'w-3 h-3')}</span></summary>
         <p class="text-2xs text-ink-500 mt-1.5 max-w-xs leading-relaxed">${explication}</p>
     </details>`;
@@ -2145,16 +2182,16 @@ function pastilleTva(variante, texte, explication) {
 // Ne renvoie que les pastilles : leur mise en rangée est la responsabilité de l'appelant
 // (la carte les regroupe avec le taux de charge dans un seul `flex flex-wrap`, au lieu des
 // deux rangées empilées qu'imposait l'ancien conteneur inclus ici).
-function renderTvaBadge(tvaInfo) {
+function renderTvaBadge(tvaInfo, cle = "") {
     if (!tvaInfo) {
-        return pastilleTva('neutral', 'TVA non renseignée', `Aucun dispositif d'éligibilité TVA renseigné pour ${escapeHtml(libelleMarque(state.brand))} dans cette version de l'outil — statut à vérifier auprès du fournisseur avant de facturer.`);
+        return pastilleTva("neutral", "TVA non renseignée", `Aucun dispositif d'éligibilité TVA renseigné pour ${escapeHtml(libelleMarque(state.brand))} dans cette version de l'outil — statut à vérifier auprès du fournisseur avant de facturer.`, cle);
     }
     const marque = escapeHtml(libelleMarque(state.brand));
     const dateVerif = new Date(TVA_DATE_VERIFICATION).toLocaleDateString('fr-FR');
     const badges = {
-        eligible:     pastilleTva('ok', 'TVA 5,5 %', `Éligibilité vérifiée face au tableau ${marque} le ${dateVerif}.`),
-        non_eligible: pastilleTva('danger', 'TVA 20 %', `Éligibilité vérifiée face au tableau ${marque} le ${dateVerif}.`),
-        a_verifier:   pastilleTva('neutral', 'TVA à vérifier', `Référence absente du tableau d'éligibilité ${marque} (vérifié le ${dateVerif}) : à confirmer auprès du constructeur avant de facturer en 5,5 %.`)
+        eligible:     pastilleTva('ok', 'TVA 5,5 %', `Éligibilité vérifiée face au tableau ${marque} le ${dateVerif}.`, cle),
+        non_eligible: pastilleTva('danger', 'TVA 20 %', `Éligibilité vérifiée face au tableau ${marque} le ${dateVerif}.`, cle),
+        a_verifier:   pastilleTva('neutral', 'TVA à vérifier', `Référence absente du tableau d'éligibilité ${marque} (vérifié le ${dateVerif}) : à confirmer auprès du constructeur avant de facturer en 5,5 %.`, cle)
     };
     const wifi = tvaInfo.wifiRequired
         ? `<span class="k-pill k-pill-neutral">Module Wifi requis</span>`

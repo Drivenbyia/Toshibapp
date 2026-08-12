@@ -451,6 +451,15 @@
     .fade-in {
         animation: k-fade-in 0.24s ease-out both;
     }
+
+    /* Rendu SANS animation. renderResults() reconstruit tout le bloc résultats à chaque
+       choix d'option ; les `.fade-in` du contenu rejouaient donc leur fondu à chaque
+       comparaison, devant le client. Le fondu garde son sens à l'apparition d'un calcul,
+       il n'en a aucun quand on compare deux machines déjà à l'écran. Posée sur le
+       conteneur avant l'injection du HTML — voir renderResults dans js/app.js. */
+    .k-sans-anim .fade-in {
+        animation: none;
+    }
 }
 
 @keyframes k-fade-in {
