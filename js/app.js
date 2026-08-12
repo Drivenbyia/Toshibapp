@@ -95,19 +95,19 @@ function setBrand(brand) {
     // --brand-accent dans index.html) : l'app doit rester identifiable comme l'outil de
     // l'installateur, pas comme le configurateur d'un fabricant.
     //
-    // `btn.className` est réécrit en entier, donc doit reporter lui-même la classe `hidden` —
-    // sans ce `visible ? '' : ' hidden'`, un bouton masqué par initSelecteurMarque() se
-    // retrouvait démasqué au premier setBrand() suivant (celui-là même qu'initSelecteurMarque
-    // appelle en dernière étape). Invisible tant qu'une seule marque est active (la section
-    // entière est alors masquée), mais rendrait une marque non autorisée VISIBLE dès que 2
-    // marques ou plus seraient actives sur un catalogue qui en connaît davantage.
+    // L'état sélectionné passe par `aria-pressed` et non par une réécriture de className :
+    // le style vit dans .k-seg-item[aria-pressed="true"] (build/input.css), et l'état est du
+    // même coup annoncé aux lecteurs d'écran, ce que la seule couleur de fond ne faisait pas.
+    // C'est aussi ce qui règle le piège documenté ici auparavant : `className` réécrit en entier
+    // devait reporter lui-même la classe `hidden`, faute de quoi un bouton masqué par
+    // initSelecteurMarque() (marque non autorisée pour ce compte) se retrouvait démasqué au
+    // premier setBrand() suivant. `classList.toggle` ne touche plus qu'à ce qu'il vise.
     document.querySelectorAll('[data-brand]').forEach((btn) => {
-        const actif = btn.dataset.brand === brand;
-        const visible = actives.includes(btn.dataset.brand);
-        btn.className = `flex-1 py-2 text-sm font-bold rounded-md transition-all ${actif ? 'shadow-sm bg-white text-[var(--brand-accent)]' : 'text-gray-500'}${visible ? '' : ' hidden'}`;
+        btn.setAttribute('aria-pressed', String(btn.dataset.brand === brand));
+        btn.classList.toggle('hidden', !actives.includes(btn.dataset.brand));
     });
     state.currentCalc = null;
-    document.getElementById('results-container').innerHTML = '';
+    viderResultats();
 }
 
 function initApp() {
@@ -132,6 +132,7 @@ function initApp() {
     genererBoutonsMarque();
     initSelecteurMarque();
     renderRooms();
+    viderResultats();
     initDashboardEvents();
     initAuthUi();
     subscribeAccount(onAccountChange);
@@ -200,20 +201,22 @@ function renderSyncBadge() {
     const enAttente = etat.pending || 0;
     badge.classList.remove('hidden');
 
+    // Pastilles du système visuel (voir build/input.css) plutôt que des chapelets d'utilitaires
+    // recopiés : le badge suit automatiquement toute évolution de .k-pill.
     if (etat.phase === 'pushing' || etat.phase === 'pulling') {
         badge.textContent = 'Synchro…';
-        badge.className = 'text-[11px] font-semibold text-gray-500 bg-gray-100 px-2 py-1 rounded';
+        badge.className = 'k-pill k-pill-neutral';
     } else if (etat.phase === 'offline') {
         // Jamais d'invite de connexion ici : hors-ligne est un état de fonctionnement normal,
         // pas une erreur à corriger. On informe, on ne réclame rien.
         badge.textContent = enAttente ? `Hors ligne — ${enAttente} en attente` : 'Hors ligne';
-        badge.className = 'text-[11px] font-semibold text-amber-800 bg-amber-100 px-2 py-1 rounded';
+        badge.className = 'k-pill k-pill-warn';
     } else if (enAttente) {
         badge.textContent = `${enAttente} en attente`;
-        badge.className = 'text-[11px] font-semibold text-amber-800 bg-amber-100 px-2 py-1 rounded';
+        badge.className = 'k-pill k-pill-warn';
     } else {
         badge.textContent = 'À jour';
-        badge.className = 'text-[11px] font-semibold text-green-700 bg-green-50 px-2 py-1 rounded';
+        badge.className = 'k-pill k-pill-ok';
     }
 }
 
@@ -230,7 +233,7 @@ function genererBoutonsMarque() {
     const container = document.getElementById('brand-buttons');
     if (!container) return;
     container.innerHTML = MARQUES_CONNUES.map(marque => `
-        <button data-brand="${marque}" onclick="setBrand('${marque}')" class="flex-1 py-2 text-sm font-bold rounded-md text-gray-500 transition-all">${escapeHtml(libelleMarque(marque))}</button>
+        <button type="button" data-brand="${marque}" onclick="setBrand('${marque}')" aria-pressed="false" class="k-seg-item">${escapeHtml(libelleMarque(marque))}</button>
     `).join('');
 }
 
@@ -253,19 +256,26 @@ function initSelecteurMarque() {
 }
 
 // --- DASHBOARD & LOCALSTORAGE LOGIC ---
+// Ne bascule QUE `hidden`, sans plus ajouter/retirer `flex` : la vue simulateur est désormais
+// une grille (`grid` + `xl:grid-cols-...`, voir index.html) et non plus une colonne flex. Poser
+// `flex` par-dessus `grid` laissait deux utilitaires de display en concurrence sur le même
+// élément, départagés par leur ordre dans la feuille Tailwind — un détail d'implémentation
+// qu'aucun test ne couvre et qui aurait cassé la mise en page à la première régénération du CSS.
 function toggleDashboard(show) {
-    if (show) {
-        document.getElementById('app-main').classList.add('hidden');
-        document.getElementById('app-main').classList.remove('flex');
-        document.getElementById('app-dashboard').classList.remove('hidden');
-        document.getElementById('app-dashboard').classList.add('flex');
-        renderDashboard();
-    } else {
-        document.getElementById('app-dashboard').classList.add('hidden');
-        document.getElementById('app-dashboard').classList.remove('flex');
-        document.getElementById('app-main').classList.remove('hidden');
-        document.getElementById('app-main').classList.add('flex');
-    }
+    document.getElementById('app-main').classList.toggle('hidden', show);
+    document.getElementById('app-dashboard').classList.toggle('hidden', !show);
+    if (show) renderDashboard();
+}
+
+// Encart d'information (climat, arbitrage, impasse…). Un seul point d'entrée pour les cinq
+// tonalités du système visuel : les notes étaient jusqu'ici écrites une par une, chacune avec
+// sa propre couleur de fond, si bien que « zone chaude » sortait en orange, « grand froid » en
+// bleu ciel et « froid seul » en cyan — trois teintes voisines pour trois messages sans rapport,
+// et un bleu de note impossible à distinguer du bleu qui désigne partout ailleurs la puissance
+// froid. `ton` : 'info' | 'ok' | 'warn' | 'danger' | 'neutral'. `corps` est du HTML déjà sûr
+// (texte de l'application) — tout ce qui vient de l'utilisateur passe par escapeHtml en amont.
+function note(ton, icone, corps) {
+    return `<div class="k-note k-note-${ton} fade-in">${icone ? `<span class="k-note-icon" aria-hidden="true">${icone}</span>` : ''}<span class="min-w-0">${corps}</span></div>`;
 }
 
 // Échappe une valeur avant insertion dans du innerHTML (noms de clients / zones saisis
@@ -298,22 +308,20 @@ function renderDashboard() {
     // le plus rassurant possible au pire moment. On dit ce qui se passe, et on annonce que
     // rien ne sera écrit tant que la situation dure.
     if (degrade) {
-        list.innerHTML = `
-        <div class="p-5 bg-red-50 border border-red-200 rounded-xl text-sm text-red-800">
-            <p class="font-bold mb-1">⚠️ Chantiers illisibles sur cet appareil</p>
-            <p class="text-xs leading-relaxed">
+        list.innerHTML = note('danger', '⚠️', `
+            <b class="block font-semibold text-sm mb-1">Chantiers illisibles sur cet appareil</b>
+            <p>
                 ${degrade === 'illisible'
                     ? "Le navigateur refuse l'accès au stockage local (navigation privée, ou espace saturé)."
                     : "Les données enregistrées sont corrompues et n'ont pas pu être relues."}
-                Vos chantiers ne sont <strong>pas perdus pour autant</strong> : par précaution,
+                Vos chantiers ne sont <b class="font-semibold">pas perdus pour autant</b> : par précaution,
                 l'application n'écrira plus rien tant que ce message est affiché, afin de ne pas
                 remplacer la sauvegarde existante.
             </p>
-            <p class="text-xs leading-relaxed mt-2">
+            <p class="mt-2">
                 Essayez de rouvrir l'application dans une fenêtre normale (hors navigation privée),
                 ou restaurez une sauvegarde avec le bouton ci-dessus.
-            </p>
-        </div>`;
+            </p>`);
         return;
     }
 
@@ -321,7 +329,14 @@ function renderDashboard() {
     const conflits = store.listConflicts();
 
     if (groupes.length === 0 && conflits.length === 0) {
-        list.innerHTML = `<div class="p-8 bg-gray-50 text-center text-gray-500 rounded-xl border border-gray-200 border-dashed italic">Aucun chantier enregistré pour le moment.</div>`;
+        list.innerHTML = `
+        <div class="rounded-2xl border-2 border-dashed border-line bg-white/60 px-5 py-12 text-center">
+            <div class="w-12 h-12 mx-auto mb-3 rounded-2xl bg-slate-100 text-ink-400 flex items-center justify-center">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
+            </div>
+            <p class="text-sm font-semibold text-ink-700">Aucun chantier enregistré</p>
+            <p class="k-hint mt-1 max-w-xs mx-auto">Après un calcul, « Enregistrer au chantier » classe la fiche par client et par zone — elle se retrouvera ici.</p>
+        </div>`;
         return;
     }
 
@@ -332,23 +347,23 @@ function renderDashboard() {
     // dernier-écrit-gagne acceptable ; l'utilisateur arbitre lui-même.
     if (conflits.length > 0) {
         html += `
-        <div class="bg-amber-50 border border-amber-200 rounded-xl p-5 fade-in">
-            <h3 class="text-sm font-bold text-amber-900 mb-1">⚠️ ${conflits.length} version(s) à arbitrer</h3>
-            <p class="text-xs text-amber-800 mb-3 leading-relaxed">
+        <div class="rounded-2xl border border-amber-200 bg-amber-50 p-4 sm:p-5 fade-in">
+            <h3 class="text-sm font-semibold text-amber-900 mb-1">⚠️ ${conflits.length} version(s) à arbitrer</h3>
+            <p class="text-xs text-amber-900/80 mb-3 leading-relaxed">
                 Ces modifications ont été faites sur cet appareil, mais un autre appareil avait
                 déjà enregistré une version plus récente. Rien n'est perdu : récupérez-les comme
                 fiches distinctes, ou écartez-les si elles ne servent plus.
             </p>
             <div class="flex flex-col gap-2">
                 ${conflits.map((c) => `
-                <div class="bg-white border border-amber-200 rounded-lg p-3 flex items-center justify-between gap-3 flex-wrap">
-                    <div class="text-xs">
-                        <span class="font-bold text-klimo-dark">${escapeHtml(c.clientName)}</span>
-                        <span class="text-gray-500"> — ${escapeHtml(c.zone)}</span>
+                <div class="bg-white border border-amber-200 rounded-xl p-3 flex items-center justify-between gap-3 flex-wrap">
+                    <div class="text-xs min-w-0">
+                        <span class="font-semibold text-ink-900">${escapeHtml(c.clientName)}</span>
+                        <span class="text-ink-500"> — ${escapeHtml(c.zone)}</span>
                     </div>
-                    <div class="flex gap-2">
-                        <button data-action="restore-conflict" data-id="${escapeHtml(c.id)}" class="text-[11px] font-bold text-white bg-amber-600 hover:bg-amber-700 px-2.5 py-1.5 rounded">Récupérer</button>
-                        <button data-action="dismiss-conflict" data-id="${escapeHtml(c.id)}" class="text-[11px] font-bold text-gray-500 hover:text-gray-700 px-2 py-1.5">Écarter</button>
+                    <div class="flex gap-2 flex-shrink-0">
+                        <button data-action="restore-conflict" data-id="${escapeHtml(c.id)}" class="k-btn min-h-[36px] px-3 text-2xs bg-amber-600 text-white hover:bg-amber-700">Récupérer</button>
+                        <button data-action="dismiss-conflict" data-id="${escapeHtml(c.id)}" class="k-btn-ghost min-h-[36px] text-2xs">Écarter</button>
                     </div>
                 </div>`).join('')}
             </div>
@@ -365,52 +380,48 @@ function renderDashboard() {
             let detailsHtml = '';
             if (eqs.length > 0 || rds.length > 0) {
                 detailsHtml = `
-                <details class="mt-3 group bg-white rounded-lg border border-blue-100 overflow-hidden shadow-sm">
-                    <summary class="text-[11px] font-bold text-blue-600 bg-blue-50/50 p-2 cursor-pointer flex items-center justify-between hover:bg-blue-50 transition-colors">
-                        <span class="flex items-center gap-1.5">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                            Détails des Unités & Pièces
-                        </span>
-                        <svg class="w-4 h-4 transition-transform group-open:rotate-180 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                <details class="mt-2.5 group">
+                    <summary class="k-disclosure text-2xs">
+                        <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        <span>Détail des unités et des pièces</span>
+                        <svg class="w-3.5 h-3.5 flex-shrink-0 text-ink-400 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"></path></svg>
                     </summary>
-                    <div class="p-3 text-[11px] text-gray-700 flex flex-col gap-2">
-                        ${eqs.length > 0 ? `<div><div class="font-extrabold text-gray-400 uppercase tracking-wider text-[11px] mb-1">Matériel Proposé :</div>${eqs.map(e => `<div class="font-medium text-klimo-dark">• ${escapeHtml(e)}</div>`).join('')}</div>` : ''}
-                        ${rds.length > 0 ? `<div><div class="font-extrabold text-gray-400 uppercase tracking-wider text-[11px] mb-1 mt-1">Bilan par Pièce :</div>${rds.map(r => `<div>• ${escapeHtml(r)}</div>`).join('')}</div>` : ''}
+                    <div class="mt-2 rounded-xl border border-line bg-white p-3 text-2xs text-ink-700 flex flex-col gap-2.5 leading-relaxed">
+                        ${eqs.length > 0 ? `<div><div class="k-eyebrow mb-1">Matériel proposé</div>${eqs.map(e => `<div class="text-ink-900">• ${escapeHtml(e)}</div>`).join('')}</div>` : ''}
+                        ${rds.length > 0 ? `<div><div class="k-eyebrow mb-1">Bilan par pièce</div>${rds.map(r => `<div>• ${escapeHtml(r)}</div>`).join('')}</div>` : ''}
                     </div>
                 </details>`;
             }
 
             return `
-            <div class="flex justify-between items-start py-4 border-b border-gray-200 last:border-0 relative">
-                <div class="w-full pr-8">
-                    <div class="flex items-center gap-2 mb-1">
-                        <span class="font-bold text-sm text-klimo-dark">${escapeHtml(cfg.zone)}</span>
-                        <span class="text-[11px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded font-bold uppercase">${escapeHtml(cfg.mode)}</span>
-                        ${marqueRetiree ? `<span class="text-[11px] bg-amber-100 text-amber-800 border border-amber-200 px-1.5 py-0.5 rounded font-bold uppercase" title="Marque plus proposée sur ce poste : fiche consultable, non rechargeable">${escapeHtml(libelleMarque(cfg.brand))} — archivé</span>` : ''}
+            <div class="flex items-start justify-between gap-2 py-3.5 border-b border-line last:border-0">
+                <div class="min-w-0 flex-grow">
+                    <div class="flex flex-wrap items-center gap-2 mb-1">
+                        <span class="font-semibold text-sm text-ink-900">${escapeHtml(cfg.zone)}</span>
+                        <span class="k-pill k-pill-neutral">${escapeHtml(cfg.mode)}</span>
+                        ${marqueRetiree ? `<span class="k-pill k-pill-warn" title="Marque plus proposée sur ce poste : fiche consultable, non rechargeable">${escapeHtml(libelleMarque(cfg.brand))} — archivé</span>` : ''}
                     </div>
-                    <p class="text-xs text-[var(--brand-accent)] font-bold uppercase tracking-tight">${escapeHtml(cfg.resultStr)}</p>
+                    <p class="text-xs font-medium text-accent-700">${escapeHtml(cfg.resultStr)}</p>
                     ${detailsHtml}
-                    <p class="text-[11px] text-gray-400 mt-2 font-medium">${escapeHtml(cfg.date)}</p>
+                    <p class="text-2xs text-ink-400 mt-2 k-num">${escapeHtml(cfg.date)}</p>
                 </div>
-                <div class="absolute right-0 top-3 flex items-center gap-1">
-                    ${marqueRetiree ? '' : `<button data-action="reload-config" data-id="${escapeHtml(cfg.id)}" title="Recharger cette configuration pour la modifier" aria-label="Recharger cette configuration" class="text-gray-400 hover:text-[var(--brand-accent)] p-3 -m-1"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg></button>`}
-                    <button data-action="delete-config" data-id="${escapeHtml(cfg.id)}" title="Supprimer cette zone" aria-label="Supprimer cette zone" class="text-gray-400 hover:text-red-500 p-3 -m-1"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
+                <div class="flex items-center gap-0.5 flex-shrink-0">
+                    ${marqueRetiree ? '' : `<button data-action="reload-config" data-id="${escapeHtml(cfg.id)}" title="Recharger cette configuration pour la modifier" aria-label="Recharger cette configuration" class="k-icon-btn hover:text-accent-700 hover:bg-accent-50"><svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg></button>`}
+                    <button data-action="delete-config" data-id="${escapeHtml(cfg.id)}" title="Supprimer cette zone" aria-label="Supprimer cette zone" class="k-icon-btn-danger"><svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
                 </div>
             </div>
         `}).join('');
 
         html += `
-        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 fade-in">
-            <div class="flex justify-between items-center mb-3">
-                <h3 class="text-lg font-bold text-klimo-dark flex items-center gap-2">
-                    <svg class="w-5 h-5 text-gray-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"></path></svg>
-                    ${escapeHtml(clientName)}
+        <div class="k-card fade-in">
+            <div class="flex items-center justify-between gap-3 mb-1">
+                <h3 class="flex items-center gap-2 text-base font-semibold text-ink-900 min-w-0">
+                    <svg class="w-5 h-5 text-ink-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"></path></svg>
+                    <span class="truncate">${escapeHtml(clientName)}</span>
                 </h3>
-                <button data-action="delete-chantier" data-client="${escapeHtml(clientName)}" class="text-[11px] font-bold text-red-500 hover:text-white border border-red-200 hover:bg-red-500 hover:border-red-500 transition-colors px-2 py-1 rounded">SUPPRIMER TOUT</button>
+                <button data-action="delete-chantier" data-client="${escapeHtml(clientName)}" class="k-btn min-h-[36px] px-3 text-2xs text-rose-600 border border-rose-200 hover:bg-rose-600 hover:text-white hover:border-rose-600 flex-shrink-0">Tout supprimer</button>
             </div>
-            <div class="bg-gray-50 rounded-lg px-4 border border-gray-100">
-                ${configsHtml}
-            </div>
+            ${configsHtml}
         </div>`;
     });
     list.innerHTML = html;
@@ -456,7 +467,7 @@ function afficherMessageSauvegarde(texte, succes) {
     const box = document.getElementById('backup-msg');
     if (!box) return;
     box.textContent = texte;
-    box.className = `text-xs font-bold ${succes ? 'text-green-600' : 'text-red-500'}`;
+    box.className = `text-xs font-semibold ${succes ? 'text-emerald-700' : 'text-rose-600'}`;
 }
 
 function exportChantiers() {
@@ -718,7 +729,7 @@ function startNewCalcul() {
     clearDraft();
     state.rooms = [defaultRoom(nouvelIdPiece())];
     state.currentCalc = null;
-    document.getElementById('results-container').innerHTML = '';
+    viderResultats();
     renderRooms();
     const banner = document.getElementById('draft-banner');
     if (banner) banner.classList.add('hidden');
@@ -752,14 +763,14 @@ function saveChantier() {
 
     if (!client || !zone) {
         msgBox.innerHTML = "Veuillez remplir le Client et la Zone.";
-        msgBox.className = "mt-3 text-xs font-bold text-center text-red-500 block";
+        msgBox.className = "mt-3 text-xs font-semibold text-center text-rose-600 block";
         return;
     }
 
     const id = store.saveConfig({ clientName: client, zone, body: captureCorpsChantier() });
     if (id === null) {
         msgBox.innerHTML = "❌ Échec de la sauvegarde (stockage local indisponible ou plein).";
-        msgBox.className = "mt-3 text-xs font-bold text-center text-red-500 block";
+        msgBox.className = "mt-3 text-xs font-semibold text-center text-rose-600 block";
         return;
     }
 
@@ -768,7 +779,7 @@ function saveChantier() {
     document.getElementById('save-zone').value = '';
     planifierSync();
     msgBox.innerHTML = "✅ Sauvegardé avec succès dans 'Mes Chantiers' !";
-    msgBox.className = "mt-3 text-xs font-bold text-center text-green-600 block";
+    msgBox.className = "mt-3 text-xs font-semibold text-center text-emerald-700 block";
     populateClientDatalist();
 }
 
@@ -782,21 +793,21 @@ function updateChantier() {
 
     if (!client || !zone) {
         msgBox.innerHTML = "Veuillez remplir le Client et la Zone.";
-        msgBox.className = "mt-3 text-xs font-bold text-center text-red-500 block";
+        msgBox.className = "mt-3 text-xs font-semibold text-center text-rose-600 block";
         return;
     }
 
     const ok = store.updateConfig(state.loadedConfigId, { clientName: client, zone, body: captureCorpsChantier() });
     if (!ok) {
         msgBox.innerHTML = "❌ Échec de la mise à jour (stockage local indisponible, ou fiche introuvable).";
-        msgBox.className = "mt-3 text-xs font-bold text-center text-red-500 block";
+        msgBox.className = "mt-3 text-xs font-semibold text-center text-rose-600 block";
         return;
     }
 
     clearDraft();
     planifierSync();
     msgBox.innerHTML = "✅ Configuration mise à jour.";
-    msgBox.className = "mt-3 text-xs font-bold text-center text-green-600 block";
+    msgBox.className = "mt-3 text-xs font-semibold text-center text-emerald-700 block";
     populateClientDatalist();
 }
 
@@ -835,9 +846,18 @@ function updateClimateInfo() {
     if (consigne !== CONSIGNE_REFERENCE) {
         const ecart = estimerEcartConsigne(consigne, coefG, tBaseEte);
         const signe = ecart > 0 ? '+' : '';
-        ecartHtml = ` (≈ ${signe}${ecart.toFixed(0)}% froid vs 26°C, pièce type)`;
+        ecartHtml = `<div class="mt-1.5 pt-1.5 border-t border-accent-100 text-accent-700">≈ ${signe}${ecart.toFixed(0)}% de besoin froid vs 26 °C (pièce type)</div>`;
     }
-    document.getElementById('climate-diagnostic').innerHTML = `Zone <b>${zone}</b> • T base hiver : <b>${tBaseHiver}°C</b> • T base été : <b>${tBaseEte}°C</b> • Consigne été : <b>${consigne}°C</b>${ecartHtml}`;
+    // Quatre mesures en paires libellé/valeur plutôt qu'une phrase à puces : lues d'un coup
+    // d'œil pour vérifier que le département saisi correspond bien au chantier.
+    const mesure = (libelle, valeur) => `<span class="inline-flex items-baseline gap-1.5"><span class="opacity-70">${libelle}</span><b class="font-semibold">${valeur}</b></span>`;
+    document.getElementById('climate-diagnostic').innerHTML =
+        `<div class="flex flex-wrap gap-x-4 gap-y-1">
+            ${mesure('Zone', zone)}
+            ${mesure('T base hiver', `${tBaseHiver} °C`)}
+            ${mesure('T base été', `${tBaseEte} °C`)}
+            ${mesure('Consigne été', `${consigne} °C`)}
+        </div>${ecartHtml}`;
 }
 
 // Pont DOM -> calcul pur : rassemble coefG/climat/consigne puis délègue à getRequiredKw (calcul.js).
@@ -859,8 +879,8 @@ function toggleCustomCoef() {
 // a besoin de mettre à jour l'affichage sans déclencher la réinitialisation des pièces.
 function updateModeButtons(mode) {
     const isMono = mode === 'mono';
-    document.getElementById('btn-mono').className = `flex-1 py-2 text-sm font-medium rounded-md transition-all ${isMono ? 'shadow-sm bg-white text-[var(--brand-accent)]' : 'text-gray-500'}`;
-    document.getElementById('btn-multi').className = `flex-1 py-2 text-sm font-medium rounded-md transition-all ${!isMono ? 'shadow-sm bg-white text-[var(--brand-accent)]' : 'text-gray-500'}`;
+    document.getElementById('btn-mono').setAttribute('aria-pressed', String(isMono));
+    document.getElementById('btn-multi').setAttribute('aria-pressed', String(!isMono));
 }
 
 // Signale que les résultats affichés ne correspondent plus aux hypothèses saisies.
@@ -879,14 +899,19 @@ function marquerResultatsObsoletes() {
     const banner = document.getElementById('stale-banner');
     if (banner) banner.classList.remove('hidden');
     const results = document.getElementById('results-container');
-    if (results) results.classList.add('opacity-50');
+    // Désaturation et non plus `opacity-50` : la mise en veille visuelle du bloc doit rester
+    // lisible. À 50% d'opacité, les références machine et les kW — le contenu qu'on garde
+    // justement à l'écran pour comparer — tombaient sous le seuil de contraste AA, en plein
+    // soleil comme ailleurs. Drainer la couleur suffit à dire « ce n'est plus à jour » sans
+    // toucher au contraste du texte, qui est presque neutre.
+    if (results) results.classList.add('k-stale');
 }
 
 function effacerMarqueObsolescence() {
     const banner = document.getElementById('stale-banner');
     if (banner) banner.classList.add('hidden');
     const results = document.getElementById('results-container');
-    if (results) results.classList.remove('opacity-50');
+    if (results) results.classList.remove('k-stale');
 }
 
 // Passer en Monosplit ne garde que la première pièce : sans garde, un artisan qui teste "et si
@@ -901,7 +926,7 @@ function setMode(mode) {
     state.rooms = [state.rooms[0]];
     updateModeButtons(mode);
     state.currentCalc = null;
-    document.getElementById('results-container').innerHTML = '';
+    viderResultats();
     effacerMarqueObsolescence();
     renderRooms();
 }
@@ -911,8 +936,8 @@ function setMode(mode) {
 // déclencher les effets de bord de setUsage).
 function updateUsageButtons(usage) {
     const isReversible = usage !== 'froid_seul';
-    document.getElementById('btn-usage-reversible').className = `flex-1 py-2 text-sm font-medium rounded-md transition-all ${isReversible ? 'shadow-sm bg-white text-[var(--brand-accent)]' : 'text-gray-500 hover:text-gray-700'}`;
-    document.getElementById('btn-usage-froid_seul').className = `flex-1 py-2 text-sm font-medium rounded-md transition-all ${!isReversible ? 'shadow-sm bg-white text-[var(--brand-accent)]' : 'text-gray-500 hover:text-gray-700'}`;
+    document.getElementById('btn-usage-reversible').setAttribute('aria-pressed', String(isReversible));
+    document.getElementById('btn-usage-froid_seul').setAttribute('aria-pressed', String(!isReversible));
     const note = document.getElementById('usage-note');
     if (note) note.classList.toggle('hidden', isReversible);
 }
@@ -921,7 +946,7 @@ function setUsage(usage) {
     state.usage = usage;
     updateUsageButtons(usage);
     state.currentCalc = null;
-    document.getElementById('results-container').innerHTML = '';
+    viderResultats();
     effacerMarqueObsolescence();
     persistDraft();
 }
@@ -933,88 +958,89 @@ function renderRooms() {
     state.rooms.forEach((room, index) => {
         const showRemove = state.mode === 'multi' && state.rooms.length > 1;
         const showDuplicate = state.mode === 'multi' && canAddMore;
+        // Les actions de la pièce (dupliquer / supprimer) passent de vignettes flottantes en
+        // absolu à une barre d'en-tête en flux : superposées au titre, elles se retrouvaient
+        // sous le pouce à chaque défilement d'une main, et leurs zones tactiles se chevauchaient.
         container.insertAdjacentHTML('beforeend', `
-            <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 fade-in relative">
-                <div class="absolute top-3 right-3 flex items-center gap-2">
-                    ${showDuplicate ? `<button onclick="duplicateRoom(${room.id})" title="Dupliquer cette pièce" aria-label="Dupliquer cette pièce" class="text-gray-400 hover:text-[var(--brand-accent)] transition p-3 -m-1"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 4h8a2 2 0 012 2v8a2 2 0 01-2 2h-8a2 2 0 01-2-2v-8a2 2 0 012-2z"></path></svg></button>` : ''}
-                    ${showRemove ? `<button onclick="removeRoom(${room.id})" title="Supprimer cette pièce" aria-label="Supprimer cette pièce" class="text-gray-400 hover:text-red-500 transition p-3 -m-1"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>` : ''}
+            <div class="k-card fade-in">
+                <div class="flex items-center gap-3 mb-4">
+                    <span class="w-8 h-8 rounded-xl bg-accent-50 text-accent-700 border border-accent-100 flex items-center justify-center text-sm font-bold flex-shrink-0 k-num">${index + 1}</span>
+                    <h3 class="text-sm font-semibold text-ink-900 flex-grow min-w-0 truncate">${state.mode === 'multi' ? `Pièce ${index + 1}${room.nom ? ` — ${escapeHtml(room.nom)}` : ''}` : 'Volume de la pièce'}</h3>
+                    ${showDuplicate ? `<button onclick="duplicateRoom(${room.id})" title="Dupliquer cette pièce" aria-label="Dupliquer cette pièce" class="k-icon-btn hover:text-accent-700 hover:bg-accent-50"><svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 4h8a2 2 0 012 2v8a2 2 0 01-2 2h-8a2 2 0 01-2-2v-8a2 2 0 012-2z"></path></svg></button>` : ''}
+                    ${showRemove ? `<button onclick="removeRoom(${room.id})" title="Supprimer cette pièce" aria-label="Supprimer cette pièce" class="k-icon-btn-danger"><svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>` : ''}
                 </div>
-                <h3 class="text-sm font-bold text-gray-700 mb-4 flex items-center gap-2 uppercase tracking-tight">
-                    <span class="bg-gray-100 text-gray-500 rounded-lg w-7 h-7 flex items-center justify-center text-xs border border-gray-200">${index + 1}</span>
-                    ${state.mode === 'multi' ? `Pièce ${index + 1}` : 'Volume de la pièce'}
-                </h3>
-                ${state.mode === 'multi' ? `
-                <div class="mb-4">
-                    <label for="room-${room.id}-nom" class="block text-xs font-bold text-gray-500 uppercase mb-1">Nom de la pièce (optionnel)</label>
-                    <input id="room-${room.id}-nom" type="text" maxlength="40" oninput="updateRoom(${room.id}, 'nom', this.value)" value="${escapeHtml(room.nom || '')}" placeholder="Ex: Salon, Chambre parents..." class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
-                </div>` : ''}
-                <div class="grid grid-cols-2 gap-4">
+                <div class="flex flex-col gap-4">
+                    ${state.mode === 'multi' ? `
                     <div>
-                        <label for="room-${room.id}-surface" class="block text-xs font-bold text-gray-500 uppercase mb-1">Surface (m²)</label>
-                        <input id="room-${room.id}-surface" type="text" inputmode="decimal" oninput="updateRoom(${room.id}, 'surface', this.value)" value="${room.surface}" placeholder="Ex: 30" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
+                        <label for="room-${room.id}-nom" class="k-label">Nom de la pièce (optionnel)</label>
+                        <input id="room-${room.id}-nom" type="text" maxlength="40" oninput="updateRoom(${room.id}, 'nom', this.value)" value="${escapeHtml(room.nom || '')}" placeholder="Ex : Salon, Chambre parents…" class="k-input">
+                    </div>` : ''}
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label for="room-${room.id}-surface" class="k-label">Surface (m²)</label>
+                            <input id="room-${room.id}-surface" type="text" inputmode="decimal" oninput="updateRoom(${room.id}, 'surface', this.value)" value="${room.surface}" placeholder="Ex : 30" class="k-input k-num">
+                        </div>
+                        <div>
+                            <label for="room-${room.id}-height" class="k-label">Hauteur (m)</label>
+                            <input id="room-${room.id}-height" type="text" inputmode="decimal" oninput="updateRoom(${room.id}, 'height', this.value)" value="${room.height}" class="k-input k-num">
+                        </div>
                     </div>
                     <div>
-                        <label for="room-${room.id}-height" class="block text-xs font-bold text-gray-500 uppercase mb-1">Hauteur (m)</label>
-                        <input id="room-${room.id}-height" type="text" inputmode="decimal" oninput="updateRoom(${room.id}, 'height', this.value)" value="${room.height}" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
-                    </div>
-                </div>
-                <div class="mt-4">
-                    <label for="room-${room.id}-emplacement" class="block text-xs font-bold text-gray-500 uppercase mb-1">Emplacement de la pièce</label>
-                    <select id="room-${room.id}-emplacement" onchange="updateRoom(${room.id}, 'emplacement', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
-                        <option value="sous_toiture" ${room.emplacement === 'sous_toiture' ? 'selected' : ''}>Sous toiture / combles aménagés (fort apport)</option>
-                        <option value="plain_pied" ${room.emplacement === 'plain_pied' ? 'selected' : ''}>Plain-pied, combles perdus isolés (apport modéré)</option>
-                        <option value="etage_protege" ${room.emplacement === 'etage_protege' ? 'selected' : ''}>Étage protégé / RDC sous un autre niveau (nul)</option>
-                    </select>
-                </div>
-                ${state.mode === 'multi' ? `
-                <div class="mt-4">
-                    <label for="room-${room.id}-expositionMurs" class="block text-xs font-bold text-gray-500 uppercase mb-1">Murs donnant sur l'extérieur</label>
-                    <select id="room-${room.id}-expositionMurs" onchange="updateRoom(${room.id}, 'expositionMurs', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
-                        <option value="4" ${String(room.expositionMurs) === '4' ? 'selected' : ''}>4 (pièce isolée sur toutes ses faces)</option>
-                        <option value="3" ${String(room.expositionMurs) === '3' ? 'selected' : ''}>3</option>
-                        <option value="2" ${String(room.expositionMurs) === '2' ? 'selected' : ''}>2 (pièce d'angle)</option>
-                        <option value="1" ${String(room.expositionMurs) === '1' ? 'selected' : ''}>1 (pièce intérieure, peu de déperditions)</option>
-                    </select>
-                </div>` : ''}
-                <div class="grid grid-cols-2 gap-4 mt-4">
-                    <div>
-                        <label for="room-${room.id}-orientation" class="block text-xs font-bold text-gray-500 uppercase mb-1">Orientation des baies</label>
-                        <select id="room-${room.id}-orientation" onchange="updateRoom(${room.id}, 'orientation', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
-                            <option value="nord" ${room.orientation === 'nord' ? 'selected' : ''}>Nord</option>
-                            <option value="est" ${room.orientation === 'est' ? 'selected' : ''}>Est</option>
-                            <option value="sud" ${room.orientation === 'sud' ? 'selected' : ''}>Sud</option>
-                            <option value="ouest" ${room.orientation === 'ouest' ? 'selected' : ''}>Ouest</option>
-                            <option value="mixte" ${room.orientation === 'mixte' ? 'selected' : ''}>Mixte / plusieurs</option>
+                        <label for="room-${room.id}-emplacement" class="k-label">Emplacement de la pièce</label>
+                        <select id="room-${room.id}-emplacement" onchange="updateRoom(${room.id}, 'emplacement', this.value)" class="k-select">
+                            <option value="sous_toiture" ${room.emplacement === 'sous_toiture' ? 'selected' : ''}>Sous toiture / combles aménagés — fort apport</option>
+                            <option value="plain_pied" ${room.emplacement === 'plain_pied' ? 'selected' : ''}>Plain-pied, combles isolés — apport modéré</option>
+                            <option value="etage_protege" ${room.emplacement === 'etage_protege' ? 'selected' : ''}>Étage protégé / sous un niveau — nul</option>
                         </select>
                     </div>
+                    ${state.mode === 'multi' ? `
                     <div>
-                        <label for="room-${room.id}-vitrage" class="block text-xs font-bold text-gray-500 uppercase mb-1">Quantité de vitrage</label>
-                        <select id="room-${room.id}-vitrage" onchange="updateRoom(${room.id}, 'vitrage', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
-                            <option value="peu" ${room.vitrage === 'peu' ? 'selected' : ''}>Peu vitré</option>
-                            <option value="moyen" ${room.vitrage === 'moyen' ? 'selected' : ''}>Moyen</option>
-                            <option value="beaucoup" ${room.vitrage === 'beaucoup' ? 'selected' : ''}>Très vitré</option>
+                        <label for="room-${room.id}-expositionMurs" class="k-label">Murs donnant sur l'extérieur</label>
+                        <select id="room-${room.id}-expositionMurs" onchange="updateRoom(${room.id}, 'expositionMurs', this.value)" class="k-select">
+                            <option value="4" ${String(room.expositionMurs) === '4' ? 'selected' : ''}>4 — isolée sur toutes ses faces</option>
+                            <option value="3" ${String(room.expositionMurs) === '3' ? 'selected' : ''}>3</option>
+                            <option value="2" ${String(room.expositionMurs) === '2' ? 'selected' : ''}>2 — pièce d'angle</option>
+                            <option value="1" ${String(room.expositionMurs) === '1' ? 'selected' : ''}>1 — pièce intérieure</option>
                         </select>
-                    </div>
-                </div>
-                <div class="grid grid-cols-2 gap-4 mt-4">
-                    <div>
-                        <label for="room-${room.id}-protection" class="block text-xs font-bold text-gray-500 uppercase mb-1">Protection solaire</label>
-                        <select id="room-${room.id}-protection" onchange="updateRoom(${room.id}, 'protection', this.value)" class="select-custom w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
-                            <option value="aucune" ${room.protection === 'aucune' ? 'selected' : ''}>Aucune</option>
-                            <option value="stores_int" ${room.protection === 'stores_int' ? 'selected' : ''}>Stores / rideaux intérieurs</option>
-                            <option value="volets_ext" ${room.protection === 'volets_ext' ? 'selected' : ''}>Volets / stores extérieurs</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label for="room-${room.id}-occupants" class="block text-xs font-bold text-gray-500 uppercase mb-1">Occupants</label>
-                        <input id="room-${room.id}-occupants" type="text" inputmode="numeric" oninput="updateRoom(${room.id}, 'occupants', this.value)" value="${room.occupants}" placeholder="Auto: ${occupantsParDefaut(room.surface) || '–'}" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
+                    </div>` : ''}
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label for="room-${room.id}-orientation" class="k-label">Orientation des baies</label>
+                            <select id="room-${room.id}-orientation" onchange="updateRoom(${room.id}, 'orientation', this.value)" class="k-select">
+                                <option value="nord" ${room.orientation === 'nord' ? 'selected' : ''}>Nord</option>
+                                <option value="est" ${room.orientation === 'est' ? 'selected' : ''}>Est</option>
+                                <option value="sud" ${room.orientation === 'sud' ? 'selected' : ''}>Sud</option>
+                                <option value="ouest" ${room.orientation === 'ouest' ? 'selected' : ''}>Ouest</option>
+                                <option value="mixte" ${room.orientation === 'mixte' ? 'selected' : ''}>Mixte / plusieurs</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="room-${room.id}-vitrage" class="k-label">Quantité de vitrage</label>
+                            <select id="room-${room.id}-vitrage" onchange="updateRoom(${room.id}, 'vitrage', this.value)" class="k-select">
+                                <option value="peu" ${room.vitrage === 'peu' ? 'selected' : ''}>Peu vitré</option>
+                                <option value="moyen" ${room.vitrage === 'moyen' ? 'selected' : ''}>Moyen</option>
+                                <option value="beaucoup" ${room.vitrage === 'beaucoup' ? 'selected' : ''}>Très vitré</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="room-${room.id}-protection" class="k-label">Protection solaire</label>
+                            <select id="room-${room.id}-protection" onchange="updateRoom(${room.id}, 'protection', this.value)" class="k-select">
+                                <option value="aucune" ${room.protection === 'aucune' ? 'selected' : ''}>Aucune</option>
+                                <option value="stores_int" ${room.protection === 'stores_int' ? 'selected' : ''}>Stores intérieurs</option>
+                                <option value="volets_ext" ${room.protection === 'volets_ext' ? 'selected' : ''}>Volets extérieurs</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="room-${room.id}-occupants" class="k-label">Occupants</label>
+                            <input id="room-${room.id}-occupants" type="text" inputmode="numeric" oninput="updateRoom(${room.id}, 'occupants', this.value)" value="${room.occupants}" placeholder="Auto : ${occupantsParDefaut(room.surface) || '–'}" class="k-input k-num">
+                        </div>
                     </div>
                 </div>
             </div>
         `);
     });
     if (state.mode === 'multi' && state.rooms.length < 5) {
-        container.insertAdjacentHTML('beforeend', `<button onclick="addRoom()" class="w-full border-2 border-dashed border-gray-200 rounded-xl p-4 text-gray-400 hover:border-[var(--brand-accent)] hover:text-[var(--brand-accent)] transition-all flex items-center justify-center gap-2 font-bold text-sm bg-white">Ajouter une pièce (${state.rooms.length}/5)</button>`);
+        container.insertAdjacentHTML('beforeend', `<button onclick="addRoom()" class="k-btn-add"><svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 5v14M5 12h14"></path></svg>Ajouter une pièce <span class="k-num text-ink-400">(${state.rooms.length}/5)</span></button>`);
     }
 }
 
@@ -1112,7 +1138,7 @@ function calculate() {
     if (erreur) {
         state.currentCalc = null;
         effacerMarqueObsolescence();
-        resultsContainer.innerHTML = `<div class="p-4 bg-red-50 text-red-700 rounded-lg border border-red-200 text-sm font-medium">${escapeHtml(erreur)}</div>`;
+        resultsContainer.innerHTML = `<div class="k-note k-note-danger text-sm fade-in" role="alert"><span class="k-note-icon">⚠️</span><span>${escapeHtml(erreur)}</span></div>`;
         resultsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
         return;
     }
@@ -1126,17 +1152,17 @@ function calculate() {
     // zones : voir data.js pour la régression que ça corrige.
     const facteurCanicule = getFacteurCanicule(tBaseEte);
     const caniculeNote = facteurCanicule > 1
-        ? `<div class="p-2.5 bg-orange-50 border border-orange-200 text-orange-800 rounded-lg text-[11px] font-medium text-center mb-4 -mt-2">☀️ Zone chaude : marge canicule de +${Math.round((facteurCanicule - 1) * 100)}% appliquée à la sélection (pointes 40-42°C).</div>`
+        ? note('warn', '☀️', `<b class="font-semibold">Zone chaude</b> — marge canicule de +${Math.round((facteurCanicule - 1) * 100)}% appliquée à la sélection (pointes 40-42 °C).`)
         : '';
 
     // Déclassement chaud : la puissance catalogue (+7°C) chute par grand froid. Sans objet en
     // "Froid seul" puisque le chaud n'entre alors plus dans le dimensionnement.
     const facteurDeclassementChaud = getFacteurDeclassementChaud(tBaseHiver);
     const declassementNote = (!froidSeul && facteurDeclassementChaud > 1.05)
-        ? `<div class="p-2.5 bg-sky-50 border border-sky-200 text-sky-900 rounded-lg text-[11px] font-medium text-center mb-4 -mt-2">🥶 Grand froid : la puissance chaud requise en catalogue est majorée de +${Math.round((facteurDeclassementChaud - 1) * 100)}% pour compenser la perte de capacité de la PAC à température de base (estimation générique, à affiner avec les courbes constructeur).</div>`
+        ? note('info', '🥶', `<b class="font-semibold">Grand froid</b> — puissance chaud requise majorée de +${Math.round((facteurDeclassementChaud - 1) * 100)}% en catalogue pour compenser la perte de capacité de la PAC à température de base (estimation générique, à affiner avec les courbes constructeur).`)
         : '';
     const usageNote = froidSeul
-        ? `<div class="p-2.5 bg-cyan-50 border border-cyan-200 text-cyan-900 rounded-lg text-[11px] font-medium text-center mb-4 -mt-2">❄️ Froid seul : la sélection ignore le besoin chauffage (affiché à titre indicatif ci-dessous). Les machines proposées restent des PAC réversibles standard.</div>`
+        ? note('info', '❄️', `<b class="font-semibold">Froid seul</b> — la sélection ignore le besoin chauffage (affiché à titre indicatif ci-dessous). Les machines proposées restent des PAC réversibles standard.`)
         : '';
 
     // Reset des choix utilisateur à chaque nouveau calcul. loadedConfigId aussi : un calcul
@@ -1252,7 +1278,39 @@ function calculate() {
 // proposée en premier — c'est l'éligibilité TVA 5,5% qui départage, pas la puissance.
 function noteTriTva(options) {
     if (options.length < 2) return '';
-    return `<p class="text-[11px] text-gray-400 mb-2 -mt-1">Options techniquement équivalentes, triées par éligibilité TVA 5,5% en premier.</p>`;
+    return `<p class="text-2xs text-ink-400 leading-relaxed">Options techniquement équivalentes, triées par éligibilité TVA 5,5% en premier.</p>`;
+}
+
+// État vide de la colonne des solutions. Il tient deux rôles, l'un pour chaque format d'écran :
+// sur mobile il remplace le vide muet qui suivait « Nouveau calcul » (rien à l'écran, aucune
+// indication de ce qui va se passer) ; sur grand écran, où la saisie et les solutions sont
+// désormais côte à côte, il occupe la colonne de droite tant qu'aucun calcul n'a été lancé,
+// évitant une demi-page blanche au premier chargement.
+function etatVideResultats() {
+    return `
+    <div class="rounded-2xl border-2 border-dashed border-line bg-white/60 px-5 py-10 text-center">
+        <div class="w-12 h-12 mx-auto mb-3 rounded-2xl bg-slate-100 text-ink-400 flex items-center justify-center">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+        </div>
+        <p class="text-sm font-semibold text-ink-700">Aucune solution calculée</p>
+        <p class="k-hint mt-1 max-w-xs mx-auto">Renseignez les pièces, puis lancez « Rechercher les solutions » : le bilan thermique et le matériel proposé s'afficheront ici.</p>
+    </div>`;
+}
+
+function viderResultats() {
+    const c = document.getElementById('results-container');
+    if (c) c.innerHTML = etatVideResultats();
+}
+
+// Intertitre d'un bloc de solutions. Il remplace la répétition du même badge « Monosplit
+// recommandé » en tête de chacune des six cartes : un intitulé recopié à l'identique sur toutes
+// les options ne distingue plus rien, il occupe seulement la ligne la plus visible de la carte.
+// Le type d'installation et le nombre d'options se disent une fois, au-dessus de la liste.
+function blocTitre(titre, sousTitre) {
+    return `<div class="flex flex-wrap items-baseline gap-x-2 gap-y-1 pt-2">
+        <h3 class="k-eyebrow">${titre}</h3>
+        ${sousTitre ? `<span class="text-2xs text-ink-400 k-num">${sousTitre}</span>` : ''}
+    </div>`;
 }
 
 // Reconstruit l'affichage des résultats à partir de state.currentCalc + state.selection,
@@ -1262,9 +1320,9 @@ function noteTriTva(options) {
 function renderResults() {
     const resultsContainer = document.getElementById('results-container');
     const calc = state.currentCalc;
-    if (!calc) { resultsContainer.innerHTML = ''; return; }
+    if (!calc) { resultsContainer.innerHTML = etatVideResultats(); return; }
 
-    let html = `<h2 class="text-xl font-bold text-klimo-dark flex items-center gap-2 mt-4"><span class="w-2 h-6 bg-[var(--brand-accent)] rounded-full"></span>Solutions recommandées</h2>`;
+    let html = `<h2 class="k-section-title text-lg">Solutions recommandées</h2>`;
     html += calc.besoinsHtml + calc.caniculeNote;
 
     let summaryParts = [];
@@ -1273,14 +1331,15 @@ function renderResults() {
     if (calc.mode === 'mono') {
         const options = calc.mono.options;
         if (options.length === 0) {
-            html += `<div class="p-4 bg-orange-50 text-orange-800 rounded-lg text-sm italic">Aucun Monosplit du catalogue ne couvre ce niveau de puissance.</div>`;
+            html += note('warn', '⚠️', 'Aucun monosplit du catalogue ne couvre ce niveau de puissance.');
         } else {
+            html += blocTitre('Monosplit', options.length > 1 ? `${options.length} options équivalentes` : '');
             html += noteTriTva(options);
             const selIdx = Math.min(state.selection.mono || 0, options.length - 1);
             options.forEach((sol, idx) => {
                 const selectOpts = options.length > 1 ? { selected: idx === selIdx, onclick: `selectMono(${idx})` } : null;
                 const tvaInfo = getTvaInfo(sol.gamme, sol.reference_ensemble, 'mono', state.brand);
-                html += renderCard("Monosplit Recommandé", sol.gamme, sol.reference_ensemble, sol.puissance_froid_kw, sol.puissance_chaud_kw, false, [], selectOpts, tvaInfo, { reqFroid: calc.req.froid, reqChaud: calc.mono.froidSeul ? null : calc.req.chaud });
+                html += renderCard(idx === 0 ? 'Recommandé' : '', sol.gamme, sol.reference_ensemble, sol.puissance_froid_kw, sol.puissance_chaud_kw, false, [], selectOpts, tvaInfo, { reqFroid: calc.req.froid, reqChaud: calc.mono.froidSeul ? null : calc.req.chaud });
             });
             const chosen = options[selIdx];
             const chosenTva = getTvaInfo(chosen.gamme, chosen.reference_ensemble, 'mono', state.brand);
@@ -1291,33 +1350,27 @@ function renderResults() {
         const m = calc.multi;
 
         if (m.hybridNote) {
-            html += `
-            <div class="p-3 bg-blue-50 border-l-4 border-blue-500 text-blue-900 rounded-r-lg text-sm my-4 shadow-sm flex gap-3 items-start fade-in">
-                <svg class="w-6 h-6 flex-shrink-0 mt-0.5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
-                <div>
-                    <strong class="block mb-1 text-blue-700">Expertise CVC : Architecture Hybride</strong>
-                    Délestage requis : Monosplit(s) dédié(s) pour la/les plus grande(s) pièce(s), et un Multisplit pour le reste.
-                </div>
-            </div>`;
+            html += note('neutral', '⚡', `<b class="font-semibold">Architecture hybride</b> — délestage requis : un ou plusieurs monosplits dédiés pour la ou les plus grandes pièces, et un multisplit pour le reste.`);
         }
 
         m.dedicated.forEach(dedItem => {
             const room = dedItem.room;
             const options = dedItem.options;
             if (options.length > 0) {
+                html += blocTitre(escapeHtml(dedItem.label), options.length > 1 ? `${options.length} options équivalentes` : '');
                 html += noteTriTva(options);
                 const selIdx = Math.min(state.selection.dedicated[room.index] || 0, options.length - 1);
                 options.forEach((sol, idx) => {
                     const selectOpts = options.length > 1 ? { selected: idx === selIdx, onclick: `selectDedicated(${room.index}, ${idx})` } : null;
                     const tvaInfo = getTvaInfo(sol.gamme, sol.reference_ensemble, 'mono', state.brand);
-                    html += renderCard(dedItem.label, sol.gamme, sol.reference_ensemble, sol.puissance_froid_kw, sol.puissance_chaud_kw, false, [], selectOpts, tvaInfo, { reqFroid: room.req.froid, reqChaud: m.froidSeul ? null : room.req.chaud });
+                    html += renderCard(idx === 0 ? 'Recommandé' : '', sol.gamme, sol.reference_ensemble, sol.puissance_froid_kw, sol.puissance_chaud_kw, false, [], selectOpts, tvaInfo, { reqFroid: room.req.froid, reqChaud: m.froidSeul ? null : room.req.chaud });
                 });
                 const chosen = options[selIdx];
                 const chosenTva = getTvaInfo(chosen.gamme, chosen.reference_ensemble, 'mono', state.brand);
                 summaryParts.push(`1x Mono ${chosen.gamme}`);
                 equipments.push(`${dedItem.label} — Modèle sélectionné : ${chosen.gamme} (${chosen.reference_ensemble})${tvaSuffixText(chosenTva)}`);
             } else {
-                html += `<div class="p-4 bg-orange-50 text-orange-800 rounded-lg text-sm italic mb-4">Pièce ${room.index} : Puissance requise (${room.maxKw.toFixed(1)} kW) hors catalogue.</div>`;
+                html += note('warn', '⚠️', `<b class="font-semibold">Pièce ${room.index}</b> — puissance requise (${room.maxKw.toFixed(1)} kW) hors catalogue.`);
                 equipments.push(`Pièce ${room.index} : Aucune machine assez puissante`);
             }
         });
@@ -1332,13 +1385,18 @@ function renderResults() {
             // Note d'équilibre du groupe RETENU (et non plus du plus petit groupe valide) : elle
             // suit donc le choix de l'utilisateur quand il passe d'une option à l'autre.
             const equilibre = analyseEquilibreGroupe(m, bestGroup);
+
+            html += blocTitre(`Groupe multisplit · ${m.standardRooms.length} sorties`, m.groupOptions.length > 1 ? `${m.groupOptions.length} références possibles` : '');
             if (equilibre) html += renderBalanceNote(equilibre);
 
+            // La référence commandée passe en titre de carte, « Groupe extérieur » en sous-titre :
+            // toutes les cartes s'intitulaient « Groupe Extérieur » et ne se distinguaient que par
+            // la ligne grise en dessous — soit exactement l'inverse de ce qu'on compare ici.
             m.groupOptions.forEach((g, idx) => {
                 const selectOpts = m.groupOptions.length > 1 ? { selected: idx === selIdx, onclick: `selectGroup(${idx})` } : null;
                 const estEquilibre = m.groupEquilibre && g.reference === m.groupEquilibre.reference;
-                const badge = `Groupe Multisplit (${m.standardRooms.length} sorties)${estEquilibre ? ' · Équilibré' : ''}`;
-                html += renderCard(badge, "Groupe Extérieur", g.reference, g.puissance_nominale_froid_kw, g.puissance_nominale_chaud_kw, true, sizesArr, selectOpts, getGroupTvaInfo(g.reference, state.brand), { reqFroid: groupReqFroid, reqChaud: m.froidSeul ? null : groupReqChaud });
+                const badge = estEquilibre ? 'Équilibré' : (idx === 0 ? 'Recommandé' : '');
+                html += renderCard(badge, g.reference, 'Groupe extérieur', g.puissance_nominale_froid_kw, g.puissance_nominale_chaud_kw, true, sizesArr, selectOpts, getGroupTvaInfo(g.reference, state.brand), { reqFroid: groupReqFroid, reqChaud: m.froidSeul ? null : groupReqChaud });
             });
             html += renderMultiRoomsGuide(m.standardRooms, bestGroup);
             summaryParts.push(`1x Multi ${bestGroup.reference} (${m.standardRooms.length} UI)`);
@@ -1365,61 +1423,64 @@ function renderResults() {
     // Enregistrer (rien à sauvegarder) ne s'affichaient, l'écran s'arrêtait net.
     if (!state.lastResultData.summaryText) {
         html += `
-        <div class="p-4 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-700 mt-2 fade-in">
-            <strong class="block mb-1 text-gray-800">Aucune solution ne ressort du catalogue ${escapeHtml(libelleMarque(state.brand))} pour cette configuration.</strong>
-            Pistes à essayer : vérifier le niveau d'isolation saisi (une valeur trop pessimiste gonfle le besoin calculé) ;
-            en Multisplit, redécouper une grande pièce en plusieurs zones plus petites plutôt qu'une seule pièce surdimensionnée ;
-            repasser en « Froid seul » si seul le besoin chauffage dépasse le catalogue.
+        <div class="k-card fade-in">
+            <h3 class="text-sm font-semibold text-ink-900 mb-2">Aucune solution ne ressort du catalogue ${escapeHtml(libelleMarque(state.brand))} pour cette configuration.</h3>
+            <p class="k-hint mb-2">Pistes à essayer :</p>
+            <ul class="k-hint flex flex-col gap-1.5 list-disc pl-4 marker:text-ink-400">
+                <li>vérifier le niveau d'isolation saisi — une valeur trop pessimiste gonfle le besoin calculé ;</li>
+                <li>en multisplit, redécouper une grande pièce en plusieurs zones plutôt qu'une seule pièce surdimensionnée ;</li>
+                <li>repasser en « Froid seul » si seul le besoin chauffage dépasse le catalogue.</li>
+            </ul>
         </div>`;
     }
 
     if (state.lastResultData.summaryText) {
         html += `
-        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 mt-6 fade-in">
-            <div class="mb-3">
-                <label for="save-installateur" class="block text-xs font-bold text-gray-500 uppercase mb-1">Identité installateur (apparaît sur le PDF)</label>
-                <input type="text" id="save-installateur" oninput="persistInstallateur(this.value)" value="${escapeHtml(getInstallateur())}" placeholder="Ex: Dupont Climatisation — 06 12 34 56 78" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
+        <div class="k-card fade-in mt-2">
+            <h3 class="k-section-title mb-4">Exporter la fiche</h3>
+            <div class="mb-4">
+                <label for="save-installateur" class="k-label">Identité installateur (apparaît sur le PDF)</label>
+                <input type="text" id="save-installateur" oninput="persistInstallateur(this.value)" value="${escapeHtml(getInstallateur())}" placeholder="Ex : Dupont Climatisation — 06 12 34 56 78" class="k-input">
             </div>
             <div class="flex flex-col sm:flex-row gap-3">
-                <button onclick="exportPdf()" class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 rounded-lg transition-colors flex justify-center items-center gap-2 text-sm">
-                    🖨️ Imprimer / Exporter PDF
+                <button onclick="exportPdf()" class="k-btn-outline flex-1">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2-10V5a2 2 0 012-2h2a2 2 0 012 2v2M7 17v2a2 2 0 002 2h6a2 2 0 002-2v-2"></path></svg>
+                    Imprimer / Exporter PDF
                 </button>
-                <button onclick="shareResults()" class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 rounded-lg transition-colors flex justify-center items-center gap-2 text-sm">
-                    📤 Partager
+                <button onclick="shareResults()" class="k-btn-outline flex-1">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M8.7 10.7a3 3 0 100 2.6m0-2.6l6.6-3.4m-6.6 6l6.6 3.4M18 8a3 3 0 100-6 3 3 0 000 6zm0 14a3 3 0 100-6 3 3 0 000 6z"></path></svg>
+                    Partager
                 </button>
             </div>
         </div>
-        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 mt-4 fade-in">
-            <h3 class="text-sm font-bold text-klimo-dark flex items-center gap-2 mb-4 uppercase tracking-wide">
-                <svg class="w-5 h-5 text-[var(--brand-accent)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
-                Enregistrer au Chantier
-            </h3>
+        <div class="k-card fade-in">
+            <h3 class="k-section-title mb-4">Enregistrer au chantier</h3>
             ${state.loadedConfigId ? `
-            <div class="mb-4 p-2.5 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-800 flex items-center justify-between gap-2 flex-wrap">
-                <span>🔄 Configuration chargée — vous pouvez la mettre à jour au lieu d'en créer une nouvelle.</span>
-                <button onclick="oublierConfigChargee()" class="text-blue-600 hover:text-blue-800 font-bold underline whitespace-nowrap">Nouvelle fiche</button>
+            <div class="k-note k-note-info mb-4 items-center justify-between gap-3 flex-wrap">
+                <span class="min-w-0">Configuration chargée — vous pouvez la mettre à jour au lieu d'en créer une nouvelle.</span>
+                <button onclick="oublierConfigChargee()" class="k-btn-outline min-h-[36px] px-3 text-2xs whitespace-nowrap flex-shrink-0">Nouvelle fiche</button>
             </div>` : ''}
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                 <div>
-                    <label for="save-client" class="block text-xs font-bold text-gray-500 uppercase mb-1">Nom du Client / Projet</label>
-                    <input type="text" id="save-client" list="client-list" placeholder="Ex: Dupont" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
+                    <label for="save-client" class="k-label">Nom du client / projet</label>
+                    <input type="text" id="save-client" list="client-list" placeholder="Ex : Dupont" class="k-input">
                     <datalist id="client-list"></datalist>
                 </div>
                 <div>
-                    <label for="save-zone" class="block text-xs font-bold text-gray-500 uppercase mb-1">Désignation de la Zone</label>
-                    <input type="text" id="save-zone" placeholder="Ex: RDC, Étage, Salon..." class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[var(--brand-accent)] outline-none">
+                    <label for="save-zone" class="k-label">Désignation de la zone</label>
+                    <input type="text" id="save-zone" placeholder="Ex : RDC, Étage, Salon…" class="k-input">
                 </div>
             </div>
             <div class="flex flex-col sm:flex-row gap-3">
-                <button onclick="saveChantier()" class="flex-1 bg-gray-800 hover:bg-black text-white font-bold py-3 rounded-lg shadow transition-colors flex justify-center items-center gap-2 text-sm">
-                    💾 Enregistrer comme nouvelle fiche
+                <button onclick="saveChantier()" class="${state.loadedConfigId ? 'k-btn-outline' : 'k-btn-dark'} flex-1">
+                    Enregistrer comme nouvelle fiche
                 </button>
                 ${state.loadedConfigId ? `
-                <button onclick="updateChantier()" class="flex-1 bg-[var(--brand-accent)] hover:opacity-90 text-white font-bold py-3 rounded-lg shadow transition-colors flex justify-center items-center gap-2 text-sm">
-                    🔄 Mettre à jour cette fiche
+                <button onclick="updateChantier()" class="k-btn-primary flex-1">
+                    Mettre à jour cette fiche
                 </button>` : ''}
             </div>
-            <div id="save-msg" class="mt-2 text-xs font-bold text-center hidden"></div>
+            <div id="save-msg" class="mt-3 text-xs font-semibold text-center hidden"></div>
         </div>
         `;
     }
@@ -1566,14 +1627,23 @@ function renderBesoinsCard(reqs, isMulti = false, roomsData = []) {
     let totC = reqs.reduce((a, b) => a + b.chaud, 0);
     let details = '';
     if (isMulti) {
-        details = `<div class="mt-3 border-t border-gray-100 pt-2 flex flex-col gap-1">` +
-            roomsData.map(r => `<div class="flex justify-between text-[11px] text-gray-500"><span>Pièce ${r.index}${r.nom ? ' — ' + escapeHtml(r.nom) : ''}</span><span>${r.req.froid.toFixed(1)} kW F / ${r.req.chaud.toFixed(1)} kW C</span></div>`).join('') + `</div>`;
+        details = `<div class="mt-3 pt-3 k-divider flex flex-col gap-1.5">` +
+            roomsData.map(r => `<div class="flex justify-between gap-3 text-2xs"><span class="text-ink-500 min-w-0 truncate">Pièce ${r.index}${r.nom ? ' — ' + escapeHtml(r.nom) : ''}</span><span class="text-ink-700 k-num whitespace-nowrap">${r.req.froid.toFixed(1)} kW F · ${r.req.chaud.toFixed(1)} kW C</span></div>`).join('') + `</div>`;
     }
-    return `<div class="bg-white border border-gray-200 rounded-xl p-4 shadow-sm flex flex-col gap-2 mb-4 mt-2">
-        <span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Bilan Thermique Cumulé</span>
-        <div class="flex gap-3">
-            <span class="bg-blue-50 text-blue-700 px-3 py-1.5 rounded-md text-sm font-bold border border-blue-100 flex-1 text-center">Froid: ${totF.toFixed(2)} kW</span>
-            <span class="bg-red-50 text-red-700 px-3 py-1.5 rounded-md text-sm font-bold border border-red-100 flex-1 text-center">Chaud: ${totC.toFixed(2)} kW</span>
+    // Même vocabulaire visuel que les puissances des cartes (tuiles froid/chaud de largeur
+    // égale) : le besoin calculé et la puissance machine se lisent alors dans la même unité
+    // de mise en forme, ce qui est précisément la comparaison que l'artisan fait des yeux.
+    return `<div class="k-card">
+        <span class="k-eyebrow">Bilan thermique cumulé</span>
+        <div class="grid grid-cols-2 gap-2 mt-2">
+            <div class="k-stat k-stat-froid">
+                <span class="k-stat-label">Besoin froid</span>
+                <span class="k-stat-value">${totF.toFixed(2)} kW</span>
+            </div>
+            <div class="k-stat k-stat-chaud">
+                <span class="k-stat-label">Besoin chaud</span>
+                <span class="k-stat-value">${totC.toFixed(2)} kW</span>
+            </div>
         </div>
         ${details}
     </div>`;
@@ -1583,15 +1653,17 @@ function renderBesoinsCard(reqs, isMulti = false, roomsData = []) {
 function gammeGuideContent(gammeName) {
     const g = GAMMES_INFO[state.brand]?.[gammeName];
     if (!g) return '';
-    const wifiColor = g.wifi === 'De série' ? 'text-green-600' : 'text-amber-600';
+    const wifiColor = g.wifi === 'De série' ? 'text-emerald-700' : 'text-amber-700';
     return `
-    <div class="flex flex-col gap-2 text-[11px]">
-        <div class="bg-gray-50 rounded-lg p-2.5 text-gray-700"><span class="font-bold text-gray-500 uppercase text-[11px] tracking-wider">Idéal pour</span><br>${g.ideal}</div>
-        <div class="flex flex-col gap-1">
-            ${g.plus.map(p => `<div class="flex items-start gap-1.5 text-green-700"><span class="font-bold">✓</span><span>${p}</span></div>`).join('')}
-            ${g.moins.map(m => `<div class="flex items-start gap-1.5 text-amber-700"><span class="font-bold">!</span><span>${m}</span></div>`).join('')}
+    <div class="flex flex-col gap-2.5 text-2xs leading-relaxed">
+        <div class="bg-slate-50 rounded-xl border border-line p-3 text-ink-700">
+            <span class="k-eyebrow block mb-0.5">Idéal pour</span>${g.ideal}
         </div>
-        <div class="text-[11px] text-gray-400 font-medium">Wifi : <span class="${wifiColor} font-bold">${g.wifi}</span></div>
+        <ul class="flex flex-col gap-1.5">
+            ${g.plus.map(p => `<li class="flex items-start gap-2 text-emerald-800"><span class="text-emerald-600 font-bold leading-4" aria-hidden="true">✓</span><span>${p}</span></li>`).join('')}
+            ${g.moins.map(m => `<li class="flex items-start gap-2 text-amber-800"><span class="text-amber-600 font-bold leading-4" aria-hidden="true">!</span><span>${m}</span></li>`).join('')}
+        </ul>
+        <div class="text-ink-500">Wifi : <span class="${wifiColor} font-semibold">${g.wifi}</span></div>
     </div>`;
 }
 
@@ -1599,13 +1671,15 @@ function gammeGuideContent(gammeName) {
 function renderGammeGuide(gammeName) {
     const g = GAMMES_INFO[state.brand]?.[gammeName];
     if (!g) return '';
+    // Le positionnement de gamme (€, €€€, « haut de gamme design »…) sort du dépliant : c'est
+    // un critère de choix, il doit être lisible carte fermée et non après un geste de plus.
     return `
-    <details class="mt-4 pt-3 border-t border-gray-100 group/guide">
-        <summary class="cursor-pointer text-[11px] font-bold text-gray-500 hover:text-[var(--brand-accent)] flex items-center gap-1.5 select-none">
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-            Guide de la gamme
-            <span class="ml-auto text-[11px] font-extrabold bg-gray-100 text-gray-600 px-2 py-0.5 rounded">${g.tier}</span>
-            <svg class="w-4 h-4 transition-transform group-open/guide:rotate-180 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+    <details class="mt-4 pt-3 k-divider group/guide">
+        <summary class="k-disclosure">
+            <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            <span>Guide de la gamme</span>
+            <span class="ml-auto k-pill k-pill-neutral font-medium normal-case">${g.tier}</span>
+            <svg class="w-4 h-4 flex-shrink-0 text-ink-400 transition-transform group-open/guide:rotate-180" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"></path></svg>
         </summary>
         <div class="mt-3">${gammeGuideContent(gammeName)}</div>
     </details>`;
@@ -1623,7 +1697,7 @@ function renderMultiRoomsGuide(roomsData, group) {
     const rows = roomsData.map(r => {
         const gammesUniques = getRoomEligibleGammes(r, allowedGammes, state.brand);
         if (gammesUniques.length === 0) {
-            return `<div class="py-2.5 border-b border-gray-100 last:border-0 text-xs text-orange-700 italic">Pièce ${r.index} : aucune UI du catalogue ne couvre ce besoin.</div>`;
+            return `<div class="py-3 border-b border-line last:border-0 text-xs text-amber-800">Pièce ${r.index} : aucune UI du catalogue ne couvre ce besoin.</div>`;
         }
         const sols = findBestMonos(r.froidMatch, r.chaudMatch, state.brand);
         const storedGamme = state.selection.group[r.index];
@@ -1633,33 +1707,43 @@ function renderMultiRoomsGuide(roomsData, group) {
             const gEsc = g.replace(/'/g, "\\'");
             const solForG = sols.find(s => s.gamme === g);
             const tvaInfo = getTvaInfo(g, solForG.reference_ensemble, 'multiUi', state.brand, group.reference);
+            // Chaque gamme devient une colonne autonome (pastille de choix, statut TVA, détails)
+            // au lieu d'une file de pastilles dont les « Détails » se retrouvaient alignés en bas
+            // sans qu'on sache plus lequel appartenait à laquelle.
             return `
-            <div>
-                <button type="button" onclick="selectGroupGamme(${r.index}, '${gEsc}')" class="cursor-pointer inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1.5 rounded-full select-none transition-colors border-2 ${isSel ? 'bg-[var(--brand-accent)] border-[var(--brand-accent)] text-white' : 'bg-gray-100 border-transparent hover:bg-gray-200 text-gray-700'}">
-                    ${isSel ? '✓ ' : ''}${g}
+            <div class="flex flex-col items-start gap-1.5">
+                <button type="button" onclick="selectGroupGamme(${r.index}, '${gEsc}')" aria-pressed="${isSel}" class="k-chip">
+                    ${isSel ? `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path></svg>` : ''}${g}
                 </button>
-                ${renderTvaBadge(tvaInfo)}
-                <details class="group/mg mt-1" onclick="event.stopPropagation()">
-                    <summary class="cursor-pointer text-[11px] text-gray-400 hover:text-gray-600 select-none">Détails</summary>
+                <div class="flex flex-wrap gap-1.5">${renderTvaBadge(tvaInfo)}</div>
+                <details class="group/mg" onclick="event.stopPropagation()">
+                    <summary class="k-disclosure text-2xs font-medium text-ink-400">Détails</summary>
                     <div class="mt-2 mb-1">${gammeGuideContent(g)}</div>
                 </details>
             </div>`;
         }).join('');
         return `
-        <div class="py-3 border-b border-gray-100 last:border-0">
-            <div class="text-xs font-bold text-gray-700 mb-2">Pièce ${r.index}${r.nom ? ' — ' + escapeHtml(r.nom) : ''} <span class="font-normal text-gray-400">— ${r.req.froid.toFixed(1)} kW F / ${r.req.chaud.toFixed(1)} kW C</span></div>
-            <div class="flex flex-wrap gap-3">${chips}</div>
+        <div class="py-3.5 border-b border-line last:border-0 last:pb-0">
+            <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 mb-2.5">
+                <span class="text-xs font-semibold text-ink-900">Pièce ${r.index}${r.nom ? ' — ' + escapeHtml(r.nom) : ''}</span>
+                <span class="text-2xs text-ink-500 k-num">${r.req.froid.toFixed(1)} kW F · ${r.req.chaud.toFixed(1)} kW C</span>
+            </div>
+            <div class="flex flex-wrap gap-x-5 gap-y-3">${chips}</div>
         </div>`;
     }).join('');
 
     return `
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 mb-4 fade-in">
-        <h3 class="text-sm font-bold text-klimo-dark flex items-center gap-2 mb-1 uppercase tracking-wide">
-            <svg class="w-5 h-5 text-[var(--brand-accent)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
-            Guide de sélection des unités intérieures
-        </h3>
-        <p class="text-[11px] text-gray-400 mb-1">Sélectionnez la gamme souhaitée pour chaque pièce${allowedGammes ? ` (compatibles avec ${allowedGammes.join(' / ')})` : ''}. Vous pouvez mixer les gammes sur un même groupe extérieur pour éviter de surdimensionner une petite pièce. En multisplit, la TVA à 5,5% est portée par le groupe extérieur : toutes les unités intérieures raccordées à un groupe éligible en bénéficient, sans condition de module Wifi — y compris les gammes et tailles refusées en monosplit (Naka, Yukai 18 et 24).</p>
-        ${rows}
+    <div class="k-card fade-in">
+        <h3 class="k-section-title">Unités intérieures</h3>
+        <p class="k-hint mt-2">Sélectionnez la gamme souhaitée pour chaque pièce${allowedGammes ? ` (compatibles avec ${escapeHtml(allowedGammes.join(' / '))})` : ''}. Vous pouvez mixer les gammes sur un même groupe extérieur pour éviter de surdimensionner une petite pièce.</p>
+        <details class="mt-2 group/tva">
+            <summary class="k-disclosure">
+                <span>TVA 5,5% en multisplit : comment elle se transmet</span>
+                <svg class="w-4 h-4 flex-shrink-0 text-ink-400 transition-transform group-open/tva:rotate-180" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"></path></svg>
+            </summary>
+            <p class="k-hint mt-2">L'éligibilité est portée par le groupe extérieur : toutes les unités intérieures raccordées à un groupe éligible en bénéficient, sans condition de module Wifi — y compris les gammes et tailles refusées en monosplit (Naka, Yukai 18 et 24).</p>
+        </details>
+        <div class="mt-3">${rows}</div>
     </div>`;
 }
 
@@ -1733,11 +1817,11 @@ function analyseEquilibreGroupe(m, selectedGroup) {
 // climat, elle dépend du groupe sélectionné : sa place est donc à côté des solutions concernées).
 function renderBalanceNote(analyse) {
     const styles = {
-        ok:       { classes: 'bg-emerald-50 border-emerald-200 text-emerald-800', icone: '✅' },
-        escalade: { classes: 'bg-amber-50 border-amber-200 text-amber-800', icone: '⚠️' },
-        alerte:   { classes: 'bg-amber-50 border-amber-200 text-amber-800', icone: '⚠️' }
+        ok:       { ton: 'ok', icone: '✅' },
+        escalade: { ton: 'warn', icone: '⚠️' },
+        alerte:   { ton: 'warn', icone: '⚠️' }
     }[analyse.ton];
-    return `<div class="p-2.5 ${styles.classes} border rounded-lg text-[11px] font-medium text-center mb-4">${styles.icone} ${escapeHtml(analyse.message)}</div>`;
+    return note(styles.ton, styles.icone, escapeHtml(analyse.message));
 }
 
 // Taux de charge = besoin réel / puissance nominale catalogue. En dessous de ~50%, un
@@ -1747,81 +1831,108 @@ function renderBalanceNote(analyse) {
 // L'explication était jusqu'ici uniquement dans l'attribut title du ⚠️ — jamais visible au
 // doigt sur mobile (pas de survol tactile fiable). Affichée ici en texte, sous le badge :
 // un peu plus de place prise, mais lisible par l'artisan qui compte l'utiliser sur le terrain.
-function renderChargeBadge(reqFroid, reqChaud, nominalFroid, nominalChaud) {
-    if (!reqFroid || !nominalFroid) return '';
+// Découpé en deux : la pastille rejoint la rangée de pastilles de la carte (TVA, Wifi), tandis
+// que l'explication en toutes lettres reste une ligne à part entière sous cette rangée. Les
+// deux étaient auparavant renvoyées collées, ce qui obligeait la carte à les insérer au même
+// endroit et cassait l'alignement de la rangée dès qu'un avertissement apparaissait.
+function tauxCharge(reqFroid, reqChaud, nominalFroid, nominalChaud) {
+    if (!reqFroid || !nominalFroid) return null;
     const chargeF = reqFroid / nominalFroid;
     const chargeC = (reqChaud && nominalChaud) ? reqChaud / nominalChaud : null;
     const minCharge = chargeC !== null ? Math.min(chargeF, chargeC) : chargeF;
-    const sousCharge = minCharge < SEUIL_SOUS_CHARGE;
-    const classes = sousCharge ? 'bg-amber-50 text-amber-700 border-amber-300' : 'bg-gray-50 text-gray-500 border-gray-200';
-    const label = `Taux de charge : ${Math.round(chargeF * 100)}% F${chargeC !== null ? ` / ${Math.round(chargeC * 100)}% C` : ''}`;
-    const badge = `<div class="mt-2 inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-full border ${classes}">${label}${sousCharge ? ' ⚠️' : ''}</div>`;
-    const explication = sousCharge
-        ? `<p class="text-[11px] text-amber-700 mt-1">⚠️ Machine surdimensionnée pour ce besoin : cycles courts, confort et rendement réel dégradés.</p>`
-        : '';
-    return badge + explication;
+    return { chargeF, chargeC, sousCharge: minCharge < SEUIL_SOUS_CHARGE };
+}
+
+function renderChargeBadge(reqFroid, reqChaud, nominalFroid, nominalChaud) {
+    const t = tauxCharge(reqFroid, reqChaud, nominalFroid, nominalChaud);
+    if (!t) return '';
+    const label = `Charge ${Math.round(t.chargeF * 100)}% F${t.chargeC !== null ? ` · ${Math.round(t.chargeC * 100)}% C` : ''}`;
+    return `<span class="k-pill ${t.sousCharge ? 'k-pill-warn' : 'k-pill-neutral'} k-num">${t.sousCharge ? '⚠️ ' : ''}${label}</span>`;
+}
+
+function renderChargeWarning(reqFroid, reqChaud, nominalFroid, nominalChaud) {
+    const t = tauxCharge(reqFroid, reqChaud, nominalFroid, nominalChaud);
+    if (!t || !t.sousCharge) return '';
+    return `<p class="text-2xs text-amber-800 mt-2 leading-relaxed">Machine surdimensionnée pour ce besoin : cycles courts, confort et rendement réel dégradés.</p>`;
 }
 
 // selectOpts = null (carte simple, non sélectionnable) ou { selected: bool, onclick: string }
 // quand plusieurs solutions équivalentes sont proposées et que l'utilisateur doit en choisir une.
+// Carte d'une solution. Réorganisée autour de ce qu'un installateur y cherche dans l'ordre :
+// le nom de la gamme, sa référence commandable, les deux puissances, puis les conditions
+// (TVA, Wifi, taux de charge) et enfin la fiche de gamme dépliable.
+//
+// Trois changements de fond par rapport à la version précédente :
+//   - les puissances passent d'une colonne étroite à droite (deux blocs de hauteurs
+//     différentes selon que « Chaud Nom. » tenait ou non sur une ligne) à deux tuiles de
+//     largeur égale sous le titre : elles s'alignent d'une carte à l'autre et se comparent
+//     en balayant la colonne ;
+//   - l'option non retenue n'est plus délavée (`opacity-60 saturate-50`) mais rendue en plein
+//     contraste : ce sont les options à comparer, les effacer va contre leur raison d'être.
+//     La sélection se lit à la bordure, à l'anneau et à la puce cochée ;
+//   - le filigrane décoratif en coin est retiré : il n'apportait rien et passait sous du texte.
 function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = false, sizes = [], selectOpts = null, tvaInfo = null, chargeInfo = null) {
     let footer = '';
     if (isMulti) {
-        footer = `<div class="mt-4 pt-4 border-t border-gray-100 flex flex-wrap gap-2 items-center">
-            <span class="text-xs font-bold text-gray-500">Tailles UI à connecter :</span>
-            ${sizes.map(s => `<span class="text-[11px] font-black bg-gray-800 border border-gray-700 px-2 py-1 rounded text-white shadow-inner">${s}</span>`).join('')}
+        footer = `<div class="mt-4 pt-4 k-divider flex flex-wrap gap-2 items-center">
+            <span class="k-eyebrow">Tailles UI à connecter</span>
+            ${sizes.map(s => `<span class="k-pill k-pill-neutral k-num">${s}</span>`).join('')}
         </div>`;
     }
 
-    let wrapperClasses = 'bg-white rounded-xl shadow-md border-l-4 border-[var(--brand-accent)] p-5 fade-in transition hover:shadow-lg mb-4 relative overflow-hidden';
-    let clickAttr = '';
-    let selectFooter = '';
+    let wrapperClasses = 'k-result fade-in';
+    let attrs = '';
     let gammeGuideBlock = renderGammeGuide(mainTitle);
+    let radio = '';
 
     if (selectOpts) {
         // role="button" + tabindex rend la carte focusable au clavier, mais un onclick seul ne
         // répond ni à Entrée ni à Espace : on délègue explicitement au clic déjà câblé.
-        clickAttr = ` onclick="${selectOpts.onclick}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}" role="button" tabindex="0"`;
-        wrapperClasses += selectOpts.selected
-            ? ' cursor-pointer ring-2 ring-[var(--brand-accent)] ring-offset-2'
-            : ' cursor-pointer opacity-60 hover:opacity-100 saturate-50 hover:saturate-100';
-        selectFooter = `
-        <div class="mt-4 pt-3 border-t border-gray-100 flex items-center justify-center">
-            ${selectOpts.selected
-                ? `<span class="inline-flex items-center gap-1.5 text-xs font-bold text-white bg-[var(--brand-accent)] px-3 py-1.5 rounded-full"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg> Solution sélectionnée</span>`
-                : `<span class="inline-flex items-center gap-1.5 text-xs font-bold text-gray-500 border border-gray-300 px-3 py-1.5 rounded-full">Choisir cette solution</span>`
-            }
-        </div>`;
+        attrs = ` onclick="${selectOpts.onclick}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}" role="button" tabindex="0" aria-pressed="${selectOpts.selected}"`;
+        wrapperClasses += ' k-result-selectable';
+        radio = `
+        <span class="k-radio" aria-hidden="true">
+            ${selectOpts.selected ? `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path></svg>` : ''}
+        </span>`;
         // Empêche l'ouverture du guide de gamme de déclencher aussi la sélection de la carte.
         gammeGuideBlock = `<div onclick="event.stopPropagation()">${gammeGuideBlock}</div>`;
     }
 
+    const badge = badgeText
+        ? `<span class="k-pill ${selectOpts && !selectOpts.selected ? 'k-pill-neutral' : 'k-pill-accent'} mb-2">${escapeHtml(badgeText)}</span>`
+        : '';
+
     return `
-    <div class="${wrapperClasses}"${clickAttr}>
-        <div class="absolute -right-4 -top-4 opacity-5 pointer-events-none"><svg class="w-32 h-32" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zm0 7.5l-6-3v6.5l6 3 6-3V6.5l-6 3z"/></svg></div>
-        <div class="flex justify-between items-start gap-4 relative z-10">
-            <div class="flex-grow">
-                <div class="text-[11px] font-black uppercase text-[var(--brand-accent)] mb-1 tracking-widest">${badgeText}</div>
-                <h3 class="text-lg font-extrabold text-klimo-dark leading-tight">${mainTitle}</h3>
-                <p class="text-xs font-mono text-gray-500 mt-1">${subtitle}</p>
-                ${chargeInfo ? `<p class="text-[11px] text-gray-400 mt-1">Besoin calculé : ${chargeInfo.reqFroid.toFixed(1)} kW F${chargeInfo.reqChaud !== null && chargeInfo.reqChaud !== undefined ? ` / ${chargeInfo.reqChaud.toFixed(1)} kW C` : ''}</p>` : ''}
-                ${renderTvaBadge(tvaInfo)}
-                ${chargeInfo ? renderChargeBadge(chargeInfo.reqFroid, chargeInfo.reqChaud, froid, chaud) : ''}
+    <div class="${wrapperClasses}"${attrs}>
+        <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+                ${badge}
+                <h4 class="text-lg font-semibold text-ink-900 leading-tight break-words">${mainTitle}</h4>
+                <p class="text-xs text-ink-500 mt-1 break-words">${subtitle}</p>
             </div>
-            <div class="flex flex-col gap-2 min-w-[90px]">
-                <div class="bg-blue-50 px-3 py-1 rounded-lg text-center border border-blue-100">
-                    <div class="text-[11px] font-bold text-blue-500 uppercase tracking-tighter leading-none">Froid Nom.</div>
-                    <div class="text-sm font-black text-blue-700">${froid} kW</div>
-                </div>
-                <div class="bg-red-50 px-3 py-1 rounded-lg text-center border border-red-100">
-                    <div class="text-[11px] font-bold text-red-500 uppercase tracking-tighter leading-none">Chaud Nom.</div>
-                    <div class="text-sm font-black text-red-700">${chaud} kW</div>
-                </div>
+            ${radio}
+        </div>
+
+        <div class="grid grid-cols-2 gap-2 mt-3">
+            <div class="k-stat k-stat-froid">
+                <span class="k-stat-label">Froid nom.</span>
+                <span class="k-stat-value">${froid} kW</span>
+            </div>
+            <div class="k-stat k-stat-chaud">
+                <span class="k-stat-label">Chaud nom.</span>
+                <span class="k-stat-value">${chaud} kW</span>
             </div>
         </div>
+
+        ${chargeInfo ? `<p class="text-2xs text-ink-500 mt-2 k-num">Besoin calculé : ${chargeInfo.reqFroid.toFixed(1)} kW F${chargeInfo.reqChaud !== null && chargeInfo.reqChaud !== undefined ? ` · ${chargeInfo.reqChaud.toFixed(1)} kW C` : ''}</p>` : ''}
+
+        <div class="flex flex-wrap gap-1.5 mt-2.5">
+            ${renderTvaBadge(tvaInfo)}
+            ${chargeInfo ? renderChargeBadge(chargeInfo.reqFroid, chargeInfo.reqChaud, froid, chaud) : ''}
+        </div>
+        ${chargeInfo ? renderChargeWarning(chargeInfo.reqFroid, chargeInfo.reqChaud, froid, chaud) : ''}
         ${gammeGuideBlock}
         ${footer}
-        ${selectFooter}
     </div>`;
 }
 
@@ -1841,28 +1952,31 @@ function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = fals
 // est visuellement identique à l'ancienne pastille (même forme, même couleur) ; ouvrir révèle
 // le texte. event.stopPropagation() : la carte parente peut porter son propre onclick de
 // sélection (voir renderCard) — ouvrir l'explication ne doit pas aussi sélectionner la carte.
-function pastilleTva(classes, texte, explication) {
+function pastilleTva(variante, texte, explication) {
     return `<details onclick="event.stopPropagation()" class="inline-block align-top">
-        <summary class="inline-flex items-center gap-1 text-[11px] font-black px-2 py-1 rounded-full border cursor-pointer select-none ${classes}">${texte} <span class="font-normal opacity-60">ⓘ</span></summary>
-        <p class="text-[11px] text-gray-500 mt-1 max-w-xs font-normal normal-case">${explication}</p>
+        <summary class="k-pill k-pill-${variante} cursor-pointer">${texte} <span class="opacity-50" aria-hidden="true">ⓘ</span></summary>
+        <p class="text-2xs text-ink-500 mt-1.5 max-w-xs leading-relaxed">${explication}</p>
     </details>`;
 }
 
+// Ne renvoie que les pastilles : leur mise en rangée est la responsabilité de l'appelant
+// (la carte les regroupe avec le taux de charge dans un seul `flex flex-wrap`, au lieu des
+// deux rangées empilées qu'imposait l'ancien conteneur inclus ici).
 function renderTvaBadge(tvaInfo) {
     if (!tvaInfo) {
-        return `<div class="flex flex-wrap gap-1.5 mt-2">${pastilleTva('bg-gray-100 text-gray-500 border-gray-200', 'TVA non renseignée', `Aucun dispositif d'éligibilité TVA renseigné pour ${escapeHtml(libelleMarque(state.brand))} dans cette version de l'outil — statut à vérifier auprès du fournisseur avant de facturer.`)}</div>`;
+        return pastilleTva('neutral', 'TVA non renseignée', `Aucun dispositif d'éligibilité TVA renseigné pour ${escapeHtml(libelleMarque(state.brand))} dans cette version de l'outil — statut à vérifier auprès du fournisseur avant de facturer.`);
     }
     const marque = escapeHtml(libelleMarque(state.brand));
     const dateVerif = new Date(TVA_DATE_VERIFICATION).toLocaleDateString('fr-FR');
     const badges = {
-        eligible:     pastilleTva('bg-green-100 text-green-700 border-green-300', 'TVA 5,5%', `Éligibilité vérifiée face au tableau ${marque} le ${dateVerif}.`),
-        non_eligible: pastilleTva('bg-red-100 text-red-700 border-red-300', 'TVA 20%', `Éligibilité vérifiée face au tableau ${marque} le ${dateVerif}.`),
-        a_verifier:   pastilleTva('bg-gray-100 text-gray-600 border-gray-300', 'TVA à vérifier', `Référence absente du tableau d'éligibilité ${marque} (vérifié le ${dateVerif}) : à confirmer auprès du constructeur avant de facturer en 5,5%.`)
+        eligible:     pastilleTva('ok', 'TVA 5,5%', `Éligibilité vérifiée face au tableau ${marque} le ${dateVerif}.`),
+        non_eligible: pastilleTva('danger', 'TVA 20%', `Éligibilité vérifiée face au tableau ${marque} le ${dateVerif}.`),
+        a_verifier:   pastilleTva('neutral', 'TVA à vérifier', `Référence absente du tableau d'éligibilité ${marque} (vérifié le ${dateVerif}) : à confirmer auprès du constructeur avant de facturer en 5,5%.`)
     };
     const wifi = tvaInfo.wifiRequired
-        ? `<span class="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200">📶 Module Wifi requis</span>`
+        ? `<span class="k-pill k-pill-warn">Module Wifi requis</span>`
         : '';
-    return `<div class="flex flex-wrap gap-1.5 mt-2">${badges[tvaInfo.statut] || badges.a_verifier}${wifi}</div>`;
+    return (badges[tvaInfo.statut] || badges.a_verifier) + wifi;
 }
 
 function tvaSuffixText(tvaInfo) {
