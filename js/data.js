@@ -188,15 +188,29 @@ export const CATALOGS = {
         { gamme: "Yukai", reference_ensemble: "RAS-16E2AVG-E / RAS-B16E2KVG-E", puissance_froid_kw: 4.2, puissance_chaud_kw: 5.0 },
         { gamme: "Yukai", reference_ensemble: "RAS-18E2AVG-E / RAS-B18E2KVG-E", puissance_froid_kw: 5.0, puissance_chaud_kw: 5.4 },
         { gamme: "Yukai", reference_ensemble: "RAS-24E2AVG-E / RAS-B24E2KVG-E", puissance_froid_kw: 6.5, puissance_chaud_kw: 7.0 },
-        // --- NOUVEAUX SHORAI EDGE ---
-        { gamme: "Shorai Edge", reference_ensemble: "RAS-07J2AVSG-E1 / RAS-B07G3KVSG-E", puissance_froid_kw: 2.0, puissance_chaud_kw: 2.5 },
-        { gamme: "Shorai Edge", reference_ensemble: "RAS-10J2AVSG-E1 / RAS-B10G3KVSG-E", puissance_froid_kw: 2.5, puissance_chaud_kw: 3.2 },
-        { gamme: "Shorai Edge", reference_ensemble: "RAS-13J2AVSG-E1 / RAS-B13G3KVSG-E", puissance_froid_kw: 3.5, puissance_chaud_kw: 4.2 },
-        { gamme: "Shorai Edge", reference_ensemble: "RAS-16J2AVSG-E1 / RAS-B16G3KVSG-E", puissance_froid_kw: 4.6, puissance_chaud_kw: 5.5 },
-        { gamme: "Shorai Edge", reference_ensemble: "RAS-18J2AVSG-E1 / RAS-B18G3KVSG-E", puissance_froid_kw: 5.0, puissance_chaud_kw: 6.0 },
-        { gamme: "Shorai Edge", reference_ensemble: "RAS-22J2AVSG-E1 / RAS-B22G3KVSG-E", puissance_froid_kw: 6.1, puissance_chaud_kw: 7.0 },
-        { gamme: "Shorai Edge", reference_ensemble: "RAS-24J2AVSG-E1 / RAS-B24G3KVSG-E", puissance_froid_kw: 7.0, puissance_chaud_kw: 8.0 }
+        // --- SHORAI CURVE ---
+        // Remplace la gamme Shorai Edge, dont la production s'arrête en septembre 2026. Les sept
+        // tailles et leurs puissances nominales sont strictement identiques à celles de l'Edge :
+        // seules les références changent (UE J2AVSG-E1 → P2AVSG-E, UI G3KVSG-E → P2KVSG-E), d'où
+        // un UI_SIZE_TABLES et des solutions de sélection inchangés à besoin égal.
+        //
+        // L'unité intérieure citée ici est la BLANCHE (…P2KVSG-E). La finition noire porte la même
+        // référence avec un B avant le suffixe (…P2KVSGB-E, ex. RAS-B10P2KVSGB-E) : même machine,
+        // mêmes puissances, télécommande assortie à la couleur. Le choix du coloris se fait à la
+        // commande et ne change rien au dimensionnement.
+        //
+        // Source : brochure Toshiba TOS2607-SHORAICURVE-B (tableau « Systèmes »).
+        { gamme: "Shorai Curve", reference_ensemble: "RAS-07P2AVSG-E / RAS-B07P2KVSG-E", puissance_froid_kw: 2.0, puissance_chaud_kw: 2.5 },
+        { gamme: "Shorai Curve", reference_ensemble: "RAS-10P2AVSG-E / RAS-B10P2KVSG-E", puissance_froid_kw: 2.5, puissance_chaud_kw: 3.2 },
+        { gamme: "Shorai Curve", reference_ensemble: "RAS-13P2AVSG-E / RAS-B13P2KVSG-E", puissance_froid_kw: 3.5, puissance_chaud_kw: 4.2 },
+        { gamme: "Shorai Curve", reference_ensemble: "RAS-16P2AVSG-E / RAS-B16P2KVSG-E", puissance_froid_kw: 4.6, puissance_chaud_kw: 5.5 },
+        { gamme: "Shorai Curve", reference_ensemble: "RAS-18P2AVSG-E / RAS-B18P2KVSG-E", puissance_froid_kw: 5.0, puissance_chaud_kw: 6.0 },
+        { gamme: "Shorai Curve", reference_ensemble: "RAS-22P2AVSG-E / RAS-B22P2KVSG-E", puissance_froid_kw: 6.1, puissance_chaud_kw: 7.0 },
+        { gamme: "Shorai Curve", reference_ensemble: "RAS-24P2AVSG-E / RAS-B24P2KVSG-E", puissance_froid_kw: 7.0, puissance_chaud_kw: 8.0 }
     ],
+    // Groupes multisplit inchangés par le passage Shorai Edge → Shorai Curve : la Curve se
+    // raccorde sur la même gamme de groupes RAS-xMxxG3AVG-E, seule l'unité intérieure proposée
+    // change (elle est reprise du catalogue monosplit ci-dessus, voir getRoomEligibleGammes).
     multisplits_groupes_exterieurs: [
         { reference: "RAS-2M10G3AVG-E", max_unites_interieures: 2, puissance_nominale_froid_kw: 3.3, puissance_nominale_chaud_kw: 4.0 },
         { reference: "RAS-2M14G3AVG-E", max_unites_interieures: 2, puissance_nominale_froid_kw: 4.0, puissance_nominale_chaud_kw: 4.4 },
@@ -299,10 +313,15 @@ export const GAMMES_INFO = {
         moins: ["Wifi en option", "Moins performante que Daiseikai par grand froid"],
         ideal: "Pièce principale, bon équilibre froid / chaud"
     },
-    "Shorai Edge": {
+    // Remplace la Shorai Edge (production arrêtée en septembre 2026).
+    // Les classes énergétiques ne sont PAS uniformes sur la gamme (brochure TOS2607-SHORAICURVE-B) :
+    // A+++/A+++ en tailles 07/10/13 (SEER 8,5-8,6 / SCOP 5,1), A++/A++ en 16/18/22 (SEER 7,3-7,8 /
+    // SCOP 4,6), A++/A+ en 24 (SEER 6,3 / SCOP 4,1). D'où les « jusqu'à » : annoncer 5,1 sec ferait
+    // promettre sur une taille 24 un SCOP qu'elle ne tient pas.
+    "Shorai Curve": {
         tier: "€€ · Milieu / haut de gamme", wifi: "De série",
-        plus: ["A+++ froid ET chaud (SCOP 5,1)", "Très silencieux (19 dB)", "Wifi intégré de série", "Design compact noir / blanc"],
-        moins: ["Plus chère que l'entrée de gamme"],
+        plus: ["A+++ froid ET chaud jusqu'à la taille 13 (SEER 8,6 / SCOP 5,1)", "Très silencieux (19 dB)", "Wifi intégré de série", "Chauffe jusqu'à −20 °C extérieur", "Design incurvé, finition mate noire ou blanche", "Ioniseur Plasma Ag + diffusion 3D Hada Care"],
+        moins: ["Plus chère que l'entrée de gamme", "Classe A++ / A+ à partir de la taille 16"],
         ideal: "Chauffage principal en climat doux / tempéré"
     },
     "Haori": {
@@ -362,13 +381,16 @@ export const GAMMES_INFO = {
 // Une référence absente du tableau n'est PAS traitée comme refusée mais comme « à vérifier » :
 // l'outil ne peut ni promettre 5,5% ni condamner à 20% une machine que le constructeur n'a pas
 // tranchée (voir getTvaInfo). Aucun cas dans le catalogue actuel : la seule référence non listée,
-// Shorai Edge taille 24, a été confirmée éligible par l'entreprise (toute la gamme l'est).
+// la taille 24, a été confirmée éligible par l'entreprise (toute la gamme Shorai l'est).
 //
 // Couvert par le tableau mais hors catalogue de l'application (aucune donnée de puissance
-// exploitable ici, donc non transcrit) : Shorai Curve et Shorai Curve Super Heating (mêmes tailles
-// qu'en Shorai Edge, éligibles), Cassette 1 voie (RAV-GM303/403 : non éligibles), Gainable standard
-// (éligibilité par référence — série GP éligible avec Wifi, série GM non éligible), et le groupe
-// multisplit RAS-2M60S4AVG-ND (éligible, réservé aux UI « ND » : Haori ND, Shorai Curve ND).
+// exploitable ici, donc non transcrit) : Shorai Curve Super Heating (mêmes tailles que la Shorai
+// Curve, éligible — non distribuée sur le catalogue France consulté), Cassette 1 voie
+// (RAV-GM303/403 : non éligibles), Gainable standard (éligibilité par référence — série GP éligible
+// avec Wifi, série GM non éligible), et le groupe multisplit RAS-2M60S4AVG-ND (éligible, réservé
+// aux UI « ND » : Haori ND, Shorai Curve ND). Ce dernier est un groupe « Nordic » absent du
+// catalogue France : ni le groupe ni les UI « ND » ne sont proposables par l'application, il n'y a
+// donc rien à sélectionner de ce côté (vérifié le 12/08/2026).
 //
 // Suffixes de millésime commercial à retirer d'une référence de GROUPE EXTÉRIEUR pour la
 // comparer à la liste `groupesEligibles` du tableau constructeur ci-dessous (voir
@@ -394,9 +416,11 @@ export const TVA_RULES = {
     mono: {
         "Naka":                 { wifiRequired: false, taillesEligibles: [],                                 taillesNonEligibles: ["05", "07", "10", "13", "16", "18", "24"] },
         "Yukai":                { wifiRequired: true,  taillesEligibles: ["05", "07", "10", "13", "16"],     taillesNonEligibles: ["18", "24"] },
-        // Taille 24 absente du tableau v3, mais éligible : toute la gamme Shorai Edge l'est
-        // (confirmation de l'entreprise, 03/08/2026).
-        "Shorai Edge":          { wifiRequired: false, taillesEligibles: ["07", "10", "13", "16", "18", "22", "24"], taillesNonEligibles: [] },
+        // Taille 24 absente du tableau v3, mais éligible : toute la gamme Shorai l'est
+        // (confirmation de l'entreprise, 03/08/2026). Règle reprise telle quelle de la Shorai Edge
+        // qu'elle remplace : le tableau v3 liste la Shorai Curve sur les mêmes tailles, sans
+        // condition de module Wifi (il est intégré de série).
+        "Shorai Curve":         { wifiRequired: false, taillesEligibles: ["07", "10", "13", "16", "18", "22", "24"], taillesNonEligibles: [] },
         "Haori":                { wifiRequired: false, taillesEligibles: ["10", "13", "16"],                 taillesNonEligibles: [] },
         "Daiseikai 10":         { wifiRequired: false, taillesEligibles: ["10", "13", "18"],                 taillesNonEligibles: [] },
         "Console Double-Flux":  { wifiRequired: false, taillesEligibles: ["10", "13", "18"],                 taillesNonEligibles: [] }
