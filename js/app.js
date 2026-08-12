@@ -106,8 +106,12 @@ function setBrand(brand) {
         btn.setAttribute('aria-pressed', String(btn.dataset.brand === brand));
         btn.classList.toggle('hidden', !actives.includes(btn.dataset.brand));
     });
-    state.currentCalc = null;
-    viderResultats();
+    // Marque plutôt qu'efface (voir marquerResultatsObsoletes) : changer de marque en cours de
+    // saisie ne doit pas faire disparaître un calcul affiché, exactement comme changer de
+    // département ne le fait pas. Sans effet quand aucun calcul n'est affiché (garde interne),
+    // et sans effet visible dans les chemins de restauration (reloadConfig, restoreDraftIfAny),
+    // qui appellent calculate() juste après et écrasent de toute façon le rendu avant peinture.
+    marquerResultatsObsoletes();
 }
 
 function initApp() {
@@ -928,13 +932,22 @@ function updateModeButtons(mode) {
     document.getElementById('btn-multi').setAttribute('aria-pressed', String(!isMono));
 }
 
+// Texte par défaut du bandeau de péremption — celui déjà présent dans index.html au premier
+// rendu. Réécrit ici après un passage éventuel par afficherErreurSaisie(), qui détourne le
+// même bandeau (voir plus bas).
+const STALE_TEXTE_DEFAUT = 'Les hypothèses ont changé — ces solutions ne sont plus à jour.';
+
 // Signale que les résultats affichés ne correspondent plus aux hypothèses saisies.
 //
 // Sans cela, modifier le département, l'isolation, l'altitude, la consigne ou n'importe quel
 // champ de pièce laissait les solutions précédentes à l'écran, sans la moindre marque
 // d'obsolescence : un artisan qui corrigeait « 69 » en « 13 » voyait le bandeau climat se
-// mettre à jour et recopiait le matériel calculé pour Lyon. setMode, setUsage et setBrand
-// effaçaient bien les résultats ; ces chemins-là, non.
+// mettre à jour et recopiait le matériel calculé pour Lyon.
+//
+// setMode, setUsage et setBrand appellent maintenant cette fonction eux aussi (ils appelaient
+// jusqu'ici viderResultats() : passer de « Réversible » à « Froid seul » pour vérifier une
+// hypothèse effaçait toute la colonne, exactement ce que ce mécanisme existe pour éviter
+// ailleurs — la même classe de changement se comportait différemment selon le contrôle tapé).
 //
 // On avertit au lieu d'effacer : faire disparaître un résultat sous les doigts à la première
 // frappe dans un champ est hostile, et l'information reste utile en comparaison. Le bandeau
@@ -942,7 +955,17 @@ function updateModeButtons(mode) {
 function marquerResultatsObsoletes() {
     if (!state.currentCalc) return;              // rien d'affiché : rien à périmer
     const banner = document.getElementById('stale-banner');
-    if (banner) banner.classList.remove('hidden');
+    if (banner) {
+        // Remet le bandeau dans son état « péremption » par défaut, au cas où le dernier
+        // passage ici était afficherErreurSaisie() (rôle, tonalité, texte, bouton diffèrent).
+        banner.classList.remove('hidden', 'k-note-alert-danger');
+        banner.classList.add('k-note-alert-warn');
+        banner.setAttribute('role', 'status');
+        const texte = document.getElementById('stale-banner-text');
+        if (texte) texte.textContent = STALE_TEXTE_DEFAUT;
+        const action = document.getElementById('stale-banner-action');
+        if (action) action.classList.remove('hidden');
+    }
     const results = document.getElementById('results-container');
     // Désaturation et non plus `opacity-50` : la mise en veille visuelle du bloc doit rester
     // lisible. À 50% d'opacité, les références machine et les kW — le contenu qu'on garde
@@ -959,6 +982,71 @@ function effacerMarqueObsolescence() {
     if (results) results.classList.remove('k-stale');
 }
 
+// --- Erreur de saisie : signalée sans effacer -----------------------------------------
+//
+// calculate() mettait `state.currentCalc = null` puis remplaçait TOUT #results-container par
+// le message d'erreur, quel que soit ce qui s'y trouvait — un calcul valide affiché disparaissait
+// donc au moindre champ mal rempli. Désormais : le dernier calcul valide reste affiché
+// (désaturé, comme pour toute autre péremption), l'erreur se lit dans le bandeau de tête de
+// colonne, et le champ fautif est marqué et reçoit le focus — voir calculate().
+
+// Élément actuellement marqué en erreur (ou null) : suivi pour pouvoir le nettoyer sans avoir
+// à parcourir tous les champs de toutes les pièces à chaque recalcul.
+let champFautifActuel = null;
+
+function effacerMarqueChampFautif() {
+    if (!champFautifActuel) return;
+    champFautifActuel.classList.remove('k-input-error');
+    champFautifActuel.removeAttribute('aria-invalid');
+    champFautifActuel = null;
+}
+
+function marquerChampFautif(roomId, champ) {
+    effacerMarqueChampFautif();
+    const el = document.getElementById(`room-${roomId}-${champ}`);
+    if (!el) return null;               // pièce retirée entre la saisie et le clic, par ex.
+    el.classList.add('k-input-error');
+    el.setAttribute('aria-invalid', 'true');
+    champFautifActuel = el;
+    return el;
+}
+
+// erreur = { message, roomId, champ } — voir validerSaisiePieces(). Réutilise le bandeau de
+// péremption plutôt que d'en ouvrir un second : les deux disent au fond la même chose (« ce
+// qui est affiché dessous ne correspond plus à ce qui est saisi ») et ne surviennent jamais
+// ensemble, une erreur de saisie empêchant justement le recalcul qui ferait apparaître l'autre.
+// Fonctionne aussi SANS calcul préalable (currentCalc null) — seul cas où ce bandeau doit
+// s'afficher avant le premier calcul réussi.
+function afficherErreurSaisie(erreur) {
+    const banner = document.getElementById('stale-banner');
+    if (banner) {
+        banner.classList.remove('hidden', 'k-note-alert-warn');
+        banner.classList.add('k-note-alert-danger');
+        banner.setAttribute('role', 'alert');
+        const texte = document.getElementById('stale-banner-text');
+        if (texte) texte.textContent = erreur.message;
+        // Pas de bouton ici : le champ fautif reçoit directement le focus juste après, et
+        // « Recalculer » n'aiderait de toute façon à rien tant que l'erreur n'est pas corrigée.
+        const action = document.getElementById('stale-banner-action');
+        if (action) action.classList.add('hidden');
+    }
+    // Ne désature les résultats que s'il y en a : sur un premier calcul jamais réussi,
+    // #results-container ne porte que l'état vide, que ça n'aiderait en rien à assombrir.
+    if (state.currentCalc) {
+        const results = document.getElementById('results-container');
+        if (results) results.classList.add('k-stale');
+    }
+    const champEl = marquerChampFautif(erreur.roomId, erreur.champ);
+    if (champEl) {
+        champEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        champEl.focus({ preventScroll: true });
+    } else {
+        // Repli : la pièce visée n'existe plus, mais l'erreur reste vraie ailleurs à l'écran —
+        // au moins amener le bandeau sous les yeux plutôt que ne rien montrer du tout.
+        document.getElementById('stale-banner')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+}
+
 // Passer en Monosplit ne garde que la première pièce : sans garde, un artisan qui teste "et si
 // je repassais en mono ?" perdait la saisie des pièces 2 à 5 en un clic, sans le moindre signe
 // avant-coureur (le bouton Monosplit/Multisplit ne ressemble à rien de destructeur). Le passage
@@ -970,9 +1058,11 @@ function setMode(mode) {
     state.mode = mode;
     state.rooms = [state.rooms[0]];
     updateModeButtons(mode);
-    state.currentCalc = null;
-    viderResultats();
-    effacerMarqueObsolescence();
+    // Marque plutôt qu'efface (voir marquerResultatsObsoletes) : passer en Multisplit pour
+    // ajouter des pièces ne doit pas faire disparaître le résultat mono déjà affiché — ce
+    // que la troncature de state.rooms ci-dessus n'affecte pas, currentCalc étant un
+    // instantané indépendant du formulaire courant.
+    marquerResultatsObsoletes();
     renderRooms();
 }
 
@@ -990,9 +1080,10 @@ function updateUsageButtons(usage) {
 function setUsage(usage) {
     state.usage = usage;
     updateUsageButtons(usage);
-    state.currentCalc = null;
-    viderResultats();
-    effacerMarqueObsolescence();
+    // Marque plutôt qu'efface (voir marquerResultatsObsoletes) : basculer sur « Froid seul »
+    // pour vérifier une hypothèse ne doit pas faire disparaître le calcul affiché — c'était
+    // jusqu'ici le seul contrôle qui punissait la curiosité de l'artisan par un écran vide.
+    marquerResultatsObsoletes();
     persistDraft();
 }
 
@@ -1155,22 +1246,32 @@ const BORNES_SAISIE = {
     occupants:{ min: 0,   max: 30,  label: "Le nombre d'occupants", unite: '' }
 };
 
-// Renvoie un message d'erreur, ou null si tout est cohérent. Nomme toujours la pièce fautive :
-// avec cinq pièces, « Saisie incomplète » obligeait à toutes les rouvrir pour trouver laquelle.
+// Renvoie { message, roomId, champ }, ou null si tout est cohérent. Nomme toujours la pièce
+// fautive dans le message : avec cinq pièces, « Saisie incomplète » obligeait à toutes les
+// rouvrir pour trouver laquelle. roomId + champ permettent en plus à calculate() de
+// retrouver le CHAMP DOM exact (id="room-${roomId}-${champ}", voir renderRooms()) pour le
+// marquer et lui donner le focus — la pièce fautive nommée en toutes lettres n'évite déjà
+// plus qu'il faille rouvrir les autres, mais laissait encore chercher le bon champ À
+// L'INTÉRIEUR de la bonne pièce quand elle en compte huit.
 function validerSaisiePieces(rooms, multi) {
     for (let i = 0; i < rooms.length; i++) {
         const r = rooms[i];
         const nom = r.nom ? `« ${r.nom} »` : (multi ? `Pièce ${i + 1}` : 'La pièce');
 
         if (r.surface === '' || r.surface === null || r.surface === undefined) {
-            return `${nom} : indiquez la surface.`;
+            return { message: `${nom} : indiquez la surface.`, roomId: r.id, champ: 'surface' };
         }
         for (const [champ, b] of Object.entries(BORNES_SAISIE)) {
             const v = r[champ];
             if (v === '' || v === null || v === undefined) continue;   // champ optionnel laissé vide
-            if (!Number.isFinite(v)) return `${nom} : ${b.label.toLowerCase()} n'est pas un nombre valide.`;
+            if (!Number.isFinite(v)) {
+                return { message: `${nom} : ${b.label.toLowerCase()} n'est pas un nombre valide.`, roomId: r.id, champ };
+            }
             if (v < b.min || v > b.max) {
-                return `${nom} : ${b.label.toLowerCase()} doit être comprise entre ${b.min} et ${b.max} ${b.unite}`.trim() + '.';
+                return {
+                    message: `${nom} : ${b.label.toLowerCase()} doit être comprise entre ${b.min} et ${b.max} ${b.unite}`.trim() + '.',
+                    roomId: r.id, champ
+                };
             }
         }
     }
@@ -1181,12 +1282,17 @@ function calculate() {
     const resultsContainer = document.getElementById('results-container');
     const erreur = validerSaisiePieces(state.rooms, state.mode === 'multi');
     if (erreur) {
-        state.currentCalc = null;
-        effacerMarqueObsolescence();
-        resultsContainer.innerHTML = `<div class="k-note k-note-alert k-note-alert-danger text-sm fade-in" role="alert"><span class="k-note-icon">${icone('alerte')}</span><div class="min-w-0">${escapeHtml(erreur)}</div></div>`;
-        resultsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        // currentCalc n'est PAS remis à null ici : une erreur de saisie ne rend pas caduc un
+        // calcul déjà réussi, elle empêche seulement d'en produire un nouveau tant qu'elle
+        // persiste. Le dernier résultat valide reste donc affiché, désaturé comme pour toute
+        // autre péremption, pendant que le bandeau et le champ fautif portent l'erreur — voir
+        // afficherErreurSaisie(). Avant ce correctif, remplacer #results-container par le seul
+        // message d'erreur détruisait un calcul valide pour une faute de frappe dans un champ
+        // sans rapport.
+        afficherErreurSaisie(erreur);
         return;
     }
+    effacerMarqueChampFautif();
     effacerMarqueObsolescence();
 
     const { tBaseHiver, tBaseEte } = getClimateContext();
@@ -1338,7 +1444,7 @@ function calculate() {
         };
     }
 
-    renderResults();
+    renderResults({ anime: true });
     resultsContainer.scrollIntoView({ behavior: 'smooth' });
 }
 
@@ -1414,7 +1520,7 @@ function renderHypotheses(lignes) {
         <span class="k-eyebrow">Corrections appliquées</span>
         <div class="mt-1 divide-y divide-line">
             ${lignes.map(l => `
-            <details class="group/hyp py-2 first:pt-1 last:pb-0">
+            <details data-k="hyp:${l.libelle}" class="group/hyp py-2 first:pt-1 last:pb-0">
                 <summary class="flex items-baseline justify-between gap-4 cursor-pointer select-none list-none py-0.5 -mx-1 px-1 rounded-lg hover:bg-mute-50 transition-colors">
                     <span class="flex items-baseline gap-1.5 min-w-0 text-xs text-ink-700">
                         ${l.libelle}
@@ -1439,12 +1545,30 @@ function blocTitre(titre, sousTitre) {
     </div>`;
 }
 
+// Grille des cartes d'un bloc de solutions (monosplit, mono dédié par pièce, groupes
+// multisplit) : en une seule colonne empilée jusqu'ici quelle que soit la largeur d'écran, si
+// bien qu'en tablette paysage — le format le plus courant sur le terrain (voir PRODUCT.md) —
+// six cartes s'étirent sur près de 3000px de défilement pendant que la moitié de l'écran
+// reste vide à côté du formulaire. `auto-fill` avec un minimum plutôt qu'un palier de largeur
+// fixe : le nombre de colonnes se résout à la largeur RÉELLEMENT disponible pour ce bloc
+// (colonne de droite du simulateur, ou pleine largeur du tableau de bord), pas à la largeur de
+// la fenêtre — deux grandeurs différentes dès que le palier `duo` divise l'écran en deux. Un
+// palier fixe aurait fallu être recalé à la main à chaque changement du ratio des colonnes.
+function wrapGrilleResultats(cardsHtml) {
+    return `<div class="k-results-grid">${cardsHtml}</div>`;
+}
+
 // Reconstruit l'affichage des résultats à partir de state.currentCalc + state.selection,
 // sans relancer le calcul (utilisé quand l'utilisateur choisit une solution parmi les options).
 // Fonction de LECTURE uniquement : ne modifie jamais state (voir seedGroupGammeDefaults / selectGroup
 // pour la logique d'initialisation des choix par défaut).
-function renderResults() {
+// `anime` : réservé au premier rendu d'un calcul (calculate). Les rendus suivants — un
+// choix d'option — rejouaient sinon le fondu de toute la colonne à chaque comparaison,
+// devant le client. La classe est posée AVANT l'injection du HTML, sinon l'animation a
+// déjà démarré au moment où le style s'applique.
+function renderResults({ anime = false } = {}) {
     const resultsContainer = document.getElementById('results-container');
+    resultsContainer.classList.toggle('k-sans-anim', !anime);
     const calc = state.currentCalc;
     if (!calc) { resultsContainer.innerHTML = etatVideResultats(); return; }
 
@@ -1463,10 +1587,12 @@ function renderResults() {
             const tvaBloc = tvaCommune(tvaInfos);
             html += blocTitre('Monosplit', metaBloc(options.length, tvaBloc));
             const selIdx = Math.min(state.selection.mono || 0, options.length - 1);
+            let cardsMono = '';
             options.forEach((sol, idx) => {
                 const selectOpts = options.length > 1 ? { selected: idx === selIdx, onclick: `selectMono(${idx})` } : null;
-                html += renderCard(idx === 0 ? 'Recommandé' : '', sol.gamme, sol.reference_ensemble, sol.puissance_froid_kw, sol.puissance_chaud_kw, false, [], selectOpts, tvaInfos[idx], { reqFroid: calc.req.froid, reqChaud: calc.mono.froidSeul ? null : calc.req.chaud }, { tvaMasquee: tvaBloc.commun });
+                cardsMono += renderCard(idx === 0 ? 'Recommandé' : '', sol.gamme, sol.reference_ensemble, sol.puissance_froid_kw, sol.puissance_chaud_kw, false, [], selectOpts, tvaInfos[idx], { reqFroid: calc.req.froid, reqChaud: calc.mono.froidSeul ? null : calc.req.chaud }, { tvaMasquee: tvaBloc.commun });
             });
+            html += wrapGrilleResultats(cardsMono);
             const chosen = options[selIdx];
             const chosenTva = getTvaInfo(chosen.gamme, chosen.reference_ensemble, 'mono', state.brand);
             summaryParts.push(`1x Mono ${chosen.gamme}`);
@@ -1487,10 +1613,12 @@ function renderResults() {
                 const tvaBloc = tvaCommune(tvaInfos);
                 html += blocTitre(escapeHtml(dedItem.label), metaBloc(options.length, tvaBloc));
                 const selIdx = Math.min(state.selection.dedicated[room.index] || 0, options.length - 1);
+                let cardsDed = '';
                 options.forEach((sol, idx) => {
                     const selectOpts = options.length > 1 ? { selected: idx === selIdx, onclick: `selectDedicated(${room.index}, ${idx})` } : null;
-                    html += renderCard(idx === 0 ? 'Recommandé' : '', sol.gamme, sol.reference_ensemble, sol.puissance_froid_kw, sol.puissance_chaud_kw, false, [], selectOpts, tvaInfos[idx], { reqFroid: room.req.froid, reqChaud: m.froidSeul ? null : room.req.chaud }, { tvaMasquee: tvaBloc.commun });
+                    cardsDed += renderCard(idx === 0 ? 'Recommandé' : '', sol.gamme, sol.reference_ensemble, sol.puissance_froid_kw, sol.puissance_chaud_kw, false, [], selectOpts, tvaInfos[idx], { reqFroid: room.req.froid, reqChaud: m.froidSeul ? null : room.req.chaud }, { tvaMasquee: tvaBloc.commun });
                 });
+                html += wrapGrilleResultats(cardsDed);
                 const chosen = options[selIdx];
                 const chosenTva = getTvaInfo(chosen.gamme, chosen.reference_ensemble, 'mono', state.brand);
                 summaryParts.push(`1x Mono ${chosen.gamme}`);
@@ -1524,12 +1652,14 @@ function renderResults() {
             // La référence commandée passe en titre de carte, « Groupe extérieur » en sous-titre :
             // toutes les cartes s'intitulaient « Groupe Extérieur » et ne se distinguaient que par
             // la ligne grise en dessous — soit exactement l'inverse de ce qu'on compare ici.
+            let cardsGroupe = '';
             m.groupOptions.forEach((g, idx) => {
                 const selectOpts = m.groupOptions.length > 1 ? { selected: idx === selIdx, onclick: `selectGroup(${idx})` } : null;
                 const estEquilibre = m.groupEquilibre && g.reference === m.groupEquilibre.reference;
                 const badge = estEquilibre ? 'Équilibré' : (idx === 0 ? 'Recommandé' : '');
-                html += renderCard(badge, g.reference, 'Groupe extérieur', g.puissance_nominale_froid_kw, g.puissance_nominale_chaud_kw, true, sizesArr, selectOpts, tvaInfosGroupe[idx], { reqFroid: groupReqFroid, reqChaud: m.froidSeul ? null : groupReqChaud }, { tvaMasquee: tvaBlocGroupe.commun });
+                cardsGroupe += renderCard(badge, g.reference, 'Groupe extérieur', g.puissance_nominale_froid_kw, g.puissance_nominale_chaud_kw, true, sizesArr, selectOpts, tvaInfosGroupe[idx], { reqFroid: groupReqFroid, reqChaud: m.froidSeul ? null : groupReqChaud }, { tvaMasquee: tvaBlocGroupe.commun });
             });
+            html += wrapGrilleResultats(cardsGroupe);
             html += renderMultiRoomsGuide(m.standardRooms, bestGroup);
             summaryParts.push(`1x Multi ${bestGroup.reference} (${m.standardRooms.length} UI)`);
             if (equilibre) equipments.push(`Équilibre du groupe : ${equilibre.resume} ${equilibre.detail}`);
@@ -1717,34 +1847,66 @@ function shareResults() {
     }
 }
 
-// Ré-applique le choix de l'utilisateur et redessine les résultats, en conservant ce qui est
-// déjà saisi dans les champs Client / Zone (le rendu régénère tout le bloc résultats).
-function withSaveInputsPreserved(mutateFn) {
-    const clientEl = document.getElementById('save-client');
-    const zoneEl = document.getElementById('save-zone');
-    const clientVal = clientEl ? clientEl.value : '';
-    const zoneVal = zoneEl ? zoneEl.value : '';
+// --- Préservation de l'état d'interface à travers un rendu -------------------------
+//
+// renderResults() reconstruit tout le bloc résultats par innerHTML : c'est ce qui le
+// garde purement fonction de l'état, et c'est très bien. Mais chaque choix d'option
+// emportait avec lui tout ce que l'utilisateur avait ouvert ou saisi dedans — dépliants
+// « Guide de la gamme », explications TVA, détail d'une correction, champs Client /
+// Zone —, ainsi que le focus clavier et la position de défilement. Comparer deux
+// machines refermait donc la fiche qu'on venait justement d'ouvrir pour les comparer.
+//
+// Seuls les champs Client / Zone étaient rattrapés jusqu'ici, un à un. On capture
+// maintenant l'ensemble avant le rendu et on le repose après, via les clés stables
+// `data-k` portées par les éléments concernés.
+function capturerEtatUi(racine) {
+    const actif = document.activeElement;
+    return {
+        ouverts: new Set([...racine.querySelectorAll('details[data-k][open]')].map(d => d.dataset.k)),
+        focus: actif && racine.contains(actif) ? (actif.dataset.k || null) : null,
+        defilement: window.scrollY,
+        champs: [...racine.querySelectorAll('input[id]')].map(i => [i.id, i.value])
+    };
+}
+
+function restaurerEtatUi(racine, etat) {
+    racine.querySelectorAll('details[data-k]').forEach(d => { d.open = etat.ouverts.has(d.dataset.k); });
+    etat.champs.forEach(([id, valeur]) => {
+        const el = document.getElementById(id);
+        if (el) el.value = valeur;
+    });
+    if (etat.focus) {
+        const cible = racine.querySelector(`[data-k="${CSS.escape(etat.focus)}"]`);
+        if (cible) cible.focus();
+    }
+    // Le contenu peut changer de hauteur (choisir un autre groupe extérieur réécrit le
+    // guide des unités intérieures) : sans ça, la page glisse sous les doigts au moment
+    // même où l'on désigne une machine.
+    window.scrollTo({ top: etat.defilement });
+}
+
+function avecEtatUiPreserve(mutateFn) {
+    const racine = document.getElementById('results-container');
+    if (!racine) { mutateFn(); return; }
+    const etat = capturerEtatUi(racine);
     mutateFn();
-    const newClientEl = document.getElementById('save-client');
-    const newZoneEl = document.getElementById('save-zone');
-    if (newClientEl) newClientEl.value = clientVal;
-    if (newZoneEl) newZoneEl.value = zoneVal;
+    restaurerEtatUi(racine, etat);
 }
 
 function selectMono(idx) {
-    withSaveInputsPreserved(() => { state.selection.mono = idx; renderResults(); });
+    avecEtatUiPreserve(() => { state.selection.mono = idx; renderResults(); });
 }
 function selectDedicated(roomIndex, idx) {
-    withSaveInputsPreserved(() => { state.selection.dedicated[roomIndex] = idx; renderResults(); });
+    avecEtatUiPreserve(() => { state.selection.dedicated[roomIndex] = idx; renderResults(); });
 }
 function selectGroupGamme(roomIndex, gamme) {
-    withSaveInputsPreserved(() => { state.selection.group[roomIndex] = gamme; renderResults(); });
+    avecEtatUiPreserve(() => { state.selection.group[roomIndex] = gamme; renderResults(); });
 }
 // Changer de groupe extérieur peut changer les gammes d'UI compatibles (ex: Panasonic Multi TZ
 // vs Multi Z Deluxe) : on re-seede les choix par défaut pour rester cohérent, en préservant le
 // choix de l'utilisateur là où il reste valide pour le nouveau groupe (voir seedGroupGammeDefaults).
 function selectGroup(idx) {
-    withSaveInputsPreserved(() => {
+    avecEtatUiPreserve(() => {
         state.selection.groupChoice = idx;
         const m = state.currentCalc && state.currentCalc.multi;
         if (m && m.groupOptions[idx]) {
@@ -1810,7 +1972,7 @@ function renderGammeGuide(gammeName) {
     // la ligne dès que la colonne se resserrait, et le seul critère commercial lisible carte
     // fermée était donc aussi le seul à casser.
     return `
-    <details class="mt-3 pt-3 k-divider group/guide">
+    <details data-k="guide:${gammeName}" class="mt-3 pt-3 k-divider group/guide">
         <summary class="k-disclosure">
             ${icone('info')}
             <span>Guide de la gamme</span>
@@ -1856,11 +2018,11 @@ function renderMultiRoomsGuide(roomsData, group) {
             // retrouvaient alignés en bas sans qu'on sache plus lequel appartenait à laquelle.
             return `
             <div class="flex flex-col items-start gap-1.5 min-w-0">
-                <button type="button" onclick="selectGroupGamme(${r.index}, '${gEsc}')" aria-pressed="${isSel}" class="k-chip">
+                <button type="button" onclick="selectGroupGamme(${r.index}, '${gEsc}')" aria-pressed="${isSel}" data-k="chip:${r.index}:${g}" class="k-chip">
                     ${isSel ? icone('check', 'w-3.5 h-3.5') : ''}${g}
                 </button>
-                ${tvaBlocPiece.commun ? '' : `<div class="flex flex-wrap gap-1.5">${renderTvaBadge(tvaParGamme[i])}</div>`}
-                <details class="group/mg" onclick="event.stopPropagation()">
+                ${tvaBlocPiece.commun ? '' : `<div class="flex flex-wrap gap-1.5">${renderTvaBadge(tvaParGamme[i], `${r.index}:${g}`)}</div>`}
+                <details data-k="gamme:${r.index}:${g}" class="group/mg" onclick="event.stopPropagation()">
                     <summary class="k-disclosure text-2xs font-medium group/d">Détails<span class="transition-transform group-open/d:rotate-180">${icone('chevron', 'w-3 h-3')}</span></summary>
                     <div class="mt-2 mb-1">${gammeGuideContent(g)}</div>
                 </details>
@@ -1880,7 +2042,7 @@ function renderMultiRoomsGuide(roomsData, group) {
     <div class="k-card fade-in">
         <h3 class="k-section-title">Unités intérieures</h3>
         <p class="k-hint mt-1.5">Une gamme par pièce, mixables sur le même groupe.</p>
-        <details class="mt-2 group/tva">
+        <details data-k="tva-multi" class="mt-2 group/tva">
             <summary class="k-disclosure text-2xs font-medium text-ink-400">
                 <span>TVA 5,5 % en multisplit</span>
                 <span class="text-ink-400 transition-transform group-open/tva:rotate-180">${icone('chevron', 'w-3.5 h-3.5')}</span>
@@ -1973,7 +2135,7 @@ function renderBalanceNote(analyse) {
     }[analyse.ton];
     return note(styles.ton, styles.icone, `
         <span class="k-note-title">${escapeHtml(analyse.resume)}</span>
-        <details class="mt-1">
+        <details data-k="equilibre" class="mt-1">
             <summary class="k-disclosure text-2xs font-medium text-ink-400 group/b">En détail<span class="transition-transform group-open/b:rotate-180">${icone('chevron', 'w-3 h-3')}</span></summary>
             <p class="k-hint mt-1.5">${escapeHtml(analyse.detail)}</p>
         </details>`);
@@ -1998,47 +2160,49 @@ function tauxCharge(reqFroid, reqChaud, nominalFroid, nominalChaud) {
     return { chargeF, chargeC, sousCharge: minCharge < SEUIL_SOUS_CHARGE };
 }
 
-// Pied de carte : le besoin calculé face au taux de charge, sur UNE ligne.
-//
-// La même relation — la machine est-elle à la bonne taille pour ce besoin ? — sortait
-// jusqu'ici en trois fragments dispersés dans la carte : deux tuiles de puissance
-// nominale, une ligne grise « Besoin calculé : … » en 11px, et une pastille « Charge
-// 62% F · 66% C » perdue dans une rangée avec la TVA. Trois représentations d'un seul
-// jugement, dont aucune ne le portait, et l'arithmétique laissée à l'artisan devant le
-// client. Réunies ici, elles se lisent d'un trait : ce qu'il faut, ce que ça donne.
+// Pied de carte : le besoin calculé face à la puissance nominale de la machine, sur UNE
+// ligne. Le taux de charge n'y figure plus — il est monté dans les tuiles (voir renderCard),
+// qui sont l'objet le plus visible de la carte et doivent porter le jugement le plus utile,
+// pas la puissance nominale (quasi identique d'une option à l'autre, elle ne distinguait
+// rien). Le kW nominal reste utile — c'est la donnée qu'on recopie sur un bon de commande —
+// mais en pied, à côté du besoin qu'il couvre plutôt qu'en écriture géante.
 function renderPiedMesures(chargeInfo, nominalFroid, nominalChaud) {
     if (!chargeInfo) return '';
     const aChaud = chargeInfo.reqChaud !== null && chargeInfo.reqChaud !== undefined;
     const besoin = `${nb(chargeInfo.reqFroid)} kW F${aChaud ? ` · ${nb(chargeInfo.reqChaud)} kW C` : ''}`;
-
-    const t = tauxCharge(chargeInfo.reqFroid, chargeInfo.reqChaud, nominalFroid, nominalChaud);
-    const charge = t
-        ? `Charge ${Math.round(t.chargeF * 100)} % F${t.chargeC !== null ? ` · ${Math.round(t.chargeC * 100)} % C` : ''}`
-        : '';
+    const nominal = `${nb(nominalFroid)} kW F · ${nb(nominalChaud)} kW C`;
 
     return `
     <div class="mt-3 pt-3 k-divider flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <span class="text-2xs text-ink-500 k-num">Besoin ${besoin}</span>
-        ${charge ? `<span class="text-2xs font-semibold k-num ${t.sousCharge ? 'text-amber-800' : 'text-ink-700'}">${charge}</span>` : ''}
-    </div>
-    ${t && t.sousCharge ? `<p class="text-2xs text-amber-800 mt-1.5 leading-relaxed">Surdimensionnée pour ce besoin : cycles courts, rendement réel dégradé.</p>` : ''}`;
+        <span class="text-2xs font-semibold text-ink-700 k-num">Nominal ${nominal}</span>
+    </div>`;
+}
+
+function renderSousChargeWarning(sousCharge) {
+    if (!sousCharge) return '';
+    return `<p class="text-2xs text-amber-800 mt-2.5 leading-relaxed">Surdimensionnée pour ce besoin : cycles courts, rendement réel dégradé.</p>`;
 }
 
 // selectOpts = null (carte simple, non sélectionnable) ou { selected: bool, onclick: string }
 // quand plusieurs solutions équivalentes sont proposées et que l'utilisateur doit en choisir une.
 // Carte d'une solution. Réorganisée autour de ce qu'un installateur y cherche dans l'ordre :
-// le nom de la gamme, sa référence commandable, les deux puissances, puis les conditions
-// (TVA, Wifi, taux de charge) et enfin la fiche de gamme dépliable.
+// le nom de la gamme, sa référence commandable, le jugement le plus utile, puis les
+// conditions (TVA, Wifi) et enfin la fiche de gamme dépliable.
 //
-// Trois changements de fond par rapport à la version précédente :
-//   - les puissances passent d'une colonne étroite à droite (deux blocs de hauteurs
-//     différentes selon que « Chaud Nom. » tenait ou non sur une ligne) à deux tuiles de
-//     largeur égale sous le titre : elles s'alignent d'une carte à l'autre et se comparent
-//     en balayant la colonne ;
+// Quatre changements de fond par rapport à la version précédente :
+//   - les tuiles portent désormais le TAUX DE CHARGE (besoin / puissance machine), pas la
+//     puissance nominale : sur un jeu d'options catalogue, la puissance nominale varie peu
+//     (3,3 à 3,5 kW sur six modèles n'est pas ce qui les distingue), alors que la charge dit
+//     directement si la machine est à la bonne taille — c'est le jugement que l'artisan porte
+//     en comparant les cartes, il mérite l'objet le plus visible plutôt que l'arithmétique
+//     mentale. Le kW nominal descend en pied, à côté du besoin qu'il couvre ;
 //   - l'option non retenue n'est plus délavée (`opacity-60 saturate-50`) mais rendue en plein
 //     contraste : ce sont les options à comparer, les effacer va contre leur raison d'être.
 //     La sélection se lit à la bordure, à l'anneau et à la puce cochée ;
-//   - le filigrane décoratif en coin est retiré : il n'apportait rien et passait sous du texte.
+//   - le filigrane décoratif en coin est retiré : il n'apportait rien et passait sous du texte ;
+//   - même largeur de tuile, mêmes couleurs froid/chaud qu'avant : la lecture reste la même
+//     geste, seul ce qu'elle mesure change.
 function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = false, sizes = [], selectOpts = null, tvaInfo = null, chargeInfo = null, { tvaMasquee = false } = {}) {
     let footer = '';
     if (isMulti) {
@@ -2063,7 +2227,7 @@ function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = fals
     if (selectOpts) {
         // role="button" + tabindex rend la carte focusable au clavier, mais un onclick seul ne
         // répond ni à Entrée ni à Espace : on délègue explicitement au clic déjà câblé.
-        attrs = ` onclick="${selectOpts.onclick}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}" role="button" tabindex="0" aria-pressed="${selectOpts.selected}"`;
+        attrs = ` onclick="${selectOpts.onclick}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}" role="button" tabindex="0" data-k="sol:${selectOpts.onclick}" aria-pressed="${selectOpts.selected}"`;
         wrapperClasses += ' k-result-selectable';
         radio = `
         <span class="k-radio" aria-hidden="true">
@@ -2087,7 +2251,23 @@ function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = fals
 
     // La pastille TVA ne s'affiche que si le bloc ne l'a pas déjà énoncée pour toutes ses
     // options (voir tvaCommune) : sinon elle est identique sur chaque carte et ne signale rien.
-    const pastilles = tvaMasquee ? '' : `<div class="flex flex-wrap gap-1.5 mt-3">${renderTvaBadge(tvaInfo)}</div>`;
+    const pastilles = tvaMasquee ? '' : `<div class="flex flex-wrap gap-1.5 mt-3">${renderTvaBadge(tvaInfo, mainTitle)}</div>`;
+
+    // Taux de charge, calculé une seule fois ici : c'est lui qui pilote la tuile ET
+    // l'avertissement de sous-charge (voir le commentaire de renderCard ci-dessus). Repli sur
+    // la puissance nominale — l'ancien affichage — quand chargeInfo est absent, ce qui ne
+    // survient dans aucun appel actuel mais garde la fonction sûre si un futur appelant omet
+    // ce paramètre.
+    const t = chargeInfo ? tauxCharge(chargeInfo.reqFroid, chargeInfo.reqChaud, froid, chaud) : null;
+    const tuileFroid = t
+        ? { label: 'Charge froid', valeur: `${Math.round(t.chargeF * 100)} %` }
+        : { label: 'Froid nominal', valeur: `${nb(froid)} kW` };
+    // Le chaud retombe sur la puissance nominale en « Froid seul » : le besoin chaud n'entre
+    // alors plus dans le dimensionnement (reqChaud est null), donc aucun taux de charge chaud
+    // n'a de sens à afficher — voir calculate() dans ce même fichier.
+    const tuileChaud = (t && t.chargeC !== null)
+        ? { label: 'Charge chaud', valeur: `${Math.round(t.chargeC * 100)} %` }
+        : { label: 'Chaud nominal', valeur: `${nb(chaud)} kW` };
 
     return `
     <div class="${wrapperClasses}"${attrs}>
@@ -2103,14 +2283,15 @@ function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = fals
 
         <div class="grid grid-cols-2 gap-2 mt-4">
             <div class="k-stat k-stat-froid">
-                <span class="k-stat-label">Froid nominal</span>
-                <span class="k-stat-value">${nb(froid)} kW</span>
+                <span class="k-stat-label">${tuileFroid.label}</span>
+                <span class="k-stat-value">${tuileFroid.valeur}</span>
             </div>
             <div class="k-stat k-stat-chaud">
-                <span class="k-stat-label">Chaud nominal</span>
-                <span class="k-stat-value">${nb(chaud)} kW</span>
+                <span class="k-stat-label">${tuileChaud.label}</span>
+                <span class="k-stat-value">${tuileChaud.valeur}</span>
             </div>
         </div>
+        ${renderSousChargeWarning(t && t.sousCharge)}
 
         ${renderPiedMesures(chargeInfo, froid, chaud)}
         ${pastilles}
@@ -2135,8 +2316,8 @@ function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = fals
 // est visuellement identique à l'ancienne pastille (même forme, même couleur) ; ouvrir révèle
 // le texte. event.stopPropagation() : la carte parente peut porter son propre onclick de
 // sélection (voir renderCard) — ouvrir l'explication ne doit pas aussi sélectionner la carte.
-function pastilleTva(variante, texte, explication) {
-    return `<details onclick="event.stopPropagation()" class="inline-block align-top">
+function pastilleTva(variante, texte, explication, cle) {
+    return `<details data-k="tva:${cle}:${texte}" onclick="event.stopPropagation()" class="inline-block align-top">
         <summary class="k-pill k-pill-${variante} cursor-pointer">${texte}<span class="opacity-45">${icone('info', 'w-3 h-3')}</span></summary>
         <p class="text-2xs text-ink-500 mt-1.5 max-w-xs leading-relaxed">${explication}</p>
     </details>`;
@@ -2145,16 +2326,16 @@ function pastilleTva(variante, texte, explication) {
 // Ne renvoie que les pastilles : leur mise en rangée est la responsabilité de l'appelant
 // (la carte les regroupe avec le taux de charge dans un seul `flex flex-wrap`, au lieu des
 // deux rangées empilées qu'imposait l'ancien conteneur inclus ici).
-function renderTvaBadge(tvaInfo) {
+function renderTvaBadge(tvaInfo, cle = "") {
     if (!tvaInfo) {
-        return pastilleTva('neutral', 'TVA non renseignée', `Aucun dispositif d'éligibilité TVA renseigné pour ${escapeHtml(libelleMarque(state.brand))} dans cette version de l'outil — statut à vérifier auprès du fournisseur avant de facturer.`);
+        return pastilleTva("neutral", "TVA non renseignée", `Aucun dispositif d'éligibilité TVA renseigné pour ${escapeHtml(libelleMarque(state.brand))} dans cette version de l'outil — statut à vérifier auprès du fournisseur avant de facturer.`, cle);
     }
     const marque = escapeHtml(libelleMarque(state.brand));
     const dateVerif = new Date(TVA_DATE_VERIFICATION).toLocaleDateString('fr-FR');
     const badges = {
-        eligible:     pastilleTva('ok', 'TVA 5,5 %', `Éligibilité vérifiée face au tableau ${marque} le ${dateVerif}.`),
-        non_eligible: pastilleTva('danger', 'TVA 20 %', `Éligibilité vérifiée face au tableau ${marque} le ${dateVerif}.`),
-        a_verifier:   pastilleTva('neutral', 'TVA à vérifier', `Référence absente du tableau d'éligibilité ${marque} (vérifié le ${dateVerif}) : à confirmer auprès du constructeur avant de facturer en 5,5 %.`)
+        eligible:     pastilleTva('ok', 'TVA 5,5 %', `Éligibilité vérifiée face au tableau ${marque} le ${dateVerif}.`, cle),
+        non_eligible: pastilleTva('danger', 'TVA 20 %', `Éligibilité vérifiée face au tableau ${marque} le ${dateVerif}.`, cle),
+        a_verifier:   pastilleTva('neutral', 'TVA à vérifier', `Référence absente du tableau d'éligibilité ${marque} (vérifié le ${dateVerif}) : à confirmer auprès du constructeur avant de facturer en 5,5 %.`, cle)
     };
     const wifi = tvaInfo.wifiRequired
         ? `<span class="k-pill k-pill-neutral">Module Wifi requis</span>`
