@@ -412,8 +412,8 @@ function renderDashboard() {
                         <span class="text-ink-500"> — ${escapeHtml(c.zone)}</span>
                     </div>
                     <div class="flex gap-2 flex-shrink-0">
-                        <button data-action="restore-conflict" data-id="${escapeHtml(c.id)}" class="k-btn min-h-[36px] px-3 text-2xs bg-amber-600 text-white hover:bg-amber-700">Récupérer</button>
-                        <button data-action="dismiss-conflict" data-id="${escapeHtml(c.id)}" class="k-btn-ghost min-h-[36px] text-2xs">Écarter</button>
+                        <button data-action="restore-conflict" data-id="${escapeHtml(c.id)}" class="k-btn min-h-[44px] px-3 text-2xs bg-amber-600 text-white hover:bg-amber-700">Récupérer</button>
+                        <button data-action="dismiss-conflict" data-id="${escapeHtml(c.id)}" class="k-btn-ghost min-h-[44px] text-2xs">Écarter</button>
                     </div>
                 </div>`).join('')}
             </div>
@@ -468,7 +468,7 @@ function renderDashboard() {
                     <svg class="w-5 h-5 text-ink-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"></path></svg>
                     <span class="truncate">${escapeHtml(clientName)}</span>
                 </h3>
-                <button data-action="delete-chantier" data-client="${escapeHtml(clientName)}" class="k-btn min-h-[36px] px-3 text-2xs text-rose-600 border border-rose-200 hover:bg-rose-600 hover:text-white hover:border-rose-600 flex-shrink-0">Tout supprimer</button>
+                <button data-action="delete-chantier" data-client="${escapeHtml(clientName)}" class="k-btn min-h-[44px] px-3 text-2xs text-rose-600 border border-rose-200 hover:bg-rose-600 hover:text-white hover:border-rose-600 flex-shrink-0">Tout supprimer</button>
             </div>
             ${configsHtml}
         </div>`;
@@ -1521,7 +1521,7 @@ function renderHypotheses(lignes) {
         <div class="mt-1 divide-y divide-line">
             ${lignes.map(l => `
             <details data-k="hyp:${l.libelle}" class="group/hyp py-2 first:pt-1 last:pb-0">
-                <summary class="flex items-baseline justify-between gap-4 cursor-pointer select-none list-none py-0.5 -mx-1 px-1 rounded-lg hover:bg-mute-50 transition-colors">
+                <summary class="flex items-baseline justify-between gap-4 min-h-[44px] cursor-pointer select-none list-none -mx-1 px-1 rounded-lg hover:bg-mute-50 transition-colors">
                     <span class="flex items-baseline gap-1.5 min-w-0 text-xs text-ink-700">
                         ${l.libelle}
                         <span class="text-ink-400 transition-transform group-open/hyp:rotate-180 self-center">${icone('chevron', 'w-3.5 h-3.5')}</span>
@@ -1720,7 +1720,7 @@ function renderResults({ anime = false } = {}) {
             ${state.loadedConfigId ? `
             <div class="k-note mb-4 items-center justify-between gap-3 flex-wrap">
                 <span class="min-w-0">Configuration chargée — vous pouvez la mettre à jour au lieu d'en créer une nouvelle.</span>
-                <button onclick="oublierConfigChargee()" class="k-btn-outline min-h-[36px] px-3 text-2xs whitespace-nowrap flex-shrink-0">Nouvelle fiche</button>
+                <button onclick="oublierConfigChargee()" class="k-btn-outline min-h-[44px] px-3 text-2xs whitespace-nowrap flex-shrink-0">Nouvelle fiche</button>
             </div>` : ''}
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                 <div>

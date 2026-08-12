@@ -128,7 +128,7 @@
                 <svg class="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>
             </span>
             <span id="draft-banner-text" class="flex-grow min-w-0">Saisie précédente restaurée.</span>
-            <button onclick="startNewCalcul()" class="k-btn-outline min-h-[36px] px-3 text-2xs whitespace-nowrap flex-shrink-0">Nouveau calcul</button>
+            <button onclick="startNewCalcul()" class="k-btn-outline min-h-[44px] px-3 text-2xs whitespace-nowrap flex-shrink-0">Nouveau calcul</button>
         </div>
 
         <!-- Brand Selector -->
@@ -270,7 +270,7 @@
                 <svg class="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4m0 4h.01"/></svg>
             </span>
             <span id="stale-banner-text" class="flex-grow min-w-0">Les hypothèses ont changé — ces solutions ne sont plus à jour.</span>
-            <button id="stale-banner-action" onclick="calculate()" class="k-btn-outline min-h-[36px] px-3 text-2xs whitespace-nowrap flex-shrink-0">Recalculer</button>
+            <button id="stale-banner-action" onclick="calculate()" class="k-btn-outline min-h-[44px] px-3 text-2xs whitespace-nowrap flex-shrink-0">Recalculer</button>
         </div>
 
         <!-- Zone résultats. Le contenu est produit par renderResults() (js/app.js), y compris
@@ -291,11 +291,11 @@
         <!-- Sauvegarde locale : seul filet contre la perte de données tant que les
              chantiers ne vivent que dans le stockage de cet appareil. -->
         <div id="dashboard-actions" class="flex flex-wrap items-center gap-2">
-            <button data-action="export-chantiers" class="k-btn-outline min-h-[40px] text-xs" title="Télécharger un fichier contenant tous vos chantiers">
+            <button data-action="export-chantiers" class="k-btn-outline min-h-[44px] text-xs" title="Télécharger un fichier contenant tous vos chantiers">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"></path></svg>
                 Sauvegarder mes chantiers
             </button>
-            <button data-action="import-chantiers" class="k-btn-outline min-h-[40px] text-xs" title="Restaurer des chantiers depuis un fichier de sauvegarde">
+            <button data-action="import-chantiers" class="k-btn-outline min-h-[44px] text-xs" title="Restaurer des chantiers depuis un fichier de sauvegarde">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 9l5-5 5 5M12 4v12"></path></svg>
                 Restaurer une sauvegarde
             </button>
