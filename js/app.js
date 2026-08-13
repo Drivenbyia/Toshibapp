@@ -43,6 +43,11 @@ let state = {
     currentCalc: null,
     // Solution choisie par l'utilisateur parmi les options proposées (mono / dédiés multi / gammes UI du groupe / groupe extérieur)
     selection: { mono: 0, dedicated: {}, group: {}, groupChoice: 0 },
+    // Ids de pièces que l'utilisateur a choisi de séparer du groupe multisplit en monosplit
+    // dédié (voir separerPieceEnDedie) — PAS remis à zéro par calculate() comme state.selection,
+    // sinon le choix ne survivrait pas au recalcul qu'il déclenche lui-même. Remis à zéro
+    // explicitement à chaque saisie réellement nouvelle (startNewCalcul, reloadConfig, setMode).
+    forcedDedicatedIds: new Set(),
     // Identifiant du chantier sauvegardé actuellement chargé (via reloadConfig), ou null pour
     // une saisie neuve. Permet de proposer une mise à jour en place plutôt qu'un doublon
     // systématique. Remis à null par calculate() ; posé par reloadConfig() une fois le calcul
@@ -635,6 +640,7 @@ function reloadConfig(id) {
     state.mode = cfg.mode === 'multi' ? 'multi' : 'mono';
     state.usage = cfg.usage === 'froid_seul' ? 'froid_seul' : 'reversible';
     state.rooms = JSON.parse(JSON.stringify(cfg.rooms));
+    state.forcedDedicatedIds = new Set(); // ids d'un autre chantier : rien à leur reporter ici.
     reserverIdsPieces(state.rooms);
     updateModeButtons(state.mode);
     updateUsageButtons(state.usage);
@@ -781,6 +787,7 @@ function startNewCalcul() {
     if (!confirm('Repartir d\'une saisie vierge ? La saisie précédente restaurée ci-dessus sera perdue.')) return;
     clearDraft();
     state.rooms = [defaultRoom(nouvelIdPiece())];
+    state.forcedDedicatedIds = new Set();
     state.currentCalc = null;
     viderResultats();
     renderRooms();
@@ -1075,6 +1082,7 @@ function setMode(mode) {
     }
     state.mode = mode;
     state.rooms = [state.rooms[0]];
+    state.forcedDedicatedIds = new Set();
     updateModeButtons(mode);
     // Marque plutôt qu'efface (voir marquerResultatsObsoletes) : passer en Multisplit pour
     // ajouter des pièces ne doit pas faire disparaître le résultat mono déjà affiché — ce
@@ -1143,7 +1151,8 @@ function renderRooms() {
                 <div class="flex items-center gap-3 mb-4">
                     <span class="w-8 h-8 rounded-xl bg-accent-50 text-accent-700 border border-accent-100 flex items-center justify-center text-sm font-bold flex-shrink-0 k-num">${index + 1}</span>
                     <h3 class="text-sm font-semibold text-ink-900 flex-grow min-w-0 truncate">${state.mode === 'multi' ? `Pièce ${index + 1}${room.nom ? ` — ${escapeHtml(room.nom)}` : ''}` : 'Volume de la pièce'}</h3>
-                    ${showDuplicate ? `<button onclick="duplicateRoom(${room.id})" title="Dupliquer cette pièce" aria-label="Dupliquer cette pièce" class="k-icon-btn hover:text-accent-700 hover:bg-accent-50"><svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 4h8a2 2 0 012 2v8a2 2 0 01-2 2h-8a2 2 0 01-2-2v-8a2 2 0 012-2z"></path></svg></button>` : ''}
+                    ${state.mode === 'multi' && room.isolationCoef ? `<span class="k-pill k-pill-neutral k-num flex-shrink-0" title="Isolation propre à cette pièce, différente du bâtiment">G ${nb(getRoomCoefG(room), 2)}</span>` : ''}
+                    ${showDuplicate ?`<button onclick="duplicateRoom(${room.id})" title="Dupliquer cette pièce" aria-label="Dupliquer cette pièce" class="k-icon-btn hover:text-accent-700 hover:bg-accent-50"><svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 4h8a2 2 0 012 2v8a2 2 0 01-2 2h-8a2 2 0 01-2-2v-8a2 2 0 012-2z"></path></svg></button>` : ''}
                     ${showRemove ? `<button onclick="removeRoom(${room.id})" title="Supprimer cette pièce" aria-label="Supprimer cette pièce" class="k-icon-btn-danger"><svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>` : ''}
                 </div>
                 <div class="flex flex-col gap-4">
@@ -1173,7 +1182,7 @@ function renderRooms() {
                     ${state.mode === 'multi' ? `
                     <details data-k="room-isolation:${room.id}" class="group/iso" ${room.isolationCoef ? 'open' : ''}>
                         <summary class="k-disclosure text-2xs font-medium text-ink-500">
-                            <span>${room.isolationCoef ? 'Isolation différente pour cette pièce' : "Isolation différente de celle du bâtiment ?"}</span>
+                            <span>${room.isolationCoef ? 'Isolation propre à cette pièce' : "Isolation différente de celle du bâtiment ?"}</span>
                             <span class="ml-auto transition-transform group-open/iso:rotate-180">${icone('chevron', 'w-3.5 h-3.5')}</span>
                         </summary>
                         <div class="mt-2 flex gap-2">
@@ -1247,6 +1256,7 @@ function removeRoom(id) {
     const label = roomLabel({ index: idx + 1, nom: state.rooms[idx].nom });
     if (!confirm(`Supprimer ${label} ? Sa saisie sera perdue.`)) return;
     state.rooms = state.rooms.filter(r => r.id !== id);
+    state.forcedDedicatedIds.delete(id);
     renderRooms();
     persistDraft();
 }
@@ -1429,12 +1439,16 @@ function calculate() {
             // le niveau d'isolation du bâtiment (voir getRoomCoefG) : sinon la mention serait
             // redondante avec l'hypothèse globale déjà affichée (buildHypothesesLines).
             const gSurcharge = r.isolationCoef ? getRoomCoefG(r) : null;
-            return { index: i + 1, nom: r.nom || '', req: req, froidMatch: froidMatch, chaudMatch: chaudMatch, size: size, maxKw: Math.max(froidMatch, chaudMatch), gSurcharge };
+            return { id: r.id, index: i + 1, nom: r.nom || '', req: req, froidMatch: froidMatch, chaudMatch: chaudMatch, size: size, maxKw: Math.max(froidMatch, chaudMatch), gSurcharge };
         });
-        const roomDetails = roomsData.map(r => `Pièce ${r.index}${r.nom ? ' (' + r.nom + ')' : ''}${r.gSurcharge !== null ? ` · G ${nb(r.gSurcharge, 2)} (isolation propre à la pièce)` : ''} : ${nb(r.req.froid)} kW F / ${nb(r.req.chaud)} kW C → Taille ${r.size || 'HORS LIMITE'}`);
+        const roomDetails = roomsData.map(r => `Pièce ${r.index}${r.nom ? ' (' + r.nom + ')' : ''}${r.gSurcharge !== null ? ` · G ${nb(r.gSurcharge, 2)} (isolation propre à cette pièce)` : ''} : ${nb(r.req.froid)} kW F / ${nb(r.req.chaud)} kW C → Taille ${r.size || 'HORS LIMITE'}`);
 
-        let extractedForMono = roomsData.filter(r => r.size === null);
-        let standardRooms = roomsData.filter(r => r.size !== null);
+        // Une pièce quitte le groupe multisplit soit parce qu'aucune UI du catalogue ne couvre
+        // son besoin (size === null), soit parce que l'utilisateur l'en a délibérément sortie
+        // (separerPieceEnDedie, state.forcedDedicatedIds) pour ne plus faire dépendre les autres
+        // pièces de sa demande de pointe — voir analyseEquilibreGroupe / renderBalanceNote.
+        let extractedForMono = roomsData.filter(r => r.size === null || state.forcedDedicatedIds.has(r.id));
+        let standardRooms = roomsData.filter(r => r.size !== null && !state.forcedDedicatedIds.has(r.id));
         const hybridNote = extractedForMono.length > 0;
 
         let bestGroup = findMultiGroup(standardRooms, state.brand, COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD);
@@ -1672,6 +1686,12 @@ function renderResults({ anime = false } = {}) {
                 const tvaInfos = options.map(sol => getTvaInfo(sol.gamme, sol.reference_ensemble, 'mono', state.brand));
                 const tvaBloc = tvaCommune(tvaInfos);
                 html += blocTitre(escapeHtml(dedItem.label), metaBloc(options.length, tvaBloc));
+                // Bouton de retour proposé uniquement pour une séparation VOLONTAIRE (voir
+                // separerPieceEnDedie) : une pièce délestée parce qu'elle dépasse le catalogue
+                // (forcedDedicatedIds ne la contient pas) n'a nulle part où être réintégrée.
+                if (state.forcedDedicatedIds.has(room.id)) {
+                    html += `<button type="button" onclick="reintegrerPieceAuGroupe(${room.id})" class="k-btn-ghost -mt-2 mb-3">${icone('chevron', 'w-3.5 h-3.5 rotate-90')}Réintégrer au groupe multisplit</button>`;
+                }
                 const selIdx = Math.min(state.selection.dedicated[room.index] || 0, options.length - 1);
                 let cardsDed = '';
                 options.forEach((sol, idx) => {
@@ -1976,6 +1996,25 @@ function selectGroup(idx) {
     });
 }
 
+// Sort une pièce du groupe multisplit pour lui donner son propre monosplit dédié, quand cette
+// pièce mobilise une part disproportionnée de la puissance du groupe (voir analyseEquilibreGroupe)
+// et qu'aucun groupe plus puissant du catalogue ne corrige l'écart. Recalcule entièrement
+// (calculate()) plutôt que de retoucher state.currentCalc en place : sortir une pièce change la
+// répartition standardRooms/extractedForMono et donc le groupe extérieur lui-même, pas seulement
+// l'affichage d'une carte.
+function separerPieceEnDedie(roomId) {
+    state.forcedDedicatedIds.add(roomId);
+    calculate();
+}
+
+// Réintègre une pièce précédemment séparée manuellement (voir separerPieceEnDedie) au groupe
+// multisplit. Sans objet pour une pièce délestée automatiquement (hors catalogue) : le bouton
+// n'est proposé que sur les cartes issues de forcedDedicatedIds (voir renderResults).
+function reintegrerPieceAuGroupe(roomId) {
+    state.forcedDedicatedIds.delete(roomId);
+    calculate();
+}
+
 function renderBesoinsCard(reqs, isMulti = false, roomsData = []) {
     let totF = reqs.reduce((a, b) => a + b.froid, 0);
     let totC = reqs.reduce((a, b) => a + b.chaud, 0);
@@ -2162,19 +2201,21 @@ function analyseEquilibreGroupe(m, selectedGroup) {
             : '';
         return {
             ton: 'ok',
-            resume: `Groupe supérieur retenu : ${roomLabel(dominante)} n'absorbe plus que ${pct(ratioSel)}% du ${selectedGroup.reference} (limite ${seuilPct}%).`,
-            detail: `Ce cran supérieur a été choisi automatiquement pour tenir la demande simultanée.${detailBase}${detailSousCharge}`.trim()
+            room: dominante,
+            resume: `Un groupe plus puissant a été retenu pour que ${roomLabel(dominante)} ne mobilise plus que ${pct(ratioSel)}% du ${selectedGroup.reference} (repère : ${seuilPct}%).`,
+            detail: `Ce cran supérieur a été choisi automatiquement pour que les autres pièces gardent leur puissance si toutes réclament leur maximum en même temps (canicule, grand froid).${detailBase}${detailSousCharge}`.trim()
         };
     }
 
     if (ratioSel > SEUIL_DESEQUILIBRE_GROUPE) {
         const solution = equil
-            ? ` Le ${equil.reference} (${puissances(equil)}), proposé en premier choix, ramène cette part à ${pct(ratioPieceDominante(equil, rooms))}% ; un monosplit dédié pour cette pièce est l'autre solution.`
-            : ` Aucun groupe plus puissant du catalogue ne rééquilibre cette configuration : un monosplit dédié pour cette pièce est à envisager.`;
+            ? ` Le ${equil.reference} (${puissances(equil)}), proposé en premier choix, ramène cette part à ${pct(ratioPieceDominante(equil, rooms))}% ; séparer cette pièce sur son propre climatiseur est l'autre solution.`
+            : ` Aucun groupe plus puissant du catalogue ne corrige cet écart : séparer cette pièce sur son propre climatiseur est la solution.`;
         return {
             ton: equil ? 'escalade' : 'alerte',
-            resume: `${roomLabel(dominante)} absorbe ${pct(ratioSel)}% du ${selectedGroup.reference} (limite ${seuilPct}%).`,
-            detail: `Les autres pièces peuvent manquer de capacité en cas de forte demande simultanée.${solution}`
+            room: dominante,
+            resume: `Par forte chaleur ou grand froid, ${roomLabel(dominante)} peut priver les autres pièces de puissance.`,
+            detail: `Elle mobilise à elle seule ${pct(ratioSel)}% de la puissance du ${selectedGroup.reference} — au-delà de ${seuilPct}%, les autres unités intérieures peuvent ne plus recevoir toute la leur si la demande est simultanée sur l'ensemble du groupe.${solution}`
         };
     }
 
@@ -2193,12 +2234,20 @@ function renderBalanceNote(analyse) {
         escalade: { ton: 'warn', icone: 'alerte' },
         alerte:   { ton: 'warn', icone: 'alerte' }
     }[analyse.ton];
+    // Rend la recommandation actionnable plutôt que descriptive : « alerte » (aucun groupe ne
+    // rééquilibre) l'affiche en action principale, « escalade »/« ok » (un groupe la corrige déjà)
+    // l'affiche en alternative discrète — voir separerPieceEnDedie.
+    const bouton = analyse.room ? `
+        <button type="button" onclick="separerPieceEnDedie(${analyse.room.id})"
+            class="${analyse.ton === 'alerte' ? 'k-btn-outline' : 'k-btn-ghost'} mt-2.5 w-full sm:w-auto">
+            ${icone('scinder', 'w-3.5 h-3.5')}Séparer ${escapeHtml(roomLabel(analyse.room))} en monosplit dédié
+        </button>` : '';
     return note(styles.ton, styles.icone, `
         <span class="k-note-title">${escapeHtml(analyse.resume)}</span>
         <details data-k="equilibre" class="mt-1">
             <summary class="k-disclosure text-2xs font-medium text-ink-400 group/b">En détail<span class="transition-transform group-open/b:rotate-180">${icone('chevron', 'w-3 h-3')}</span></summary>
             <p class="k-hint mt-1.5">${escapeHtml(analyse.detail)}</p>
-        </details>`);
+        </details>${bouton}`);
 }
 
 // Taux de charge = besoin réel / puissance nominale catalogue. En dessous de ~50%, un
@@ -2428,7 +2477,8 @@ Object.assign(window, {
     addRoom, calculate, duplicateRoom, exportPdf, oublierConfigChargee, persistDraft, removeRoom,
     saveChantier, selectGroupGamme, setBrand, setMode, setUsage, shareResults, startNewCalcul,
     toggleCustomCoef, toggleRoomCustomCoef, toggleDashboard, updateChantier, updateClimateInfo, updateRoom,
-    selectDedicated, selectGroup, selectMono, marquerResultatsObsoletes, persistInstallateur
+    selectDedicated, selectGroup, selectMono, marquerResultatsObsoletes, persistInstallateur,
+    separerPieceEnDedie, reintegrerPieceAuGroupe
 });
 
 window.onload = initApp;
