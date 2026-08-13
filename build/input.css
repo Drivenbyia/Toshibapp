@@ -179,7 +179,7 @@
     /* Contrôles posés sur l'aplat : bordure et fond en blanc translucide, pour
        rester lisibles sans introduire une deuxième couleur dans la barre. */
     .k-btn-onband {
-        @apply k-btn min-h-[38px] px-3 bg-white/10 border border-white/30 text-white
+        @apply k-btn min-h-[44px] px-3 bg-white/10 border border-white/30 text-white
                hover:bg-white/20 hover:border-white/50;
     }
 
@@ -325,7 +325,7 @@
     /* Pastille cliquable (choix de gamme par pièce en multisplit). 40px de haut :
        c'est un bouton qu'on vise au doigt, pas une étiquette. */
     .k-chip {
-        @apply inline-flex items-center gap-1.5 min-h-[40px] px-3 rounded-lg border
+        @apply inline-flex items-center gap-1.5 min-h-[44px] px-3 rounded-lg border
                bg-white border-line-strong text-xs font-semibold text-ink-700
                cursor-pointer transition-colors hover:border-ink-400 hover:bg-mute-50;
     }
@@ -441,7 +441,7 @@
        et l'ancien gris tenait 2,6:1 sur blanc — invisible au soleil, et sous le
        seuil AA pour du texte de 11px. */
     .k-disclosure {
-        @apply flex items-center gap-1.5 min-h-[32px] cursor-pointer select-none
+        @apply flex items-center gap-1.5 min-h-[44px] cursor-pointer select-none
                text-xs font-semibold text-ink-500 transition-colors hover:text-accent-700;
     }
 

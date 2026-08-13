@@ -8,7 +8,7 @@ import {
 } from './data.js';
 import {
     occupantsParDefaut, resolveCoefG, getFacteurCanicule, getFacteurDeclassementChaud,
-    estimerEcartConsigne, getRequiredKw as getRequiredKwCore, getUiSizeForKw, findBestMonos,
+    estimerEcartConsigne, getRequiredKw as getRequiredKwCore, getUiSizeForKw, findBestMonos, findRoomMultiSolutions,
     findMultiGroup, findMultiGroupOptions, getRoomEligibleGammes, getTvaInfo, getRoomSelectedTvaInfo,
     getGroupTvaInfo, trierMonosParTva, parseNombreSaisi,
     findGroupeEquilibre, estGroupeDesequilibre, ratioPieceDominante, pieceDominantePourGroupe,
@@ -34,7 +34,11 @@ let state = {
     // 'froid_seul' : le besoin chaud n'entre plus dans le dimensionnement (mais reste affiché à
     // titre indicatif) — permet de proposer une solution quand seul le chaud dépasse le catalogue.
     usage: 'reversible',
-    rooms: [{ id: 1, nom: '', surface: '', height: 2.5, emplacement: 'plain_pied', orientation: 'mixte', vitrage: 'moyen', protection: 'stores_int', occupants: '', expositionMurs: 4 }],
+    // isolationCoef: '' → la pièce hérite du niveau d'isolation du bâtiment (le sélecteur global,
+    // cas de loin le plus courant) ; une valeur ('2.0'…'0.25' ou 'custom' + customCoefG) surcharge
+    // ce niveau pour CETTE pièce seule — voir getRoomCoefG. Cas visé : véranda accolée au salon,
+    // dont l'enveloppe n'a rien à voir avec le reste de la maison.
+    rooms: [{ id: 1, nom: '', surface: '', height: 2.5, emplacement: 'plain_pied', orientation: 'mixte', vitrage: 'moyen', protection: 'stores_int', occupants: '', expositionMurs: 4, isolationCoef: '', customCoefG: '' }],
     lastResultData: null,
     currentCalc: null,
     // Solution choisie par l'utilisateur parmi les options proposées (mono / dédiés multi / gammes UI du groupe / groupe extérieur)
@@ -77,7 +81,7 @@ function reserverIdsPieces(rooms) {
 }
 
 function defaultRoom(id) {
-    return { id, nom: '', surface: '', height: 2.5, emplacement: 'plain_pied', orientation: 'mixte', vitrage: 'moyen', protection: 'stores_int', occupants: '', expositionMurs: 4 };
+    return { id, nom: '', surface: '', height: 2.5, emplacement: 'plain_pied', orientation: 'mixte', vitrage: 'moyen', protection: 'stores_int', occupants: '', expositionMurs: 4, isolationCoef: '', customCoefG: '' };
 }
 
 // Les boutons de marque sont retrouvés par leur attribut `data-brand` et non par un id en
@@ -412,8 +416,8 @@ function renderDashboard() {
                         <span class="text-ink-500"> — ${escapeHtml(c.zone)}</span>
                     </div>
                     <div class="flex gap-2 flex-shrink-0">
-                        <button data-action="restore-conflict" data-id="${escapeHtml(c.id)}" class="k-btn min-h-[36px] px-3 text-2xs bg-amber-600 text-white hover:bg-amber-700">Récupérer</button>
-                        <button data-action="dismiss-conflict" data-id="${escapeHtml(c.id)}" class="k-btn-ghost min-h-[36px] text-2xs">Écarter</button>
+                        <button data-action="restore-conflict" data-id="${escapeHtml(c.id)}" class="k-btn min-h-[44px] px-3 text-2xs bg-amber-600 text-white hover:bg-amber-700">Récupérer</button>
+                        <button data-action="dismiss-conflict" data-id="${escapeHtml(c.id)}" class="k-btn-ghost min-h-[44px] text-2xs">Écarter</button>
                     </div>
                 </div>`).join('')}
             </div>
@@ -468,7 +472,7 @@ function renderDashboard() {
                     <svg class="w-5 h-5 text-ink-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"></path></svg>
                     <span class="truncate">${escapeHtml(clientName)}</span>
                 </h3>
-                <button data-action="delete-chantier" data-client="${escapeHtml(clientName)}" class="k-btn min-h-[36px] px-3 text-2xs text-rose-600 border border-rose-200 hover:bg-rose-600 hover:text-white hover:border-rose-600 flex-shrink-0">Tout supprimer</button>
+                <button data-action="delete-chantier" data-client="${escapeHtml(clientName)}" class="k-btn min-h-[44px] px-3 text-2xs text-rose-600 border border-rose-200 hover:bg-rose-600 hover:text-white hover:border-rose-600 flex-shrink-0">Tout supprimer</button>
             </div>
             ${configsHtml}
         </div>`;
@@ -875,6 +879,18 @@ function getCoefG() {
     return resolveCoefG(selectVal, customVal);
 }
 
+// Coefficient G résolu pour UNE pièce : hérite du bâtiment (getCoefG) sauf surcharge explicite
+// (room.isolationCoef non vide) — cas d'une véranda ou d'une pièce dont l'enveloppe diffère du
+// reste du logement, sans devoir changer le niveau d'isolation global pour toute l'installation.
+function getRoomCoefG(room) {
+    // La surcharge n'a de sens qu'en multisplit (plusieurs pièces à distinguer) : son contrôle
+    // est masqué en mono (voir renderRooms), mais une valeur peut y survivre après un aller-retour
+    // multi -> mono (setMode ne vide pas les champs). Sans cette garde, elle continuerait
+    // silencieusement à peser sur un calcul dont l'interface ne montre plus qu'elle existe.
+    if (state.mode !== 'multi' || !room.isolationCoef) return getCoefG();
+    return resolveCoefG(room.isolationCoef, room.customCoefG);
+}
+
 function getClimateContext() {
     const code = document.getElementById('deptSelect').value;
     const alt = document.getElementById('altitude').value;
@@ -910,11 +926,13 @@ function updateClimateInfo() {
 }
 
 // Pont DOM -> calcul pur : rassemble coefG/climat/consigne puis délègue à getRequiredKw (calcul.js).
+// coefG résolu PAR PIÈCE (getRoomCoefG) : le bâtiment reste la valeur par défaut, une pièce peut
+// la surcharger (voir state.rooms, isolationCoef) sans affecter les autres pièces du même calcul.
 function getRequiredKw(surface, height, room) {
     const { tBaseHiver, tBaseEte } = getClimateContext();
     const consigneEl = document.getElementById('consigneInt');
     const consigne = consigneEl ? parseFloat(consigneEl.value) : CONSIGNE_REFERENCE;
-    return getRequiredKwCore(surface, height, room, { coefG: getCoefG(), tBaseHiver, tBaseEte, consigne });
+    return getRequiredKwCore(surface, height, room, { coefG: getRoomCoefG(room), tBaseHiver, tBaseEte, consigne });
 }
 
 function toggleCustomCoef() {
@@ -1087,6 +1105,29 @@ function setUsage(usage) {
     persistDraft();
 }
 
+// Paliers d'isolation proposés à la surcharge par pièce : mêmes valeurs/libellés que le
+// sélecteur global (#isolationCoef, index.html), qui reste rendu en HTML statique — à maintenir
+// synchronisé si ces paliers changent, faute d'une source commune entre les deux rendus.
+const NIVEAUX_ISOLATION = [
+    { value: '2.0',  label: 'G 2.0 — avant 1974, non isolé' },
+    { value: '1.2',  label: 'G 1.2 — 1974 à 1988' },
+    { value: '1.1',  label: 'G 1.1 — 1989 à 2000' },
+    { value: '0.8',  label: 'G 0.8 — 2001 à 2012 (RT 2005)' },
+    { value: '0.35', label: 'G 0.35 — 2013 à 2021 (RT 2012)' },
+    { value: '0.25', label: 'G 0.25 — après 2022 (RE 2020)' },
+    { value: '3.0',  label: 'G 3.0 — véranda' }
+];
+
+// Bascule locale (pas de re-rendu de la liste des pièces) de l'input de saisie personnalisée,
+// symétrique de toggleCustomCoef() pour le sélecteur global.
+function toggleRoomCustomCoef(id) {
+    const select = document.getElementById(`room-${id}-isolationCoef`);
+    const customInput = document.getElementById(`room-${id}-customCoefG`);
+    if (!select || !customInput) return;
+    customInput.classList.toggle('hidden', select.value !== 'custom');
+    if (select.value === 'custom') customInput.focus();
+}
+
 function renderRooms() {
     const container = document.getElementById('rooms-container');
     container.innerHTML = '';
@@ -1129,6 +1170,21 @@ function renderRooms() {
                             <option value="etage_protege" ${room.emplacement === 'etage_protege' ? 'selected' : ''}>Étage protégé / sous un niveau — nul</option>
                         </select>
                     </div>
+                    ${state.mode === 'multi' ? `
+                    <details data-k="room-isolation:${room.id}" class="group/iso" ${room.isolationCoef ? 'open' : ''}>
+                        <summary class="k-disclosure text-2xs font-medium text-ink-500">
+                            <span>${room.isolationCoef ? 'Isolation différente pour cette pièce' : "Isolation différente de celle du bâtiment ?"}</span>
+                            <span class="ml-auto transition-transform group-open/iso:rotate-180">${icone('chevron', 'w-3.5 h-3.5')}</span>
+                        </summary>
+                        <div class="mt-2 flex gap-2">
+                            <select id="room-${room.id}-isolationCoef" onchange="updateRoom(${room.id}, 'isolationCoef', this.value); toggleRoomCustomCoef(${room.id});" class="k-select flex-grow min-w-0">
+                                <option value="">Comme le bâtiment (par défaut)</option>
+                                ${NIVEAUX_ISOLATION.map(n => `<option value="${n.value}" ${room.isolationCoef === n.value ? 'selected' : ''}>${n.label}</option>`).join('')}
+                                <option value="custom" ${room.isolationCoef === 'custom' ? 'selected' : ''}>Saisie personnalisée…</option>
+                            </select>
+                            <input type="text" inputmode="decimal" id="room-${room.id}-customCoefG" oninput="updateRoom(${room.id}, 'customCoefG', this.value)" value="${escapeHtml(String(room.customCoefG ?? ''))}" placeholder="0.65" aria-label="Coefficient G personnalisé pour cette pièce" class="k-input w-24 flex-shrink-0 ${room.isolationCoef === 'custom' ? '' : 'hidden'}">
+                        </div>
+                    </details>` : ''}
                     ${state.mode === 'multi' ? `
                     <div>
                         <label for="room-${room.id}-expositionMurs" class="k-label">Murs donnant sur l'extérieur</label>
@@ -1206,7 +1262,7 @@ function duplicateRoom(id) {
 function updateRoom(id, field, value) {
     const r = state.rooms.find(x => x.id === id);
     if (!r) return;
-    const champsTexte = ['nom', 'emplacement', 'orientation', 'vitrage', 'protection'];
+    const champsTexte = ['nom', 'emplacement', 'orientation', 'vitrage', 'protection', 'isolationCoef', 'customCoefG'];
     if (champsTexte.includes(field)) {
         r[field] = value;
     } else {
@@ -1369,9 +1425,13 @@ function calculate() {
             let froidMatch = req.froid * facteurCanicule;
             let chaudMatch = froidSeul ? 0 : req.chaud * facteurDeclassementChaud;
             let size = getUiSizeForKw(froidMatch, chaudMatch, state.brand);
-            return { index: i + 1, nom: r.nom || '', req: req, froidMatch: froidMatch, chaudMatch: chaudMatch, size: size, maxKw: Math.max(froidMatch, chaudMatch) };
+            // Tracée dans la fiche (roomDetails, ci-dessous) uniquement quand la pièce surcharge
+            // le niveau d'isolation du bâtiment (voir getRoomCoefG) : sinon la mention serait
+            // redondante avec l'hypothèse globale déjà affichée (buildHypothesesLines).
+            const gSurcharge = r.isolationCoef ? getRoomCoefG(r) : null;
+            return { index: i + 1, nom: r.nom || '', req: req, froidMatch: froidMatch, chaudMatch: chaudMatch, size: size, maxKw: Math.max(froidMatch, chaudMatch), gSurcharge };
         });
-        const roomDetails = roomsData.map(r => `Pièce ${r.index}${r.nom ? ' (' + r.nom + ')' : ''} : ${nb(r.req.froid)} kW F / ${nb(r.req.chaud)} kW C → Taille ${r.size || 'HORS LIMITE'}`);
+        const roomDetails = roomsData.map(r => `Pièce ${r.index}${r.nom ? ' (' + r.nom + ')' : ''}${r.gSurcharge !== null ? ` · G ${nb(r.gSurcharge, 2)} (isolation propre à la pièce)` : ''} : ${nb(r.req.froid)} kW F / ${nb(r.req.chaud)} kW C → Taille ${r.size || 'HORS LIMITE'}`);
 
         let extractedForMono = roomsData.filter(r => r.size === null);
         let standardRooms = roomsData.filter(r => r.size !== null);
@@ -1521,7 +1581,7 @@ function renderHypotheses(lignes) {
         <div class="mt-1 divide-y divide-line">
             ${lignes.map(l => `
             <details data-k="hyp:${l.libelle}" class="group/hyp py-2 first:pt-1 last:pb-0">
-                <summary class="flex items-baseline justify-between gap-4 cursor-pointer select-none list-none py-0.5 -mx-1 px-1 rounded-lg hover:bg-mute-50 transition-colors">
+                <summary class="flex items-baseline justify-between gap-4 min-h-[44px] cursor-pointer select-none list-none -mx-1 px-1 rounded-lg hover:bg-mute-50 transition-colors">
                     <span class="flex items-baseline gap-1.5 min-w-0 text-xs text-ink-700">
                         ${l.libelle}
                         <span class="text-ink-400 transition-transform group-open/hyp:rotate-180 self-center">${icone('chevron', 'w-3.5 h-3.5')}</span>
@@ -1720,7 +1780,7 @@ function renderResults({ anime = false } = {}) {
             ${state.loadedConfigId ? `
             <div class="k-note mb-4 items-center justify-between gap-3 flex-wrap">
                 <span class="min-w-0">Configuration chargée — vous pouvez la mettre à jour au lieu d'en créer une nouvelle.</span>
-                <button onclick="oublierConfigChargee()" class="k-btn-outline min-h-[36px] px-3 text-2xs whitespace-nowrap flex-shrink-0">Nouvelle fiche</button>
+                <button onclick="oublierConfigChargee()" class="k-btn-outline min-h-[44px] px-3 text-2xs whitespace-nowrap flex-shrink-0">Nouvelle fiche</button>
             </div>` : ''}
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                 <div>
@@ -1996,7 +2056,7 @@ function renderMultiRoomsGuide(roomsData, group) {
         if (gammesUniques.length === 0) {
             return `<div class="py-3 border-b border-line last:border-0 text-xs text-amber-800">Pièce ${r.index} : aucune UI du catalogue ne couvre ce besoin.</div>`;
         }
-        const sols = findBestMonos(r.froidMatch, r.chaudMatch, state.brand);
+        const sols = findRoomMultiSolutions(r.froidMatch, r.chaudMatch, state.brand);
         const storedGamme = state.selection.group[r.index];
         const selectedGamme = gammesUniques.includes(storedGamme) ? storedGamme : gammesUniques[0];
         // Statut TVA de CETTE pièce : masqué sur les pastilles quand toutes les gammes
@@ -2367,7 +2427,7 @@ if ('serviceWorker' in navigator) {
 Object.assign(window, {
     addRoom, calculate, duplicateRoom, exportPdf, oublierConfigChargee, persistDraft, removeRoom,
     saveChantier, selectGroupGamme, setBrand, setMode, setUsage, shareResults, startNewCalcul,
-    toggleCustomCoef, toggleDashboard, updateChantier, updateClimateInfo, updateRoom,
+    toggleCustomCoef, toggleRoomCustomCoef, toggleDashboard, updateChantier, updateClimateInfo, updateRoom,
     selectDedicated, selectGroup, selectMono, marquerResultatsObsoletes, persistInstallateur
 });
 
