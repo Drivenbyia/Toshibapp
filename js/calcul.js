@@ -3,7 +3,7 @@
 // Toutes les entrées (climat, coefficients, marque...) sont passées en paramètres explicites,
 // ce qui les rend testables indépendamment de l'interface (voir tests/calcul.test.mjs).
 import {
-    CATALOGS, UI_SIZE_TABLES, TVA_RULES, SUFFIXES_MILLESIME_GROUPE,
+    CATALOGS, UI_MULTI_SEUL, UI_SIZE_TABLES, TVA_RULES, SUFFIXES_MILLESIME_GROUPE,
     APPORTS_INTERNES, CHARGE_TOITURE_PALIERS, RAYONNEMENT_VITRAGE, RATIO_VITRAGE, FC_PROTECTION,
     G_VITRAGE_PALIERS, COEF_INERTIE_SOLAIRE, OCCUPANT_W, COEF_RELANCE, COEF_G_DEFAUT, PART_VENTILATION_G,
     CONSIGNE_REFERENCE, ABATTEMENT_CANICULE_SEUIL_BAS, ABATTEMENT_CANICULE_SEUIL_HAUT,
@@ -234,8 +234,14 @@ export function getUiSizeForKw(reqFroid, reqChaud, brand) {
 // proposée par défaut, une machine nettement plus surdimensionnée en chaud pouvait passer devant
 // une autre strictement mieux ajustée. Le tri reste piloté par le froid en premier : c'est lui qui
 // définit la bande d'équivalence ci-dessous.
-export function findBestMonos(reqF, reqC, brand) {
-    let allSols = CATALOGS[brand].monosplits.filter(p => p.puissance_froid_kw >= reqF && p.puissance_chaud_kw >= reqC)
+// extraCatalog : UI supplémentaires à inclure dans la bande d'équivalence, en plus des ensembles
+// monosplit du catalogue — vide par défaut, donc le comportement mono/délestage (seuls appelants
+// à 3 arguments) est strictement inchangé. Réservé en pratique à findRoomMultiSolutions, qui y
+// passe UI_MULTI_SEUL : des UI qui n'existent qu'attelées à un groupe multisplit ne doivent
+// jamais se glisser dans une sélection mono ou un monosplit dédié (voir data.js, UI_MULTI_SEUL).
+export function findBestMonos(reqF, reqC, brand, extraCatalog = []) {
+    let allSols = [...CATALOGS[brand].monosplits, ...extraCatalog]
+                               .filter(p => p.puissance_froid_kw >= reqF && p.puissance_chaud_kw >= reqC)
                                .sort((a, b) => (a.puissance_froid_kw - b.puissance_froid_kw)
                                             || (a.puissance_chaud_kw - b.puissance_chaud_kw));
 
@@ -243,6 +249,15 @@ export function findBestMonos(reqF, reqC, brand) {
 
     const minFroid = allSols[0].puissance_froid_kw;
     return allSols.filter(p => p.puissance_froid_kw <= minFroid * TOLERANCE_EQUIVALENCE);
+}
+
+// Solutions d'UI utilisables pour une pièce raccordée à un groupe multisplit : les ensembles
+// monosplit du catalogue, enrichis des UI qui n'existent qu'en multisplit (UI_MULTI_SEUL,
+// data.js — ex. Shorai Curve taille 05, sans groupe mono dédié pour l'écarter de la bande
+// d'équivalence). Seule fonction de ce fichier à consommer UI_MULTI_SEUL : un monosplit dédié ou
+// une sélection mono doivent continuer à passer par findBestMonos seul, sans cet enrichissement.
+export function findRoomMultiSolutions(reqF, reqC, brand) {
+    return findBestMonos(reqF, reqC, brand, UI_MULTI_SEUL[brand] || []);
 }
 
 // Classe des solutions techniquement équivalentes en mettant devant celles éligibles à la TVA 5,5%
@@ -381,7 +396,7 @@ export function findMultiGroup(roomsObj, brand, coefFoisonnementFroid, coefFoiso
 // n'écrit d'état applicatif (utilisée à la fois pour initialiser un choix par défaut et pour
 // l'affichage, sans dupliquer la logique de filtrage entre les deux usages).
 export function getRoomEligibleGammes(room, allowedGammes, brand) {
-    let sols = findBestMonos(room.froidMatch, room.chaudMatch, brand);
+    let sols = findRoomMultiSolutions(room.froidMatch, room.chaudMatch, brand);
     if (allowedGammes) sols = sols.filter(s => allowedGammes.includes(s.gamme));
     return [...new Set(sols.map(s => s.gamme))];
 }
@@ -476,7 +491,7 @@ export function getGroupTvaInfo(groupeReference, brand) {
 // Éligibilité TVA de la gamme choisie pour une pièce d'un groupe multisplit (recalcule les options
 // compatibles avec cette pièce pour retrouver la référence exacte de l'UI sélectionnée).
 export function getRoomSelectedTvaInfo(room, gammeName, allowedGammes, brand, groupeReference = null) {
-    let sols = findBestMonos(room.froidMatch, room.chaudMatch, brand);
+    let sols = findRoomMultiSolutions(room.froidMatch, room.chaudMatch, brand);
     if (allowedGammes) sols = sols.filter(s => allowedGammes.includes(s.gamme));
     const sol = sols.find(s => s.gamme === gammeName);
     return sol ? getTvaInfo(gammeName, sol.reference_ensemble, 'multiUi', brand, groupeReference) : null;

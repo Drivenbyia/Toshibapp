@@ -9,7 +9,7 @@ import {
     findGroupesValides, findGroupeEquilibre, estGroupeDesequilibre, ratioPieceDominante,
     pieceDominante, pieceDominantePourGroupe, partPieceDansGroupe,
     tauxChargeGroupe, getGroupTvaInfo, normaliserReferenceGroupe, trierMonosParTva,
-    interpolerChargeToiture, interpolerGVitrage
+    interpolerChargeToiture, interpolerGVitrage, findRoomMultiSolutions
 } from '../js/calcul.js';
 import {
     CONSIGNE_REFERENCE, COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD,
@@ -828,6 +828,32 @@ describe('getRoomEligibleGammes', () => {
         const room = { froidMatch: 1.8, chaudMatch: 2.2 };
         const gammes = getRoomEligibleGammes(room, ['TZ Ultra Compact'], 'panasonic');
         assert.deepEqual(gammes, ['TZ Ultra Compact']);
+    });
+
+    // Une petite chambre (besoin ~1,5 kW F / 2,0 kW C) tombe pile sur la taille 05 : la Shorai
+    // Curve démarre au 07 (2,0 kW F), donc trop grande de +33% en froid pour entrer dans la bande
+    // d'équivalence (+15%, TOLERANCE_EQUIVALENCE) — elle disparaissait des gammes proposées, quand
+    // bien même Toshiba vend une UI Curve 05 attelée à un groupe multisplit (RAS-M05P2KVSG-E, voir
+    // UI_MULTI_SEUL, data.js). En groupe multisplit uniquement, elle doit redevenir une alternative
+    // à Naka/Yukai à cette taille.
+    test('Shorai Curve 05 (multi-seule) rejoint Naka/Yukai à la taille 05, en groupe multisplit', () => {
+        const room = { froidMatch: 1.5, chaudMatch: 2.0 };
+        const gammes = getRoomEligibleGammes(room, null, 'toshiba');
+        assert.ok(gammes.includes('Shorai Curve'), `Shorai Curve absente : ${gammes.join(', ')}`);
+        assert.ok(gammes.includes('Naka'));
+        assert.ok(gammes.includes('Yukai'));
+    });
+
+    test('Shorai Curve 05 reste absente de findBestMonos seul : aucun ensemble mono ne l\'offre à cette taille', () => {
+        const sols = findBestMonos(1.5, 2.0, 'toshiba');
+        assert.ok(!sols.some(s => s.gamme === 'Shorai Curve'), 'la Curve ne doit pas apparaître en monosplit dédié à la taille 05');
+    });
+
+    test('findRoomMultiSolutions expose la référence UI multi-seule de la Curve 05', () => {
+        const sols = findRoomMultiSolutions(1.5, 2.0, 'toshiba');
+        const curve = sols.find(s => s.gamme === 'Shorai Curve');
+        assert.ok(curve, 'Shorai Curve absente de findRoomMultiSolutions');
+        assert.equal(curve.reference_ensemble, 'RAS-M05P2KVSG-E');
     });
 });
 

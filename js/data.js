@@ -255,6 +255,29 @@ export const CATALOGS = {
   }
 };
 
+// --- UI VENDUES UNIQUEMENT EN MULTISPLIT (aucun groupe mono dédié) ---
+//
+// La Shorai Curve descend à la taille 05 (1,5 kW F / 2,0 kW C), mais Toshiba ne commercialise
+// aucun groupe extérieur mono pour ce calibre sur cette gamme (le mono démarre à 07, voir
+// CATALOGS.toshiba.monosplits) — la référence RAS-M05P2KVSG-E (préfixe "M", pas de groupe
+// "RAS-05P2AVSG-E" en face) n'existe qu'attelée à un groupe multisplit.
+//
+// Séparée de CATALOGS exprès : ce catalogue n'alimente QUE findRoomMultiSolutions (calcul.js),
+// jamais findBestMonos seul. Une pièce qui atterrit en monosplit dédié ou en délestage (voir
+// app.js) doit continuer à ne voir que des ensembles réellement commandables — Naka/Yukai 05 y
+// restent les seules options sous ce calibre. En groupe multisplit, en revanche, rien n'empêche
+// de raccorder cette UI : c'est là qu'elle doit apparaître comme alternative à Naka/Yukai, pour
+// éviter d'imposer une gamme d'entrée de gamme dans une chambre au seul motif que la bande
+// d'équivalence (TOLERANCE_EQUIVALENCE) exclut la Curve 07, trop grande de +33% en froid.
+//
+// Source : brochure Toshiba TOS2607-SHORAICURVE-B (même tableau que le reste du catalogue
+// Shorai Curve, voir CATALOGS ci-dessus).
+export const UI_MULTI_SEUL = {
+    toshiba: [
+        { gamme: "Shorai Curve", reference_ensemble: "RAS-M05P2KVSG-E", puissance_froid_kw: 1.5, puissance_chaud_kw: 2.0 }
+    ]
+};
+
 // Tailles UI (codes commerciaux) par palier de puissance, propres à chaque marque.
 //
 // `froidMax` / `chaudMax` = puissance nominale la plus élevée offerte par cette taille, tous

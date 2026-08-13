@@ -8,7 +8,7 @@ import {
 } from './data.js';
 import {
     occupantsParDefaut, resolveCoefG, getFacteurCanicule, getFacteurDeclassementChaud,
-    estimerEcartConsigne, getRequiredKw as getRequiredKwCore, getUiSizeForKw, findBestMonos,
+    estimerEcartConsigne, getRequiredKw as getRequiredKwCore, getUiSizeForKw, findBestMonos, findRoomMultiSolutions,
     findMultiGroup, findMultiGroupOptions, getRoomEligibleGammes, getTvaInfo, getRoomSelectedTvaInfo,
     getGroupTvaInfo, trierMonosParTva, parseNombreSaisi,
     findGroupeEquilibre, estGroupeDesequilibre, ratioPieceDominante, pieceDominantePourGroupe,
@@ -1996,7 +1996,7 @@ function renderMultiRoomsGuide(roomsData, group) {
         if (gammesUniques.length === 0) {
             return `<div class="py-3 border-b border-line last:border-0 text-xs text-amber-800">Pièce ${r.index} : aucune UI du catalogue ne couvre ce besoin.</div>`;
         }
-        const sols = findBestMonos(r.froidMatch, r.chaudMatch, state.brand);
+        const sols = findRoomMultiSolutions(r.froidMatch, r.chaudMatch, state.brand);
         const storedGamme = state.selection.group[r.index];
         const selectedGamme = gammesUniques.includes(storedGamme) ? storedGamme : gammesUniques[0];
         // Statut TVA de CETTE pièce : masqué sur les pastilles quand toutes les gammes
