@@ -340,6 +340,9 @@
 
             <div class="flex items-center gap-1.5 sm:gap-2 min-w-0">
                 <span id="sync-badge" class="hidden k-pill k-pill-neutral"></span>
+                <!-- Mode admin (js/admin.js) : visible uniquement sur un appareil déverrouillé,
+                     jamais chez un client. C'est aussi le seul moyen d'en sortir. -->
+                <button type="button" id="admin-badge" class="hidden k-pill k-pill-warn" title="Toutes les marques sont proposées — cliquer pour quitter le mode admin">Mode admin</button>
                 <button id="account-badge" data-status="anonymous" class="k-btn-onband max-w-[8.5rem] sm:max-w-[12rem] truncate" title="Compte">Se connecter</button>
                 <button onclick="toggleDashboard(true)" class="k-icon-btn-onband" title="Mes Chantiers" aria-label="Mes Chantiers">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>

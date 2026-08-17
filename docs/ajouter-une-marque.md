@@ -215,8 +215,41 @@ Supabase que l'un ne peut pas lire les lignes `configurations` de l'autre (RLS).
 
 ---
 
-## 5. Limites à connaître, à ne jamais présenter comme des garanties qu'elles ne sont pas
+## 5. Mode admin — voir toutes les marques sur son propre appareil
 
+L'exploitant de Klimo pose plusieurs marques dans sa propre journée, alors qu'un client n'en
+voit qu'une. Le mode admin (`js/admin.js`) déverrouille le sélecteur avec **toutes** les
+marques du catalogue, sur un appareil précis, sans compte et sans réseau — la bascule reste
+donc possible dans un vide sanitaire sans barre de réseau.
+
+**Activer** : ouvrir une fois `https://app.klimo.fr/?admin=<code>`, le code étant `ADMIN_CODE`
+dans `js/config.js`. Le paramètre est aussitôt retiré de la barre d'adresse (il ne survit ni à
+une capture d'écran, ni à un lien partagé, ni à un favori) ; le mode, lui, persiste dans
+`localStorage` et survit aux rechargements.
+
+**Désactiver** : la pastille « Mode admin » dans la barre d'application. C'est la seule sortie
+visible — sans elle, on entre par une URL et on ne ressort qu'en vidant le stockage. Si un
+calcul est affiché sur une marque qui va redevenir interdite, une confirmation nommant la
+marque est demandée avant.
+
+**Priorité** : les droits d'un compte connecté priment sur le mode admin
+(`resoudreMarquesActives`, `js/admin.js`). Se connecter au compte d'un client montre donc
+exactement ce que ce client voit — sans quoi reproduire un problème qu'il signale serait
+impossible. Le mode admin reprend la main à la déconnexion.
+
+Une marque ajoutée au catalogue (§2-3) apparaît **automatiquement** en mode admin, via
+`MARQUES_CONNUES`, tout en restant invisible pour les clients tant qu'elle n'est ni dans
+`MARQUES_ACTIVES` ni dans leur `entitlements.brands`.
+
+---
+
+## 6. Limites à connaître, à ne jamais présenter comme des garanties qu'elles ne sont pas
+
+- **Le code du mode admin n'est pas un secret.** `js/config.js` est servi en clair à tous les
+  navigateurs, comme tout le JavaScript de l'application : qui ouvre le fichier trouve le
+  code. Il écarte la découverte accidentelle par un client curieux, rien de plus — à ne
+  jamais décrire comme une protection, et à garder en tête pour le modèle commercial : la
+  vente à la marque repose sur la bonne foi du client, pas sur une barrière technique.
 - **Les droits ne pilotent que l'interface, pas l'accès aux données du catalogue.**
   `js/data.js` contient les catalogues de **toutes** les marques et est servi tel quel à
   tout le monde (précaché pour l'usage hors-ligne, `sw.js`). Un client dont le compte

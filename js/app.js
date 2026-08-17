@@ -25,6 +25,9 @@ import {
     MARQUES_ACTIVES, MARQUES_CONNUES, marqueAutorisee, marqueParDefaut, resoudreMarque, libelleMarque,
     selecteurMarqueVisible
 } from './marques.js';
+import {
+    initAdmin, estAdmin, marquesAdmin, quitterModeAdmin, resoudreMarquesActives
+} from './admin.js';
 import { store } from './store.js';
 import { init as initAccount, subscribe as subscribeAccount, getBrandsOverride, getStatus as getAuthStatus } from './account.js';
 import { initAuthUi } from './auth-ui.js';
@@ -59,12 +62,13 @@ let state = {
     loadedConfigId: null
 };
 
-// Résout la liste de marques effective : la surcharge du compte connecté si elle existe,
-// sinon la constante locale de js/marques.js. `getBrandsOverride()` renvoie `null` pour un
-// appareil jamais connecté — comportement inchangé par rapport au lot précédent, aucun
-// utilisateur local existant n'est cassé par l'arrivée des comptes.
+// Résout la liste de marques effective. Trois couches, par priorité décroissante : les droits
+// du compte connecté, puis le mode admin local, puis la constante de js/marques.js.
+// `getBrandsOverride()` comme `marquesAdmin()` renvoient `null` quand ils n'ont rien à dire —
+// un appareil jamais connecté et jamais déverrouillé retombe donc exactement sur le
+// comportement d'origine. L'ordre lui-même est expliqué et testé dans js/admin.js.
 function marquesActives() {
-    return getBrandsOverride() || MARQUES_ACTIVES;
+    return resoudreMarquesActives(getBrandsOverride(), marquesAdmin(), MARQUES_ACTIVES);
 }
 
 // Identifiants de pièce : compteur monotone, et non Date.now().
@@ -135,6 +139,9 @@ function initApp() {
     // arrière-plan sans jamais bloquer ce premier rendu — voir js/account.js. Les données
     // locales s'affichent avant même de savoir quoi que ce soit de l'authentification.
     initAccount();
+    // Avant toute construction du sélecteur de marque : c'est ce qui décide de la liste de
+    // marques que genererBoutonsMarque/initSelecteurMarque vont proposer. Purement local.
+    initAdmin(window.location.search);
 
     const deptSelect = document.getElementById('deptSelect');
     const dernierDept = getDernierDept();
@@ -151,6 +158,7 @@ function initApp() {
     renderRooms();
     viderResultats();
     initDashboardEvents();
+    initAdminUi();
     initAuthUi();
     subscribeAccount(onAccountChange);
     restoreDraftIfAny();
@@ -270,6 +278,35 @@ function initSelecteurMarque() {
     // Conserve le choix de marque en cours s'il reste valide, plutôt que de forcer la
     // marque par défaut à chaque rafraîchissement.
     setBrand(actives.includes(state.brand) ? state.brand : marqueParDefaut(actives));
+}
+
+// --- MODE ADMIN ---------------------------------------------------------------------
+// La pastille est la seule sortie visible du mode : sans elle, on y entre par une URL et on
+// n'en ressort plus qu'en vidant le stockage du navigateur.
+function renderAdminBadge() {
+    const badge = document.getElementById('admin-badge');
+    if (badge) badge.classList.toggle('hidden', !estAdmin());
+}
+
+function initAdminUi() {
+    const badge = document.getElementById('admin-badge');
+    if (!badge) return;
+    badge.addEventListener('click', () => {
+        // Quitter le mode fait retomber la marque courante sur celle du compte, ou sur la
+        // marque par défaut, via resoudreMarque. On calcule la liste telle qu'elle sera APRÈS
+        // la sortie plutôt que de supposer MARQUES_ACTIVES : sur un compte connecté, ce sont
+        // ses droits qui priment et quitter le mode ne change alors rien du tout.
+        const apresSortie = resoudreMarquesActives(getBrandsOverride(), null, MARQUES_ACTIVES);
+        if (state.currentCalc && !apresSortie.includes(state.brand)) {
+            const question = `Quitter le mode admin ramènera la marque sur ${libelleMarque(marqueParDefaut(apresSortie))}.\n\n`
+                + `Le dimensionnement ${libelleMarque(state.brand)} affiché sera marqué à recalculer. Continuer ?`;
+            if (!confirm(question)) return;
+        }
+        quitterModeAdmin();
+        renderAdminBadge();
+        initSelecteurMarque();
+    });
+    renderAdminBadge();
 }
 
 // --- DASHBOARD & LOCALSTORAGE LOGIC ---
