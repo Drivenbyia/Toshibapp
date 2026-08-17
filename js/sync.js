@@ -11,7 +11,11 @@
 
 import { reconcile, toRemoteRow, fromRemoteRow, computeClockOffset, smoothClockOffset } from './reconcile.js';
 
-export const PAGE_SIZE = 200;
+// Descendu de 200 à 100 avec l'arrivée de `body.fiche` : le corps d'un chantier multisplit est
+// passé d'environ 2 à 5,5 ko, ce qui portait une page de tirage à près d'un mégaoctet. La
+// pagination existe pour que la synchronisation reste faisable sur une connexion de chantier ;
+// doubler le poids d'une page sans toucher au compte l'aurait vidée de son sens.
+export const PAGE_SIZE = 100;
 
 // `transport` doit exposer :
 //   push(rows)             -> { ok, error?, serverDateMs? }

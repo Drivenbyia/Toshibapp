@@ -191,7 +191,8 @@ export function getRequiredKw(surface, height, room, ctx) {
     const ratioVit  = RATIO_VITRAGE[room.vitrage] ?? RATIO_VITRAGE.moyen;
     const fc        = FC_PROTECTION[room.protection] ?? FC_PROTECTION.stores_int;
     const sVitree   = surface * ratioVit;
-    const qSolaire  = rayon * interpolerGVitrage(coefG) * fc * COEF_INERTIE_SOLAIRE * sVitree; // W
+    const gVit      = interpolerGVitrage(coefG);
+    const qSolaire  = rayon * gVit * fc * COEF_INERTIE_SOLAIRE * sVitree; // W
 
     // 4. Apports internes de base : éclairage + équipements.
     const qInternesBase = APPORTS_INTERNES * surface; // W
@@ -204,9 +205,37 @@ export function getRequiredKw(surface, height, room, ctx) {
     const nbOcc = Number.isFinite(occupantsSaisis) ? occupantsSaisis : (occupantsParDefaut(surface) || 0);
     const qOccupants = nbOcc * OCCUPANT_W;            // W
 
-    const besoinFroid = (qEnveloppe + qToiture + qSolaire + qInternesBase + qOccupants) / 1000;
+    // Une SEULE expression pour la somme, réutilisée par `detail.froidTotalW` : réécrire la
+    // même addition à deux endroits ferait diverger les derniers bits, et la fiche imprimée
+    // n'additionnerait plus exactement le total qui a choisi la machine — c'est-à-dire que le
+    // document censé justifier le dimensionnement se contredirait tout seul.
+    const froidTotalW = qEnveloppe + qToiture + qSolaire + qInternesBase + qOccupants;
+    const besoinFroid = froidTotalW / 1000;
 
-    return { froid: besoinFroid, chaud: besoinChaud };
+    // `froid` et `chaud` restent la réponse de cette fonction ; `detail` n'ajoute aucun calcul,
+    // il expose les grandeurs intermédiaires DÉJÀ calculées ci-dessus, qui étaient jusqu'ici
+    // jetées. C'est la matière de la fiche imprimée : sans elles, un document ne peut que
+    // réaffirmer le résultat, jamais le justifier.
+    // Unités mêlées et explicites : les postes froid en W (la grandeur naturelle du bilan poste
+    // par poste), les besoins et le chaud en kW (la grandeur du catalogue).
+    return {
+        froid: besoinFroid,
+        chaud: besoinChaud,
+        detail: {
+            entrees:     { surface, height, volume, coefG, tBaseHiver, tBaseEte, consigne },
+            exposition:  { nbMursExt, ratioExposition, gTransmission, gVentilation, gPondere },
+            froidPostes: { enveloppe: qEnveloppe, toiture: qToiture, solaire: qSolaire,
+                           internes: qInternesBase, occupants: qOccupants },   // W
+            froidTotalW,
+            solaire:     { rayonnement: rayon, gVitrage: gVit, fcProtection: fc,
+                           inertie: COEF_INERTIE_SOLAIRE, sVitree, ratioVitrage: ratioVit },
+            toiture:     { chargeSurfacique: chargeToit, emplacement: room.emplacement },
+            occupants:   { nb: nbOcc, wParOccupant: OCCUPANT_W },
+            internes:    { wParM2: APPORTS_INTERNES },
+            chaudDetail: { deltaT: deltaTChaud, deperditionsSeches, coefRelance: COEF_RELANCE },  // kW
+            deltaTEte
+        }
+    };
 }
 
 // Code taille UI (ex: "10") pour un besoin donné, propre à la marque. Renvoie la plus petite
