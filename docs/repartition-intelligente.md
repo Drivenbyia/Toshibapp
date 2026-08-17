@@ -75,9 +75,29 @@ qu'ils coûtent l'un à l'autre :
 - **Réalité du bâti** — deux pièces aux extrémités opposées ne se raccordent pas au même
   groupe sans un coût de liaison que l'application ne connaît pas.
 
-Ce dernier point est le plus limitant : **l'application ignore la géométrie**. Elle ne sait
-pas quelles pièces sont voisines, ni où peut se poser un groupe extérieur. Une répartition
-optimale sur le papier peut être irréalisable en pose.
+### La géométrie est déjà saisie — dans les zones
+
+Première réaction : l'application ignore la géométrie, donc elle pourrait proposer des
+répartitions impossibles à poser. Faux, et c'est ce qui débloque tout.
+
+**Une zone EST une contrainte de géométrie.** L'installateur ne découpe pas au hasard : il
+crée une zone parce qu'il a constaté sur place ce qui est raccordable ensemble. Cette
+information n'a donc pas à être saisie une seconde fois — elle est déjà là, exprimée par le
+découpage lui-même. Demander en plus un rattachement par étage ou par façade alourdirait la
+saisie pour redemander ce que l'utilisateur vient de dire.
+
+D'où la règle qui borne toute cette fonctionnalité :
+
+> **L'exploration reste À L'INTÉRIEUR d'une zone. Jamais une pièce ne change de zone.**
+
+Toutes les pièces d'une zone sont raccordables entre elles par construction : toute
+sous-répartition de cette zone est donc physiquement réalisable — au pire deux groupes au
+lieu d'un au même emplacement. À l'inverse, déplacer une pièce d'une zone à l'autre
+contredirait exactement ce que l'installateur a constaté sur le terrain.
+
+Effet secondaire heureux : une zone est plafonnée à 5 pièces (limite du multisplit), donc
+**52 partitions au maximum**. La question du coût de calcul et du plafond à 10 pièces
+disparaît complètement.
 
 ## Position retenue
 
@@ -100,18 +120,21 @@ pas le temps d'énumérer**, en le laissant trancher :
   brand)` → liste de dispositions évaluées. Testable sans DOM, comme le reste du moteur.
 - Réutilise l'existant sans le dupliquer : `findGroupesValides`, `findBestMonos`,
   `getUiSizeForKw`, `tauxChargeGroupe`, `getGroupTvaInfo`.
-- L'exploration doit porter sur **toutes les pièces du chantier**, pas zone par zone — donc
-  après la saisie, ou au niveau du chantier enregistré. C'est le prolongement naturel du
-  rapport de chantier groupé déjà en place.
-- Borne dure à ~10 pièces, avec un message explicite au-delà plutôt qu'un calcul silencieux
-  tronqué.
+- **Portée : les pièces de la zone en cours, et elles seules** (voir plus haut). L'exploration
+  se branche donc sur le calcul courant, pas sur le chantier enregistré.
+- Aucune saisie supplémentaire. Aucune borne à prévoir : 5 pièces maximum par zone.
 
 ## Ce qu'il reste à trancher avant de coder
 
-- **Le critère de classement par défaut** (voir plus haut). C'est une décision métier.
-- **Où cela s'affiche** : dans les résultats, ou seulement sur un chantier à plusieurs zones ?
+- **Le critère de classement par défaut** (voir plus haut). C'est la seule vraie décision
+  métier restante.
+- **Où cela s'affiche.** Contrainte posée : *« il faut que ça reste fluide »* — donc un bloc
+  discret sous le résultat, replié par défaut, jamais une étape de plus dans le parcours.
 - **Le seuil de modulation** qui mérite d'être signalé. Retour terrain à ce jour : le cas
   « seules les petites pièces allumées » est réel mais **rare**, donc à ne pas transformer en
   avertissement permanent.
-- **La géométrie** : accepte-t-on de proposer des répartitions que la pose peut interdire, en
-  le disant clairement ? Ou faut-il d'abord saisir un rattachement de pièces (étage, façade) ?
+
+## Tranché
+
+- **La géométrie ne sera pas saisie.** Le découpage en zones la porte déjà ; la redemander
+  alourdirait la saisie sans rien apprendre. L'exploration ne franchit jamais une zone.
