@@ -390,6 +390,8 @@ function assainirMateriel(m) {
             nom: u.nom ? String(u.nom) : null,
             taille: u.taille ?? null,
             gamme: u.gamme ? String(u.gamme) : null,
+            froidKw: arrondi(u.froidKw, 2),
+            chaudKw: arrondi(u.chaudKw, 2),
             tva: tva(u.tva)
         })),
         monos: (m.monos || []).map(machine),
@@ -599,13 +601,25 @@ function blocCorrections(fiche, { avecDetail, titre }) {
 }
 
 // La machine que la règle de couverture doit confronter au besoin d'une pièce donnée : le
-// monosplit dédié quand la pièce en a un, sinon rien (en multisplit la couverture se joue au
-// niveau du groupe, pas de la pièce — un compresseur unique alimente toutes les unités).
+// monosplit dédié quand la pièce en a un, sinon l'unité intérieure du groupe qui la dessert.
+//
+// Les deux ne répondent pas à la même question, et c'est voulu. Le monosplit dédié EST la
+// machine : sa capacité au repos égale sa capacité en pointe. L'unité intérieure d'un groupe
+// n'est qu'une sortie parmi d'autres d'un compresseur unique — sa fiche technique donne une
+// puissance nominale, mais la puissance qu'elle délivre réellement dépend de ce que les autres
+// unités demandent au même instant (c'est tout l'objet du foisonnement, montré séparément dans
+// « La machine couvre le besoin »). On l'affiche ici quand même, parce que c'est la seule
+// grandeur qui répond à la question du client : « cette unité posée dans MA pièce, elle vaut
+// combien face à ce que vous avez calculé pour MA pièce ? ». La confondre avec une garantie de
+// débit à pleine pointe serait faux ; l'omettre laisserait la corrélation besoin → matériel
+// invisible pour la seule pièce que le client regarde vraiment.
 function machinePourPiece(fiche, piece) {
     const m = fiche.materiel;
     if (!m) return null;
     if (m.type === 'mono' && m.monos.length > 0) return m.monos[0];
-    return m.monos.find(x => x && x.piece === piece.index) || null;
+    const dedie = m.monos.find(x => x && x.piece === piece.index);
+    if (dedie) return dedie;
+    return m.unites.find(u => u && u.piece === piece.index) || null;
 }
 
 // Une seule échelle pour TOUTES les barres « Besoin calculé » de la section pièce par pièce,
@@ -755,13 +769,18 @@ function blocMateriel(fiche, { technique }) {
         </tr></tbody>
     </table>` : '';
 
+    // Froid/Chaud : la puissance de l'unité intérieure ELLE-MÊME, pas le besoin de la pièce
+    // (déjà affiché plus haut, pièce par pièce) — c'est la corrélation entre les deux qui
+    // manquait : une taille de code catalogue ne dit rien à un client, un kW se compare.
     const unites = m.unites.length > 0 ? `
     <table class="pf-table">
-        <thead><tr><th>Pièce</th><th>Unité intérieure</th><th class="pf-n">Taille</th>${technique ? '<th>Conditions</th>' : ''}</tr></thead>
+        <thead><tr><th>Pièce</th><th>Unité intérieure</th><th class="pf-n">Taille</th><th class="pf-n">Froid</th><th class="pf-n">Chaud</th>${technique ? '<th>Conditions</th>' : ''}</tr></thead>
         <tbody>${m.unites.map(u => `<tr>
             <td>${escapeHtml(u.nom ? `${u.piece} · ${u.nom}` : `Pièce ${u.piece}`)}</td>
             <td>${escapeHtml(u.gamme || '—')}</td>
             <td class="pf-n">${escapeHtml(String(u.taille ?? '—'))}</td>
+            <td class="pf-n">${Number.isFinite(u.froidKw) ? `${nb(u.froidKw, 2)} kW` : '—'}</td>
+            <td class="pf-n">${Number.isFinite(u.chaudKw) ? `${nb(u.chaudKw, 2)} kW` : '—'}</td>
             ${technique ? `<td>${escapeHtml(libelleTva(u.tva))}</td>` : ''}
         </tr>`).join('')}</tbody>
     </table>` : '';

@@ -315,6 +315,72 @@ describe('règle de couverture', () => {
             'le document doit dire pourquoi la capacité retenue dépasse la puissance nominale');
         assert.ok(html.includes('7,88 kW'), '7,5 × 1,05 = 7,875 kW disponibles en simultané');
     });
+
+    // La corrélation entre le besoin d'UNE pièce et l'unité qui y est posée : une taille
+    // catalogue (« 05 », « 07 ») ne dit rien à un client, une puissance se compare. Sans cette
+    // barre, seul le monosplit dédié montrait cette comparaison — les pièces raccordées à un
+    // groupe multisplit n'avaient RIEN pour la porter, alors qu'elles sont la majorité des cas.
+    test('l\'unité intérieure d\'une pièce raccordée à un groupe porte aussi sa propre barre', () => {
+        const f = ficheDeTest();
+        f.materiel = {
+            type: 'multi',
+            groupe: { reference: 'RAS-3M26G3AVG-E', froidKw: 7.5, chaudKw: 9.0, sorties: 3,
+                      besoin: { froid: 6.2, chaud: 7.1 }, foisonnement: { froid: 1.05, chaud: 1.25 },
+                      tva: { statut: 'eligible', wifiRequired: false } },
+            unites: [{ piece: 1, nom: 'Salon', taille: '13', gamme: 'Shorai Curve',
+                       froidKw: 3.5, chaudKw: 4.2, tva: { statut: 'eligible', wifiRequired: false } }],
+            monos: [], alertes: []
+        };
+        for (const html of [gabaritTravail(f), gabaritClient(f)]) {
+            const blocPiece = html.split('1 · Salon')[1].split('Chauffage')[0];
+            assert.ok(blocPiece.includes('Shorai Curve'), 'la barre porte le nom de la gamme posée');
+            assert.ok(blocPiece.includes('3,50 kW'), 'et sa puissance froid propre — pas le besoin de la pièce');
+            const largeurMachine = [...blocPiece.matchAll(/pf-machine" style="width:([\d.]+)%/g)];
+            assert.equal(largeurMachine.length, 1, 'une seule barre machine pour cette pièce');
+        }
+    });
+
+    test('sans puissance connue pour l\'unité (fiche ancienne), pas de barre machine plutôt qu\'une barre fausse', () => {
+        const f = ficheDeTest();
+        f.materiel = {
+            type: 'multi', groupe: null,
+            unites: [{ piece: 1, nom: 'Salon', taille: '13', gamme: 'Shorai Curve', froidKw: null, chaudKw: null, tva: null }],
+            monos: [], alertes: []
+        };
+        const bloc = gabaritTravail(f).split('1 · Salon')[1].split('Chauffage')[0];
+        assert.equal([...bloc.matchAll(/pf-machine" style=/g)].length, 0);
+    });
+
+    // Le tableau « Matériel retenu » est le bon de commande : la puissance de chaque unité doit
+    // s'y lire à côté de sa taille, sans avoir à remonter au bloc de la pièce.
+    test('le tableau matériel porte le froid et le chaud de chaque unité intérieure', () => {
+        const f = ficheDeTest();
+        f.materiel = {
+            type: 'multi', groupe: null,
+            unites: [{ piece: 1, nom: 'Salon', taille: '13', gamme: 'Shorai Curve',
+                       froidKw: 3.5, chaudKw: 4.2, tva: { statut: 'eligible', wifiRequired: false } }],
+            monos: [], alertes: []
+        };
+        for (const html of [gabaritTravail(f), gabaritClient(f)]) {
+            const tableau = html.match(/<table class="pf-table">\s*<thead><tr><th>Pièce<\/th>[\s\S]*?<\/table>/)[0];
+            assert.ok(tableau.includes('<th class="pf-n">Froid</th>'));
+            assert.ok(tableau.includes('<th class="pf-n">Chaud</th>'));
+            assert.ok(tableau.includes('3,50 kW'));
+            assert.ok(tableau.includes('4,20 kW'));
+        }
+    });
+
+    test('une unité sans puissance connue affiche un tiret, jamais 0,00 kW inventé', () => {
+        const f = ficheDeTest();
+        f.materiel = {
+            type: 'multi', groupe: null,
+            unites: [{ piece: 1, nom: 'Salon', taille: '13', gamme: 'Shorai Curve', froidKw: null, chaudKw: null, tva: null }],
+            monos: [], alertes: []
+        };
+        const tableau = gabaritTravail(f).match(/<table class="pf-table">\s*<thead><tr><th>Pièce<\/th>[\s\S]*?<\/table>/)[0];
+        assert.ok(!tableau.includes('0,00 kW'));
+        assert.ok(tableau.includes('>—<'));
+    });
 });
 
 describe('ficheDeSecours — repli sur les entrées enregistrées', () => {
@@ -454,6 +520,20 @@ describe('assainirFiche — la fiche doit survivre à la persistance', () => {
 
     test('une fiche nulle reste nulle', () => {
         assert.equal(assainirFiche(null), null);
+    });
+
+    test('la puissance de chaque unité intérieure survit à la persistance, arrondie', () => {
+        const f = ficheDeTest();
+        f.materiel = {
+            type: 'multi', groupe: null,
+            unites: [{ piece: 1, nom: 'Salon', taille: '13', gamme: 'Shorai Curve',
+                       froidKw: 3.499999999, chaudKw: 4.2000001, tva: null }],
+            monos: [], alertes: []
+        };
+        const propre = assainirFiche(f);
+        assert.equal(propre.materiel.unites[0].froidKw, 3.5);
+        assert.equal(propre.materiel.unites[0].chaudKw, 4.2);
+        assert.deepEqual(JSON.parse(JSON.stringify(propre)).materiel.unites[0], propre.materiel.unites[0]);
     });
 });
 

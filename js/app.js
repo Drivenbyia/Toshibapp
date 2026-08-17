@@ -1961,8 +1961,17 @@ function renderResults({ anime = false } = {}) {
             };
             materiel.unites = m.standardRooms.map(r => {
                 const selGamme = state.selection.group[r.index];
+                // La taille catalogue (« 05 », « 07 »…) n'est pas une puissance : c'est un code
+                // qui ne dit rien à un client. La puissance froid/chaud de l'unité RETENUE (pas
+                // celle du besoin qu'elle couvre, déjà affichée ailleurs) est ce qui manquait
+                // pour montrer la corrélation entre le besoin d'une pièce et ce qui y est posé.
+                const solRetenue = selGamme
+                    ? findRoomMultiSolutions(r.froidMatch, r.chaudMatch, state.brand).find(s => s.gamme === selGamme)
+                    : null;
                 return {
                     piece: r.index, nom: r.nom || '', taille: r.size, gamme: selGamme || null,
+                    froidKw: solRetenue ? solRetenue.puissance_froid_kw : null,
+                    chaudKw: solRetenue ? solRetenue.puissance_chaud_kw : null,
                     tva: selGamme ? getRoomSelectedTvaInfo(r, selGamme, bestGroup.gammes_compatibles, state.brand, bestGroup.reference) : null
                 };
             });
