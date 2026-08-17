@@ -19,7 +19,7 @@ import {
 } from './sauvegarde.js';
 import {
     construireFiche, assainirFiche, ficheDepuisBody, lignesTableauFiche,
-    gabaritTravail, gabaritClient, lignesPartage
+    gabaritTravail, gabaritClient, gabaritTravailChantier, gabaritClientChantier, lignesPartage
 } from './fiche.js';
 import {
     MARQUES_ACTIVES, MARQUES_CONNUES, marqueAutorisee, marqueParDefaut, resoudreMarque, libelleMarque,
@@ -587,6 +587,15 @@ function renderDashboard() {
             </div>
         `}).join('');
 
+        // Rapport groupé : n'a de sens qu'à partir de deux zones — avec une seule, c'est
+        // exactement le bouton "Rapport client" déjà proposé sous cette zone, en double.
+        const rapportGroupeHtml = configs.length > 1 ? `
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-1.5 mb-3 pb-3 border-b border-line">
+                <span class="text-2xs text-ink-500">${configs.length} zones de ce chantier —</span>
+                <button data-action="pdf-travail-chantier" data-client="${escapeHtml(clientName)}" class="k-btn-ghost text-2xs">Fiche de travail complète</button>
+                <button data-action="pdf-client-chantier" data-client="${escapeHtml(clientName)}" class="k-btn-ghost text-2xs">Rapport client complet</button>
+            </div>` : '';
+
         html += `
         <div class="k-card fade-in">
             <div class="flex items-center justify-between gap-3 mb-1">
@@ -596,6 +605,7 @@ function renderDashboard() {
                 </h3>
                 <button data-action="delete-chantier" data-client="${escapeHtml(clientName)}" class="k-btn min-h-[44px] px-3 text-2xs text-rose-600 border border-rose-200 hover:bg-rose-600 hover:text-white hover:border-rose-600 flex-shrink-0">Tout supprimer</button>
             </div>
+            ${rapportGroupeHtml}
             ${configsHtml}
         </div>`;
     });
@@ -613,6 +623,8 @@ function initDashboardEvents() {
         else if (btn.dataset.action === 'reload-config') reloadConfig(btn.dataset.id);
         else if (btn.dataset.action === 'pdf-travail') exporterFicheEnregistree(btn.dataset.id, 'travail');
         else if (btn.dataset.action === 'pdf-client') exporterFicheEnregistree(btn.dataset.id, 'client');
+        else if (btn.dataset.action === 'pdf-travail-chantier') exporterFicheChantier(btn.dataset.client, 'travail');
+        else if (btn.dataset.action === 'pdf-client-chantier') exporterFicheChantier(btn.dataset.client, 'client');
         else if (btn.dataset.action === 'restore-conflict') {
             store.restoreConflict(btn.dataset.id);
             renderDashboard();
@@ -2146,6 +2158,36 @@ function exporterFicheEnregistree(id, variante) {
     }
     if (palier === 3) return;
     imprimerFiche(fiche, variante);
+}
+
+// Export groupé : TOUTES les zones enregistrées d'un même client, en un seul document — voir
+// gabaritTravailChantier/gabaritClientChantier (js/fiche.js). Le besoin réel : un logement
+// desservi par plusieurs groupes extérieurs distincts (un par étage…) est enregistré en
+// plusieurs zones, une par groupe, parce que c'est le bon découpage pour le CALCUL ; mais pour
+// le client, c'est un seul chantier, et il ne doit recevoir qu'un seul document.
+//
+// Une zone sans donnée structurée exploitable (fiche ancienne, palier 3) est incluse en fiche
+// de travail — comme exporterFicheEnregistree le fait déjà pour une zone seule, avec le même
+// texte dégradé — mais omise du rapport client, qui ne peut rien justifier sans le détail des
+// calculs. Un chantier entièrement composé de telles zones ne produit donc aucun rapport
+// client : mieux vaut ne rien imprimer que justifier un choix sans le montrer.
+function exporterFicheChantier(clientName, variante) {
+    const configs = store.listConfigs().filter((c) => c.clientName === clientName);
+    if (configs.length === 0) return;
+    const fiches = configs
+        .map((cfg) => {
+            const { fiche, palier } = ficheDepuisBody(cfg);
+            if (fiche && palier !== 3) return fiche;
+            return variante === 'client' ? null : ficheTexteDegradee(cfg);
+        })
+        .filter(Boolean);
+    if (fiches.length === 0) return;
+    const zone = document.getElementById('print-area');
+    zone.className = `pf pf--${variante}`;
+    zone.innerHTML = variante === 'client'
+        ? gabaritClientChantier(clientName, fiches)
+        : gabaritTravailChantier(clientName, fiches);
+    window.print();
 }
 
 // Dernier recours : une fiche ancienne dont il ne reste que les chaînes déjà formatées.

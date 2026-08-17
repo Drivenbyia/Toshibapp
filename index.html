@@ -155,6 +155,16 @@
             padding: 1.6mm 2.5mm; margin: 6mm 0 3mm;
             break-after: avoid; page-break-after: avoid;
         }
+        /* Bandeau qui ouvre une ZONE, dans un document chantier réunissant plusieurs
+           configurations du même client (voir gabaritTravailChantier / gabaritClientChantier,
+           js/fiche.js) : le nom de la zone à gauche, mode + marque à droite — sur la même
+           ligne que le bandeau générique, pour ne pas ajouter un niveau de titre de plus. */
+        .pf-band-zone { display: flex; align-items: baseline; justify-content: space-between; gap: 4mm; }
+        .pf-band-sub { font-weight: 400; text-transform: none; letter-spacing: 0; opacity: .85; }
+        /* Chaque zone d'un document chantier démarre sur une nouvelle page : un client qui
+           feuillette doit retrouver un groupe extérieur par page, jamais un bloc noyé au
+           milieu du précédent. Sans effet sur la première zone (pas de classe .pf-saut). */
+        .pf-zone.pf-saut { break-before: page; page-break-before: always; }
 
         /* --- Bloc pièce --------------------------------------------------- */
         .pf-piece {
