@@ -591,14 +591,23 @@ export function partitionner(items) {
 // Évalue un bloc de pièces servies par UNE unité extérieure : monosplit si la pièce est seule,
 // groupe multisplit sinon. Renvoie null si le catalogue ne sait pas servir ce bloc — une pièce
 // dont le besoin dépasse la plus grosse UI multisplit ne peut ainsi apparaître que seule.
-export function evaluerBlocRepartition(bloc, brand, coefFoisonnementFroid, coefFoisonnementChaud) {
+//
+// `gammesPreferees` (optionnel) : { [index de pièce]: nom de gamme } — la gamme déjà choisie
+// par l'installateur pour cette pièce dans la configuration EN COURS (state.selection.group).
+// Ce choix est déjà fait ; le reproposer serait demander deux fois la même décision. Ignorée
+// silencieusement si la gamme n'a pas de déclinaison monosplit à cette taille — cas de Shorai
+// Curve, qui n'existe qu'en unité de groupe (1,5 kW) et jamais en monosplit dédié à cette
+// puissance : on retombe alors sur le premier résultat du tri TVA, comme en l'absence de
+// préférence.
+export function evaluerBlocRepartition(bloc, brand, coefFoisonnementFroid, coefFoisonnementChaud, gammesPreferees = null) {
     if (!bloc || bloc.length === 0) return null;
 
     if (bloc.length === 1) {
         const p = bloc[0];
         const monos = trierMonosParTva(findBestMonos(p.froidMatch, p.chaudMatch, brand), brand);
         if (monos.length === 0) return null;
-        const m = monos[0];
+        const preferee = gammesPreferees && p.index != null ? gammesPreferees[p.index] : null;
+        const m = (preferee && monos.find(x => x.gamme === preferee)) || monos[0];
         const besoinFroid = p.req ? p.req.froid : p.froidMatch;
         const besoinChaud = p.req ? p.req.chaud : p.chaudMatch;
         const chargeF = besoinFroid / m.puissance_froid_kw;
@@ -644,11 +653,15 @@ export function evaluerBlocRepartition(bloc, brand, coefFoisonnementFroid, coefF
 // Aucun score composite : chaque disposition expose ses grandeurs séparément (unités, puissance
 // installée, charge, modulation, TVA) pour que le compromis reste lisible. Un score unique
 // masquerait exactement l'arbitrage que cette fonction existe pour montrer.
-export function explorerRepartitions(pieces, brand, coefFoisonnementFroid, coefFoisonnementChaud) {
+//
+// `gammesPreferees` : voir evaluerBlocRepartition. Propagée telle quelle à chaque bloc évalué,
+// pour qu'une pièce extraite en monosplit dédié conserve la gamme déjà choisie sur le
+// multisplit plutôt que d'en recevoir une nouvelle, quelle que soit la partition explorée.
+export function explorerRepartitions(pieces, brand, coefFoisonnementFroid, coefFoisonnementChaud, gammesPreferees = null) {
     if (!Array.isArray(pieces) || pieces.length < 2) return [];
     const dispositions = [];
     for (const partition of partitionner(pieces)) {
-        const blocs = partition.map(b => evaluerBlocRepartition(b, brand, coefFoisonnementFroid, coefFoisonnementChaud));
+        const blocs = partition.map(b => evaluerBlocRepartition(b, brand, coefFoisonnementFroid, coefFoisonnementChaud, gammesPreferees));
         if (blocs.some(b => b === null)) continue;
         const modulations = blocs.map(b => b.modulationMin).filter(m => m !== null);
         dispositions.push({

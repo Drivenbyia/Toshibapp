@@ -1214,6 +1214,58 @@ describe('Répartition des unités entre groupes extérieurs', () => {
             assert.ok(ms < 100, `exploration en ${ms.toFixed(1)} ms — doit rester imperceptible`);
         });
     });
+
+    describe('gammesPreferees — la gamme déjà choisie ne se refait pas', () => {
+        // Un séjour de 50 m² en zone B, G 1,10 : req 2,672 kW F / 3,960 kW C, corrigé (marge
+        // canicule × déclassement chaud) à 2,867 kW F / 4,968 kW C — taille UI 16. Valeurs
+        // recalculées via getRequiredKw/getFacteurCanicule/getFacteurDeclassementChaud plutôt
+        // qu'approchées, pour ne pas glisser d'une taille de catalogue à une autre. Quatre
+        // gammes conviennent à cette taille (Yukai, Haori, Shorai Curve, Naka), et le tri TVA
+        // par défaut retient Yukai en premier — ce qui imposait silencieusement cette gamme
+        // avant l'ajout de ce paramètre.
+        const SEJOUR = {
+            nom: 'Salon', index: 1,
+            req: { froid: 2.6715800000000005, chaud: 3.9599999999999995 },
+            froidMatch: 2.8674958666666677, chaudMatch: 4.967741935483871
+        };
+
+        test('la gamme choisie en amont est reprise sur le monosplit', () => {
+            const b = evaluerBlocRepartition([SEJOUR], 'toshiba', COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD, { 1: 'Haori' });
+            assert.equal(b.gamme, 'Haori');
+        });
+
+        test('sans préférence, le repli reste le premier du tri TVA (comportement inchangé)', () => {
+            const b = evaluerBlocRepartition([SEJOUR], 'toshiba', COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD);
+            assert.equal(b.gamme, 'Yukai');
+        });
+
+        // Le cas nommé par l'installateur : Shorai Curve n'existe en CATALOGS.monosplits qu'à
+        // partir de la taille 07 (2/2,5 kW) — la taille 05 (1,5/2 kW) n'existe que via
+        // UI_MULTI_SEUL, donc uniquement comme unité de groupe, jamais en monosplit dédié. Une
+        // petite chambre dont le besoin résout à cette taille doit ignorer silencieusement la
+        // préférence, pas faire planter ni renvoyer une machine inexistante.
+        test('une préférence sans déclinaison monosplit à cette taille (Shorai Curve, taille 05) retombe sur le repli', () => {
+            const petiteChambre = { nom: 'Ch', index: 3, req: { froid: 0.9, chaud: 0.9 }, froidMatch: 1.0, chaudMatch: 1.1 };
+            assert.equal(getUiSizeForKw(petiteChambre.froidMatch, petiteChambre.chaudMatch, 'toshiba'), '05',
+                'préalable : ce besoin doit bien résoudre à la taille 05');
+            const b = evaluerBlocRepartition([petiteChambre], 'toshiba', COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD, { 3: 'Shorai Curve' });
+            assert.notEqual(b.gamme, 'Shorai Curve');
+        });
+
+        test('une pièce sans préférence connue (index absent de la map) n\'est pas affectée', () => {
+            const b = evaluerBlocRepartition([SEJOUR], 'toshiba', COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD, { 99: 'Haori' });
+            assert.equal(b.gamme, 'Yukai');
+        });
+
+        test('explorerRepartitions propage la préférence à chaque bloc monosplit qu\'elle produit', () => {
+            const chambre = { nom: 'Ch', index: 2, req: { froid: 0.6, chaud: 0.6 }, froidMatch: 0.6 * 1.07, chaudMatch: 0.6 * 1.25 };
+            const d = explorerRepartitions([SEJOUR, chambre], 'toshiba', COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD, { 1: 'Haori' });
+            const blocsSejourSeul = d.flatMap(x => x.blocs).filter(b => b.type === 'mono' && b.pieces.some(p => p.nom === 'Salon'));
+            assert.ok(blocsSejourSeul.length > 0, 'au moins une disposition sert le séjour en monosplit dédié');
+            assert.ok(blocsSejourSeul.every(b => b.gamme === 'Haori'),
+                'la préférence doit s\'appliquer partout où le séjour apparaît seul, quelle que soit la partition');
+        });
+    });
 });
 
 // meilleureAlternative : ce qui décide qu'une autre répartition mérite d'être proposée.
