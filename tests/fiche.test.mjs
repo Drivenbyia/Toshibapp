@@ -7,7 +7,8 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import {
     construireFiche, ficheDeSecours, ficheDepuisBody, assainirFiche,
-    lignesTableauFiche, gabaritTravail, gabaritClient, lignesPartage, libelleTva,
+    lignesTableauFiche, gabaritTravail, gabaritClient,
+    gabaritTravailChantier, gabaritClientChantier, lignesPartage, libelleTva,
     partsEntieres, nb
 } from '../js/fiche.js';
 import { getRequiredKw, getUiSizeForKw, getFacteurCanicule, getFacteurDeclassementChaud } from '../js/calcul.js';
@@ -225,6 +226,73 @@ describe('gabarits — le document ne se contredit pas', () => {
         assert.ok(largeurs[0] > largeurs[1] * 1.3,
             `la barre du Salon (${largeurs[0]}%) doit être nettement plus large que celle du Bureau (${largeurs[1]}%) — pas 100 % chacune`);
         assert.ok(largeurs[0] <= 100.01, 'aucune barre ne déborde de sa piste');
+    });
+});
+
+// Le besoin réel derrière ces gabarits : un même logement desservi par plusieurs groupes
+// extérieurs distincts (un par étage…) est enregistré en plusieurs zones — c'est le bon
+// découpage pour LE CALCUL — mais reste un seul chantier pour le client, qui doit recevoir un
+// seul document plutôt qu'un PDF par zone.
+describe('gabaritTravailChantier / gabaritClientChantier — plusieurs zones, un seul document', () => {
+    function ficheZone(zone, materiel) {
+        const f = ficheDeTest({ nom: `Pièce de ${zone}`, materiel });
+        f.identite = { ...f.identite, zone };
+        return f;
+    }
+
+    test('les deux zones apparaissent, chacune sous son propre bandeau', () => {
+        const fiches = [ficheZone('RDC', MATERIEL_MONO), ficheZone('Étage', MATERIEL_MONO)];
+        for (const html of [gabaritTravailChantier('M. Martin', fiches), gabaritClientChantier('M. Martin', fiches)]) {
+            assert.ok(html.includes('Zone 1/2 — RDC'));
+            assert.ok(html.includes('Zone 2/2 — Étage'));
+        }
+    });
+
+    // Une seule zone : le compteur « 1/2 » n'a pas de sens s'il n'y a rien à compter.
+    test('une seule zone ne porte pas de compteur', () => {
+        const fiches = [ficheZone('RDC', MATERIEL_MONO)];
+        const html = gabaritTravailChantier('M. Martin', fiches);
+        assert.ok(html.includes('RDC'));
+        assert.ok(!html.includes('1/1'));
+    });
+
+    test('l\'en-tête porte le client une seule fois et liste les deux zones', () => {
+        const fiches = [ficheZone('RDC', MATERIEL_MONO), ficheZone('Étage', MATERIEL_MONO)];
+        const entete = gabaritTravailChantier('M. Martin', fiches).split('</header>')[1].split('pf-band')[0];
+        assert.equal((entete.match(/M\. Martin/g) || []).length, 1, 'le client ne se répète pas par zone');
+        assert.ok(entete.includes('RDC') && entete.includes('Étage'), 'les deux zones sont listées en identité');
+    });
+
+    // Le pendant exact de « la fiche de travail porte les réserves, pas le rapport client »
+    // pour le document unique : une seule occurrence même avec plusieurs zones.
+    test('les réserves de méthode ne portent qu\'une fois, en fin de document', () => {
+        const fiches = [ficheZone('RDC', MATERIEL_MONO), ficheZone('Étage', MATERIEL_MONO)];
+        const html = gabaritTravailChantier('M. Martin', fiches);
+        assert.equal((html.match(/Réserves de méthode/g) || []).length, 1);
+        assert.ok(!gabaritClientChantier('M. Martin', fiches).includes('Réserves de méthode'));
+    });
+
+    // Ce que .pf-saut pilote en CSS (saut de page, voir index.html) : chaque zone SAUF la
+    // première le porte, pour que la première zone reste sur la même page que l'en-tête.
+    test('chaque zone démarre une nouvelle page, sauf la première', () => {
+        const fiches = [ficheZone('RDC', MATERIEL_MONO), ficheZone('Étage', MATERIEL_MONO), ficheZone('Combles', MATERIEL_MONO)];
+        const html = gabaritTravailChantier('M. Martin', fiches);
+        const sections = [...html.matchAll(/<section class="pf-zone( pf-saut)?">/g)];
+        assert.equal(sections.length, 3);
+        assert.equal(sections[0][1], undefined, 'la première zone ne saute pas de page');
+        assert.ok(sections[1][1] && sections[2][1], 'les zones suivantes démarrent une nouvelle page');
+    });
+
+    test('le bilan et le matériel de chaque zone restent distincts dans le document', () => {
+        const fiches = [ficheZone('RDC', MATERIEL_MONO), ficheZone('Étage', MATERIEL_MONO)];
+        const html = gabaritTravailChantier('M. Martin', fiches);
+        assert.ok(html.includes('Pièce de RDC') && html.includes('Pièce de Étage'),
+            'chaque zone imprime SES propres pièces, pas celles de l\'autre en double');
+    });
+
+    test('sans zone exploitable, aucun des deux gabarits ne lève', () => {
+        assert.equal(gabaritTravailChantier('M. Martin', []), '');
+        assert.equal(gabaritClientChantier('M. Martin', []), '');
     });
 });
 

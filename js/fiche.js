@@ -804,6 +804,20 @@ function blocMateriel(fiche, { technique }) {
     return `${bandeau('Matériel retenu')}${groupe}${unites}${monos}${alertes}`;
 }
 
+// Les réserves de méthode qui closent la fiche de travail, qu'il y ait une zone ou plusieurs :
+// elles portent sur le MOTEUR de calcul, pas sur une zone en particulier, donc une seule
+// occurrence suffit même quand gabaritTravailChantier imprime plusieurs zones à la suite.
+function blocReserves() {
+    return `
+    ${bandeau('Réserves de méthode')}
+    <ul class="pf-liste pf-reserves">
+        <li>Puissances catalogue données au point d'essai EN 14511 (35 °C ext. en froid, +7 °C ext. en chaud).</li>
+        <li>La surcharge toiture se cumule en partie avec la transmission déjà captée par le coefficient G : le biais va vers le surdimensionnement, jamais vers le déficit.</li>
+        <li>Le déclassement chaud est une estimation générique, à affiner sur les courbes constructeur.</li>
+        <li>Le coefficient G est appliqué pièce par pièce, pondéré par le nombre de murs extérieurs déclarés.</li>
+    </ul>`;
+}
+
 // --- Gabarit 1 : fiche de travail ---------------------------------------------------------
 //
 // Destinataire : l'installateur, qui monte son devis. Tout y est, dense, dans l'ordre où on le
@@ -824,13 +838,7 @@ export function gabaritTravail(fiche) {
     ${blocCouvertureGroupe(fiche)}
     ${blocMateriel(fiche, { technique: true })}
     ${blocCorrections(fiche, { avecDetail: true })}
-    ${bandeau('Réserves de méthode')}
-    <ul class="pf-liste pf-reserves">
-        <li>Puissances catalogue données au point d'essai EN 14511 (35 °C ext. en froid, +7 °C ext. en chaud).</li>
-        <li>La surcharge toiture se cumule en partie avec la transmission déjà captée par le coefficient G : le biais va vers le surdimensionnement, jamais vers le déficit.</li>
-        <li>Le déclassement chaud est une estimation générique, à affiner sur les courbes constructeur.</li>
-        <li>Le coefficient G est appliqué pièce par pièce, pondéré par le nombre de murs extérieurs déclarés.</li>
-    </ul>
+    ${blocReserves()}
     ${piedDePage(fiche)}`;
 }
 
@@ -860,6 +868,110 @@ export function gabaritClient(fiche) {
     ${blocMateriel(fiche, { technique: false })}
     ${blocCorrections(fiche, { avecDetail: true, titre: 'Pourquoi la machine dépasse le besoin calculé' })}
     ${piedDePage(fiche)}`;
+}
+
+// --- Gabarits 3 et 4 : chantier complet (plusieurs zones du même client) -----------------
+//
+// Le besoin : un même logement peut être desservi par plusieurs groupes extérieurs distincts
+// (un par étage, une aile séparée…), chacun enregistré comme sa propre zone — c'est le bon
+// découpage pour le CALCUL, un groupe multisplit ne se dimensionne que pour les pièces qu'il
+// dessert. Mais pour le client, c'est un seul chantier, et il doit recevoir un seul document.
+// Ces deux gabarits reprennent donc le corps de gabaritTravail/gabaritClient tel quel, une
+// fois par zone, sous un UNIQUE en-tête et un UNIQUE pied de page — chaque zone démarre sur
+// une nouvelle page (.pf-saut) pour rester identifiable au feuilletage.
+
+// En-tête chantier : l'identité du CLIENT porte le document, pas celle d'une zone en
+// particulier — contrairement à enTete(), qui identifie une fiche unique. `installateur` et
+// `dateStr` sont supposés partagés entre zones (même saisie, même jour) ; en cas d'écart, ceux
+// de la première zone priment plutôt que de choisir arbitrairement entre plusieurs valeurs.
+function enTeteChantier(clientName, fiches, titreDoc) {
+    const id = (fiches[0] && fiches[0].identite) || {};
+    const zones = fiches.map(f => (f.identite && f.identite.zone) || '').filter(Boolean);
+    return `
+    <header class="pf-head">
+        <h1 class="pf-titre">${escapeHtml(titreDoc)}</h1>
+        <p class="pf-emetteur">${escapeHtml(id.installateur || 'Klimo')}</p>
+    </header>
+    <dl class="pf-identite">
+        ${clientName ? paire('Client', escapeHtml(clientName)) : ''}
+        ${zones.length > 0 ? paire(zones.length > 1 ? 'Zones' : 'Zone', escapeHtml(zones.join(' · '))) : ''}
+        ${id.dateStr ? paire('Date', escapeHtml(id.dateStr)) : ''}
+    </dl>`;
+}
+
+// Bandeau de section réutilisé pour ouvrir chaque zone, à la place du bandeau générique
+// bandeau() : porte le nom de la zone (l'information qui manquerait sinon, une fois l'en-tête
+// commun remonté au niveau du chantier) et, à droite, mode + marque de CETTE zone — deux
+// groupes du même chantier peuvent être de marques différentes si le catalogue a changé entre
+// deux visites, la mention doit donc rester par zone et non remonter à l'en-tête chantier.
+function bandeauZone(fiche, index, total) {
+    const id = fiche.identite || {};
+    const sousTitre = [id.modeLabel, id.brandLabel].filter(Boolean).join(' · ');
+    const compteur = total > 1 ? `Zone ${index + 1}/${total} — ` : '';
+    return `<h2 class="pf-band pf-band-zone">
+        <span>${escapeHtml(compteur)}${escapeHtml(id.zone || `Zone ${index + 1}`)}</span>
+        ${sousTitre ? `<span class="pf-band-sub">${escapeHtml(sousTitre)}</span>` : ''}
+    </h2>`;
+}
+
+// Fiche de travail — chantier complet. Corps identique à gabaritTravail, répété par zone ;
+// seules les réserves de méthode (§blocReserves) ne portent qu'une fois, en fin de document :
+// elles décrivent le moteur de calcul, pas une zone en particulier.
+export function gabaritTravailChantier(clientName, fiches) {
+    if (!fiches || fiches.length === 0) return '';
+    return `
+    ${enTeteChantier(clientName, fiches, 'Fiche de travail')}
+    ${fiches.map((fiche, i) => {
+        const echelle = echelleRoomsFiche(fiche);
+        return `
+    <section class="pf-zone${i > 0 ? ' pf-saut' : ''}">
+        ${bandeauZone(fiche, i, fiches.length)}
+        ${avertissementOrigine(fiche)}
+        ${bandeau('Hypothèses de calcul')}
+        ${blocHypotheses(fiche, { complet: true })}
+        ${bandeau('Bilan pièce par pièce')}
+        ${legendePostes()}
+        ${fiche.pieces.map(p => blocPiece(fiche, p, { technique: true, echelle })).join('')}
+        ${blocBilan(fiche)}
+        ${blocCouvertureGroupe(fiche)}
+        ${blocMateriel(fiche, { technique: true })}
+        ${blocCorrections(fiche, { avecDetail: true })}
+    </section>`;
+    }).join('')}
+    ${blocReserves()}
+    ${piedDePage(fiches[0])}`;
+}
+
+// Rapport client — chantier complet. Même principe ; le chapô d'ouverture ne s'écrit qu'une
+// fois et signale, s'il y a plusieurs zones, que le logement est desservi par plusieurs
+// groupes — sans quoi un client qui tourne la page tomberait sur un second « Ce qui a été
+// mesuré » sans comprendre pourquoi le document recommence.
+export function gabaritClientChantier(clientName, fiches) {
+    if (!fiches || fiches.length === 0) return '';
+    const multi = fiches.length > 1;
+    return `
+    ${enTeteChantier(clientName, fiches, 'Étude de dimensionnement')}
+    <p class="pf-chapo pf-prose">Cette étude calcule, pièce par pièce, la puissance nécessaire pour
+        chauffer et rafraîchir votre logement dans les conditions climatiques de votre commune.
+        ${multi ? `Le logement est desservi par ${fiches.length} groupes distincts, un par zone : chacune
+        est détaillée séparément dans les pages qui suivent.` : ''}
+        Elle sert à choisir un matériel à la bonne taille : une machine trop petite ne tient pas
+        les températures, une machine trop grande fonctionne par à-coups et s'use plus vite.</p>
+    ${fiches.map((fiche, i) => `
+    <section class="pf-zone${i > 0 ? ' pf-saut' : ''}">
+        ${bandeauZone(fiche, i, fiches.length)}
+        ${avertissementOrigine(fiche)}
+        ${bandeau('Ce qui a été mesuré')}
+        ${blocHypotheses(fiche, { complet: false })}
+        ${bandeau('Pièce par pièce')}
+        ${legendePostes({ avecExplication: true })}
+        ${fiche.pieces.map(p => blocPiece(fiche, p, { technique: false, echelle: echelleRoomsFiche(fiche) })).join('')}
+        ${blocBilan(fiche)}
+        ${blocCouvertureGroupe(fiche)}
+        ${blocMateriel(fiche, { technique: false })}
+        ${blocCorrections(fiche, { avecDetail: true, titre: 'Pourquoi la machine dépasse le besoin calculé' })}
+    </section>`).join('')}
+    ${piedDePage(fiches[0])}`;
 }
 
 // --- Partage texte -------------------------------------------------------------------------

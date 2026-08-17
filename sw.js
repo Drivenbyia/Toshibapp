@@ -1,6 +1,6 @@
 // Service worker réel de Klimo, servi en same-origin (contrairement à l'ancienne
 // version enregistrée depuis une blob: URL, que les navigateurs refusent silencieusement).
-const CACHE_VERSION = 'v10';
+const CACHE_VERSION = 'v12';
 const CACHE_NAME = `klimo-${CACHE_VERSION}`;
 const PRECACHE_URLS = [
     './',
@@ -25,6 +25,7 @@ const PRECACHE_URLS = [
     './js/sync.js',
     './js/config.js',
     './js/account.js',
+    './js/admin.js',
     './js/auth-ui.js',
     './js/supabase-client.js',
     './js/app.js',

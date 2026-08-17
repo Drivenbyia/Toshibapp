@@ -180,6 +180,13 @@ export const CATALOGS = {
         { gamme: "Haori", reference_ensemble: "RAS-16J2AVSG-E1 / RAS-B16N4KVRG-E", puissance_froid_kw: 4.6, puissance_chaud_kw: 5.5 },
         { gamme: "Console Double-Flux", reference_ensemble: "RAS-10J2AVSG-E1 / RAS-B10J2FVG-E", puissance_froid_kw: 2.5, puissance_chaud_kw: 3.2 },
         { gamme: "Console Double-Flux", reference_ensemble: "RAS-13J2AVSG-E1 / RAS-B13J2FVG-E", puissance_froid_kw: 3.5, puissance_chaud_kw: 4.2 },
+        // Taille manquante au catalogue jusqu'ici, alors que TVA_RULES.toshiba.mono la tenait déjà
+        // pour existante (ligne "Console Double-Flux" plus bas, taillesEligibles incluait "18"
+        // sans que la référence figure ici) — une proposition à cette taille ne pouvait donc
+        // jamais sortir de la sélection, faute de ligne à sélectionner. Puissances au point
+        // d'essai EN 14511, fiches constructeur RAS-B18J2FVG-E (unité intérieure) et
+        // RAS-18J2AVSG-E1 (groupe seul) ; confirmées par la brochure catalogue TOS2305-CONSOLE-F.
+        { gamme: "Console Double-Flux", reference_ensemble: "RAS-18J2AVSG-E1 / RAS-B18J2FVG-E", puissance_froid_kw: 5.0, puissance_chaud_kw: 6.0 },
         // --- NOUVEAUX YUKAI ---
         { gamme: "Yukai", reference_ensemble: "RAS-05E2AVG-E / RAS-B05E2KVG-E", puissance_froid_kw: 1.5, puissance_chaud_kw: 2.0 },
         { gamme: "Yukai", reference_ensemble: "RAS-07E2AVG-E / RAS-B07E2KVG-E", puissance_froid_kw: 2.0, puissance_chaud_kw: 2.5 },

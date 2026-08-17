@@ -17,6 +17,15 @@
 export const SUPABASE_URL = 'https://VOTRE-PROJET.supabase.co';
 export const SUPABASE_ANON_KEY = 'VOTRE_CLE_ANON_PUBLIQUE';
 
+// Code du mode admin (voir js/admin.js) : ouvrir une fois `…/?admin=<ce code>` déverrouille le
+// sélecteur de marque avec toutes les marques du catalogue, sur cet appareil et durablement.
+//
+// ⚠️ Ce n'est pas un secret et ne doit jamais être vendu comme une protection : ce fichier est
+// servi en clair à tous les navigateurs, comme tout le JavaScript de l'application. Le code
+// écarte la découverte accidentelle, pas quelqu'un qui cherche. Le changer se fait ici, en une
+// ligne (tous les appareils déjà déverrouillés le restent — voir quitterModeAdmin).
+export const ADMIN_CODE = 'klimo-atelier';
+
 export function supabaseConfigured() {
     return !SUPABASE_URL.includes('VOTRE-PROJET') && !SUPABASE_ANON_KEY.includes('VOTRE_CLE');
 }

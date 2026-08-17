@@ -19,12 +19,15 @@ import {
 } from './sauvegarde.js';
 import {
     construireFiche, assainirFiche, ficheDepuisBody, lignesTableauFiche,
-    gabaritTravail, gabaritClient, lignesPartage
+    gabaritTravail, gabaritClient, gabaritTravailChantier, gabaritClientChantier, lignesPartage
 } from './fiche.js';
 import {
     MARQUES_ACTIVES, MARQUES_CONNUES, marqueAutorisee, marqueParDefaut, resoudreMarque, libelleMarque,
     selecteurMarqueVisible
 } from './marques.js';
+import {
+    initAdmin, estAdmin, marquesAdmin, quitterModeAdmin, resoudreMarquesActives
+} from './admin.js';
 import { store } from './store.js';
 import { init as initAccount, subscribe as subscribeAccount, getBrandsOverride, getStatus as getAuthStatus } from './account.js';
 import { initAuthUi } from './auth-ui.js';
@@ -59,12 +62,13 @@ let state = {
     loadedConfigId: null
 };
 
-// Résout la liste de marques effective : la surcharge du compte connecté si elle existe,
-// sinon la constante locale de js/marques.js. `getBrandsOverride()` renvoie `null` pour un
-// appareil jamais connecté — comportement inchangé par rapport au lot précédent, aucun
-// utilisateur local existant n'est cassé par l'arrivée des comptes.
+// Résout la liste de marques effective. Trois couches, par priorité décroissante : les droits
+// du compte connecté, puis le mode admin local, puis la constante de js/marques.js.
+// `getBrandsOverride()` comme `marquesAdmin()` renvoient `null` quand ils n'ont rien à dire —
+// un appareil jamais connecté et jamais déverrouillé retombe donc exactement sur le
+// comportement d'origine. L'ordre lui-même est expliqué et testé dans js/admin.js.
 function marquesActives() {
-    return getBrandsOverride() || MARQUES_ACTIVES;
+    return resoudreMarquesActives(getBrandsOverride(), marquesAdmin(), MARQUES_ACTIVES);
 }
 
 // Identifiants de pièce : compteur monotone, et non Date.now().
@@ -135,6 +139,9 @@ function initApp() {
     // arrière-plan sans jamais bloquer ce premier rendu — voir js/account.js. Les données
     // locales s'affichent avant même de savoir quoi que ce soit de l'authentification.
     initAccount();
+    // Avant toute construction du sélecteur de marque : c'est ce qui décide de la liste de
+    // marques que genererBoutonsMarque/initSelecteurMarque vont proposer. Purement local.
+    initAdmin(window.location.search);
 
     const deptSelect = document.getElementById('deptSelect');
     const dernierDept = getDernierDept();
@@ -151,6 +158,7 @@ function initApp() {
     renderRooms();
     viderResultats();
     initDashboardEvents();
+    initAdminUi();
     initAuthUi();
     subscribeAccount(onAccountChange);
     restoreDraftIfAny();
@@ -270,6 +278,35 @@ function initSelecteurMarque() {
     // Conserve le choix de marque en cours s'il reste valide, plutôt que de forcer la
     // marque par défaut à chaque rafraîchissement.
     setBrand(actives.includes(state.brand) ? state.brand : marqueParDefaut(actives));
+}
+
+// --- MODE ADMIN ---------------------------------------------------------------------
+// La pastille est la seule sortie visible du mode : sans elle, on y entre par une URL et on
+// n'en ressort plus qu'en vidant le stockage du navigateur.
+function renderAdminBadge() {
+    const badge = document.getElementById('admin-badge');
+    if (badge) badge.classList.toggle('hidden', !estAdmin());
+}
+
+function initAdminUi() {
+    const badge = document.getElementById('admin-badge');
+    if (!badge) return;
+    badge.addEventListener('click', () => {
+        // Quitter le mode fait retomber la marque courante sur celle du compte, ou sur la
+        // marque par défaut, via resoudreMarque. On calcule la liste telle qu'elle sera APRÈS
+        // la sortie plutôt que de supposer MARQUES_ACTIVES : sur un compte connecté, ce sont
+        // ses droits qui priment et quitter le mode ne change alors rien du tout.
+        const apresSortie = resoudreMarquesActives(getBrandsOverride(), null, MARQUES_ACTIVES);
+        if (state.currentCalc && !apresSortie.includes(state.brand)) {
+            const question = `Quitter le mode admin ramènera la marque sur ${libelleMarque(marqueParDefaut(apresSortie))}.\n\n`
+                + `Le dimensionnement ${libelleMarque(state.brand)} affiché sera marqué à recalculer. Continuer ?`;
+            if (!confirm(question)) return;
+        }
+        quitterModeAdmin();
+        renderAdminBadge();
+        initSelecteurMarque();
+    });
+    renderAdminBadge();
 }
 
 // --- DASHBOARD & LOCALSTORAGE LOGIC ---
@@ -550,6 +587,15 @@ function renderDashboard() {
             </div>
         `}).join('');
 
+        // Rapport groupé : n'a de sens qu'à partir de deux zones — avec une seule, c'est
+        // exactement le bouton "Rapport client" déjà proposé sous cette zone, en double.
+        const rapportGroupeHtml = configs.length > 1 ? `
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-1.5 mb-3 pb-3 border-b border-line">
+                <span class="text-2xs text-ink-500">${configs.length} zones de ce chantier —</span>
+                <button data-action="pdf-travail-chantier" data-client="${escapeHtml(clientName)}" class="k-btn-ghost text-2xs">Fiche de travail complète</button>
+                <button data-action="pdf-client-chantier" data-client="${escapeHtml(clientName)}" class="k-btn-ghost text-2xs">Rapport client complet</button>
+            </div>` : '';
+
         html += `
         <div class="k-card fade-in">
             <div class="flex items-center justify-between gap-3 mb-1">
@@ -559,6 +605,7 @@ function renderDashboard() {
                 </h3>
                 <button data-action="delete-chantier" data-client="${escapeHtml(clientName)}" class="k-btn min-h-[44px] px-3 text-2xs text-rose-600 border border-rose-200 hover:bg-rose-600 hover:text-white hover:border-rose-600 flex-shrink-0">Tout supprimer</button>
             </div>
+            ${rapportGroupeHtml}
             ${configsHtml}
         </div>`;
     });
@@ -576,6 +623,8 @@ function initDashboardEvents() {
         else if (btn.dataset.action === 'reload-config') reloadConfig(btn.dataset.id);
         else if (btn.dataset.action === 'pdf-travail') exporterFicheEnregistree(btn.dataset.id, 'travail');
         else if (btn.dataset.action === 'pdf-client') exporterFicheEnregistree(btn.dataset.id, 'client');
+        else if (btn.dataset.action === 'pdf-travail-chantier') exporterFicheChantier(btn.dataset.client, 'travail');
+        else if (btn.dataset.action === 'pdf-client-chantier') exporterFicheChantier(btn.dataset.client, 'client');
         else if (btn.dataset.action === 'restore-conflict') {
             store.restoreConflict(btn.dataset.id);
             renderDashboard();
@@ -2109,6 +2158,36 @@ function exporterFicheEnregistree(id, variante) {
     }
     if (palier === 3) return;
     imprimerFiche(fiche, variante);
+}
+
+// Export groupé : TOUTES les zones enregistrées d'un même client, en un seul document — voir
+// gabaritTravailChantier/gabaritClientChantier (js/fiche.js). Le besoin réel : un logement
+// desservi par plusieurs groupes extérieurs distincts (un par étage…) est enregistré en
+// plusieurs zones, une par groupe, parce que c'est le bon découpage pour le CALCUL ; mais pour
+// le client, c'est un seul chantier, et il ne doit recevoir qu'un seul document.
+//
+// Une zone sans donnée structurée exploitable (fiche ancienne, palier 3) est incluse en fiche
+// de travail — comme exporterFicheEnregistree le fait déjà pour une zone seule, avec le même
+// texte dégradé — mais omise du rapport client, qui ne peut rien justifier sans le détail des
+// calculs. Un chantier entièrement composé de telles zones ne produit donc aucun rapport
+// client : mieux vaut ne rien imprimer que justifier un choix sans le montrer.
+function exporterFicheChantier(clientName, variante) {
+    const configs = store.listConfigs().filter((c) => c.clientName === clientName);
+    if (configs.length === 0) return;
+    const fiches = configs
+        .map((cfg) => {
+            const { fiche, palier } = ficheDepuisBody(cfg);
+            if (fiche && palier !== 3) return fiche;
+            return variante === 'client' ? null : ficheTexteDegradee(cfg);
+        })
+        .filter(Boolean);
+    if (fiches.length === 0) return;
+    const zone = document.getElementById('print-area');
+    zone.className = `pf pf--${variante}`;
+    zone.innerHTML = variante === 'client'
+        ? gabaritClientChantier(clientName, fiches)
+        : gabaritTravailChantier(clientName, fiches);
+    window.print();
 }
 
 // Dernier recours : une fiche ancienne dont il ne reste que les chaînes déjà formatées.
