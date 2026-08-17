@@ -137,6 +137,20 @@ export const SEUIL_DESEQUILIBRE_GROUPE = 0.6;
 // d'alerter dès SEUIL_SOUS_CHARGE, l'utilisateur garde donc l'information).
 export const SEUIL_SOUS_CHARGE_ESCALADE = 0.4;
 
+// Modulation basse : part de la puissance du groupe que la PLUS PETITE pièce mobilise quand
+// elle appelle seule. En dessous, le compresseur doit descendre sous son minimum stable et
+// cycle court — le cas décrit sur le terrain : deux chambres de 12 m² sur un groupe dimensionné
+// par un séjour de 50 m², qui ne lui demandent plus que ~11 % quand le séjour est éteint.
+//
+// Sert uniquement à décider s'il vaut la peine de PROPOSER une autre répartition (voir
+// meilleureAlternative, calcul.js) : sans ce seuil, « une machine par pièce » compterait comme
+// un gain sur toute installation, y compris celles qui n'ont aucun problème de modulation.
+// Valeur générique, de l'ordre du minimum de modulation d'un inverter résidentiel : aucune
+// donnée constructeur par référence n'est disponible dans le catalogue. Le retour terrain est
+// que le cas « seules les petites pièces allumées » est réel mais RARE — d'où un seuil bas,
+// qui ne déclenche que sur les écarts francs.
+export const SEUIL_MODULATION_BASSE = 0.25;
+
 // Tolérance de regroupement des solutions équivalentes (findBestMonos / findMultiGroupOptions) :
 // on retient toutes les références dont la puissance froid nominale reste à +15% max de la plus
 // petite solution valide, plutôt qu'un choix unique imposé.

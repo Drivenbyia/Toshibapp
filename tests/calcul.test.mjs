@@ -9,13 +9,14 @@ import {
     findGroupesValides, findGroupeEquilibre, estGroupeDesequilibre, ratioPieceDominante,
     pieceDominante, pieceDominantePourGroupe, partPieceDansGroupe,
     tauxChargeGroupe, getGroupTvaInfo, normaliserReferenceGroupe, trierMonosParTva,
-    interpolerChargeToiture, interpolerGVitrage, findRoomMultiSolutions
+    interpolerChargeToiture, interpolerGVitrage, findRoomMultiSolutions,
+    partitionner, evaluerBlocRepartition, explorerRepartitions, meilleureAlternative
 } from '../js/calcul.js';
 import {
     CONSIGNE_REFERENCE, COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD,
     SEUIL_DESEQUILIBRE_GROUPE, CATALOGS, UI_SIZE_TABLES, DEPARTMENTS, tBaseMatrix, tBaseEteMatrix,
     CHARGE_TOITURE_PALIERS, G_VITRAGE_PALIERS, PART_VENTILATION_G, ABATTEMENT_CANICULE_MAX,
-    APPORTS_INTERNES, OCCUPANT_W, COEF_RELANCE
+    APPORTS_INTERNES, OCCUPANT_W, COEF_RELANCE, SEUIL_MODULATION_BASSE, SEUIL_SOUS_CHARGE
 } from '../js/data.js';
 
 const ROOM_TYPE = { emplacement: 'plain_pied', orientation: 'mixte', vitrage: 'moyen', protection: 'stores_int', occupants: '', expositionMurs: 4 };
@@ -557,16 +558,42 @@ describe('Part d\'un groupe absorbée par une pièce (froid et chaud confrontés
 
     // La régression exacte, en mode « Froid seul » — le mode où le bug était systématique.
     test('mode froid seul : une pièce à 65% de la capacité froid est bien détectée comme déséquilibrante', () => {
+        // Les besoins dépassent volontairement la puissance nominale (5,6 > 5,2) : c'est la
+        // condition pour que la question du déséquilibre se pose, puisque le groupe s'appuie
+        // alors sur le foisonnement (voir estGroupeDesequilibre). La version précédente de ce
+        // test totalisait 5,1 kW, donc sous le nominal — le groupe servait déjà les trois pièces
+        // à leur pointe simultanée et aucune ne pouvait en priver une autre. Il testait donc le
+        // seuil sur une configuration où il n'a pas lieu de s'appliquer ; les besoins sont
+        // relevés pour que la régression d'origine (le ratio calculé à 50 % au lieu de 65 %)
+        // reste couverte sur un cas où elle compte vraiment.
         const pieces = [
             { index: 1, froidMatch: 3.4, chaudMatch: 0 },
-            { index: 2, froidMatch: 0.9, chaudMatch: 0 },
-            { index: 3, froidMatch: 0.8, chaudMatch: 0 }
+            { index: 2, froidMatch: 1.2, chaudMatch: 0 },
+            { index: 3, froidMatch: 1.0, chaudMatch: 0 }
         ];
         const ratio = ratioPieceDominante(GROUPE, pieces);
         assert.ok(Math.abs(ratio - 3.4 / 5.2) < 1e-9, `ratio attendu ${(3.4 / 5.2).toFixed(3)}, obtenu ${ratio}`);
         assert.ok(ratio > SEUIL_DESEQUILIBRE_GROUPE, 'ce ratio dépasse le seuil et doit donc alerter');
         assert.equal(estGroupeDesequilibre(GROUPE, pieces), true,
             'avec l\'ancien calcul, cette configuration passait à 50% et n\'alertait jamais');
+    });
+
+    // Le garde-fou qui manquait : le seuil de part dominante ne vaut que si le groupe parie sur
+    // le foisonnement. Quand il couvre déjà la somme des pointes, aucune pièce ne peut en priver
+    // une autre, et la part dominante — si élevée soit-elle — ne décrit plus un risque.
+    test('un groupe qui couvre la somme des pointes n\'est jamais déséquilibré, même à 65%', () => {
+        const pieces = [
+            { index: 1, froidMatch: 3.4, chaudMatch: 0 },
+            { index: 2, froidMatch: 0.9, chaudMatch: 0 },
+            { index: 3, froidMatch: 0.8, chaudMatch: 0 }
+        ];
+        const total = 3.4 + 0.9 + 0.8;
+        assert.ok(total <= GROUPE.puissance_nominale_froid_kw,
+            `${total} kW doivent tenir dans les ${GROUPE.puissance_nominale_froid_kw} kW du groupe`);
+        assert.ok(ratioPieceDominante(GROUPE, pieces) > SEUIL_DESEQUILIBRE_GROUPE,
+            'la pièce dominante dépasse pourtant bien le seuil');
+        assert.equal(estGroupeDesequilibre(GROUPE, pieces), false,
+            'quand la pièce dominante est à sa pointe, il reste de quoi servir les autres');
     });
 
     // Le nom affiché et le pourcentage affiché doivent désigner la même pièce.
@@ -648,10 +675,26 @@ describe('Équilibre du groupe multisplit (demande simultanée)', () => {
     });
 
     test('aucun groupe rééquilibrant dans le catalogue : findGroupeEquilibre retourne null', () => {
-        // Une petite pièce + une grosse pièce proche du haut du catalogue : même le plus gros groupe
-        // laisse la grosse pièce au-dessus du seuil.
+        // Une petite pièce + une grosse pièce, dans un cas où AUCUN groupe ne couvre la somme des
+        // pointes : le foisonnement reste donc indispensable, le seuil de part dominante
+        // s'applique, et aucun groupe du catalogue ne ramène la grosse pièce sous les 60 %.
+        // 10,5 / 12,5 kW dépassent le plus gros groupe du catalogue (10 / 12), qui reste néanmoins
+        // valide grâce au foisonnement — donc le seuil s'applique, et la grosse pièce y pèse 70 %.
+        const rooms = [{ froidMatch: 3.5, chaudMatch: 4.5 }, { froidMatch: 7.0, chaudMatch: 8.0 }];
+        assert.equal(findGroupeEquilibre(rooms, 'toshiba', COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD, { froid: 10.5, chaud: 12.5 }), null);
+    });
+
+    // Le pendant du test précédent, à la frontière exacte : la plus grosse UI du catalogue
+    // (taille 24 = 7,0 kW F / 8,0 kW C) avec une petite pièce totalise 7,8 / 9,0 kW, que le
+    // RAS-4M27 (8 / 9 kW) couvre tout juste. La grosse pièce y pèse 89 %, très au-dessus du
+    // seuil, mais elle ne peut priver personne : il reste exactement de quoi servir la petite.
+    // Le groupe est donc proposé, là où l'ancienne règle renvoyait au monosplit dédié.
+    test('à la frontière du catalogue, un groupe qui couvre tout est proposé malgré une part de 89%', () => {
         const rooms = [{ froidMatch: 0.8, chaudMatch: 1.0 }, { froidMatch: 7.0, chaudMatch: 8.0 }];
-        assert.equal(findGroupeEquilibre(rooms, 'toshiba', COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD, { froid: 7.8, chaud: 9.0 }), null);
+        const up = findGroupeEquilibre(rooms, 'toshiba', COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD, { froid: 7.8, chaud: 9.0 });
+        assert.equal(up.reference, 'RAS-4M27G3AVG-E');
+        assert.equal(7.8 <= up.puissance_nominale_froid_kw && 9.0 <= up.puissance_nominale_chaud_kw, true,
+            'le groupe retenu couvre bien les deux pièces à leur pointe simultanée');
     });
 
     test('tauxChargeGroupe ignore le chaud en mode "froid seul" (besoin chaud nul)', () => {
@@ -1032,5 +1075,205 @@ describe('Référentiel climatique — cohérence interne', () => {
             const t = tBaseMatrix['0 à 200m'][DEPARTMENTS[dom].zone];
             assert.ok(t > 15, `département ${dom} : base hiver ${t}°C, incompatible avec un climat tropical`);
         }
+    });
+});
+
+// Répartition des unités intérieures entre groupes extérieurs (voir docs/repartition-intelligente.md).
+// Ce que ces tests protègent : que l'exploration soit réellement EXHAUSTIVE (aucune disposition
+// servable ne doit être perdue), et qu'elle ne franchisse jamais la frontière d'une zone —
+// laquelle porte la géométrie constatée sur le terrain par l'installateur.
+describe('Répartition des unités entre groupes extérieurs', () => {
+    const P = (nom, froid, chaud) => ({ nom, req: { froid, chaud }, froidMatch: froid * 1.07, chaudMatch: chaud * 1.25 });
+    // Le cas réel : un séjour de 50 m² et deux chambres de 12 m², zone B.
+    const CAS_REEL = [P('Salon', 2.67, 3.96), P('Ch 1', 0.59, 0.59), P('Ch 2', 0.59, 0.59)];
+    const explorer = (pieces) => explorerRepartitions(pieces, 'toshiba', COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD);
+
+    describe('partitionner — l\'énumération doit être complète', () => {
+        test('produit exactement les nombres de Bell', () => {
+            // 1, 2, 5, 15, 52 : si l'énumération en perd une, c'est une disposition valable que
+            // l'installateur ne verra jamais — le défaut le plus grave possible ici.
+            const attendus = { 1: 1, 2: 2, 3: 5, 4: 15, 5: 52 };
+            for (const [n, bell] of Object.entries(attendus)) {
+                const items = Array.from({ length: Number(n) }, (_, i) => i);
+                assert.equal(partitionner(items).length, bell, `${n} pièces doivent donner ${bell} partitions`);
+            }
+        });
+
+        test('chaque partition couvre toutes les pièces, une seule fois', () => {
+            const items = ['a', 'b', 'c', 'd'];
+            for (const p of partitionner(items)) {
+                const plat = p.flat();
+                assert.equal(plat.length, items.length, 'aucune pièce perdue ni dupliquée');
+                assert.deepEqual([...plat].sort(), [...items].sort());
+                assert.ok(p.every(bloc => bloc.length > 0), 'aucun bloc vide');
+            }
+        });
+
+        test('un ensemble vide donne une partition vide, pas une erreur', () => {
+            assert.deepEqual(partitionner([]), [[]]);
+        });
+    });
+
+    describe('evaluerBlocRepartition', () => {
+        test('une pièce seule est servie par un monosplit, sans modulation à signaler', () => {
+            const b = evaluerBlocRepartition([P('Ch', 0.59, 0.59)], 'toshiba', COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD);
+            assert.equal(b.type, 'mono');
+            assert.ok(b.reference.includes('/'), 'un monosplit porte une référence de couple UE/UI');
+            assert.equal(b.modulationMin, null, 'une machine dédiée n\'a personne à moduler pour');
+        });
+
+        test('plusieurs pièces sont servies par un groupe, avec sa modulation minimale', () => {
+            const b = evaluerBlocRepartition(CAS_REEL, 'toshiba', COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD);
+            assert.equal(b.type, 'multi');
+            assert.equal(b.reference, 'RAS-3M18G3AVG-E');
+            // La plus petite pièce (0,59 kW) face aux 5,2 kW du groupe : c'est exactement le
+            // défaut décrit par l'installateur — les chambres seules sur un groupe de séjour.
+            assert.ok(Math.abs(b.modulationMin - 0.59 / 5.2) < 1e-9, `modulation attendue ${(0.59 / 5.2).toFixed(3)}, obtenue ${b.modulationMin}`);
+        });
+
+        test('un bloc que le catalogue ne peut pas servir est écarté, pas approximé', () => {
+            // Deux pièces énormes : aucune UI multisplit ne les couvre.
+            const trop = [P('A', 9, 10), P('B', 9, 10)];
+            assert.equal(evaluerBlocRepartition(trop, 'toshiba', COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD), null);
+            assert.equal(evaluerBlocRepartition([], 'toshiba', COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD), null);
+        });
+    });
+
+    describe('explorerRepartitions', () => {
+        test('le cas réel : les cinq dispositions sont trouvées, groupe unique en tête', () => {
+            const d = explorer(CAS_REEL);
+            assert.equal(d.length, 5, 'les 5 partitions de 3 pièces sont toutes servables ici');
+            assert.equal(d[0].nbGroupes, 1);
+            assert.equal(d[0].blocs[0].reference, 'RAS-3M18G3AVG-E');
+            assert.equal(d[d.length - 1].nbGroupes, 3, 'trois monosplits ferment la marche');
+        });
+
+        test('classement : le moins d\'unités extérieures d\'abord, puis la meilleure charge', () => {
+            const d = explorer(CAS_REEL);
+            for (let i = 1; i < d.length; i++) {
+                assert.ok(d[i - 1].nbGroupes <= d[i].nbGroupes, 'le nombre d\'unités ne doit jamais décroître');
+                if (d[i - 1].nbGroupes === d[i].nbGroupes) {
+                    assert.ok(d[i - 1].chargeMin >= d[i].chargeMin - 1e-9,
+                        'à nombre d\'unités égal, la meilleure charge passe devant');
+                }
+            }
+        });
+
+        test('chaque disposition expose ses grandeurs séparément, sans score composite', () => {
+            for (const d of explorer(CAS_REEL)) {
+                assert.equal(typeof d.nbGroupes, 'number');
+                assert.equal(typeof d.puissanceTotale, 'number');
+                assert.equal(typeof d.chargeMin, 'number');
+                assert.ok(d.modulationMin === null || typeof d.modulationMin === 'number');
+                assert.equal(d.score, undefined, 'aucun score unique : il masquerait le compromis');
+                // Toute pièce doit se retrouver dans exactement un bloc.
+                const noms = d.blocs.flatMap(b => b.pieces.map(p => p.nom));
+                assert.deepEqual(noms.sort(), CAS_REEL.map(p => p.nom).sort());
+            }
+        });
+
+        test('le compromis est réel : le groupe unique gagne en charge, le découpage en modulation', () => {
+            const d = explorer(CAS_REEL);
+            const unique = d.find(x => x.nbGroupes === 1);
+            const meilleureModulation = d.filter(x => x.modulationMin !== null)
+                .reduce((m, x) => (x.modulationMin > m.modulationMin ? x : m));
+            assert.ok(unique.chargeMin > meilleureModulation.chargeMin,
+                'le groupe unique doit dominer sur le taux de charge');
+            assert.ok(meilleureModulation.modulationMin > unique.modulationMin,
+                'et une disposition découpée doit dominer sur la modulation');
+            assert.ok(meilleureModulation.nbGroupes > unique.nbGroupes,
+                'ce gain se paie en unités extérieures — c\'est l\'arbitrage à montrer');
+        });
+
+        test('une pièce hors catalogue multisplit n\'apparaît que seule, jamais dans un groupe', () => {
+            const pieces = [P('Enorme', 7.5, 9.0), P('Ch 1', 0.59, 0.59)];
+            const d = explorer(pieces);
+            for (const disposition of d) {
+                for (const bloc of disposition.blocs) {
+                    if (bloc.pieces.some(p => p.nom === 'Enorme')) {
+                        assert.equal(bloc.pieces.length, 1, 'une pièce hors catalogue doit être isolée');
+                        assert.equal(bloc.type, 'mono');
+                    }
+                }
+            }
+        });
+
+        test('moins de deux pièces : rien à répartir', () => {
+            assert.deepEqual(explorer([P('Seule', 1, 1)]), []);
+            assert.deepEqual(explorer([]), []);
+            assert.deepEqual(explorer(null), []);
+        });
+
+        test('cinq pièces (le plafond d\'une zone) restent exhaustivement explorables', () => {
+            const cinq = [P('S', 2.0, 2.5), P('A', 0.6, 0.6), P('B', 0.6, 0.6), P('C', 0.7, 0.7), P('D', 0.7, 0.7)];
+            const t0 = process.hrtime.bigint();
+            const d = explorer(cinq);
+            const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+            assert.ok(d.length > 0, 'au moins une disposition servable');
+            assert.ok(d.length <= 52, 'jamais plus que le nombre de partitions de 5 éléments');
+            assert.ok(ms < 100, `exploration en ${ms.toFixed(1)} ms — doit rester imperceptible`);
+        });
+    });
+});
+
+// meilleureAlternative : ce qui décide qu'une autre répartition mérite d'être proposée.
+// Le risque principal ici n'est pas de manquer une alternative, c'est d'en proposer une qui
+// n'apporte rien — la saisie de l'installateur est le plus souvent déjà première au classement.
+describe('meilleureAlternative — ne proposer que ce qui corrige un défaut', () => {
+    const P = (nom, froid, chaud) => ({ nom, req: { froid, chaud }, froidMatch: froid * 1.07, chaudMatch: chaud * 1.25 });
+    const explorer = (pieces) => explorerRepartitions(pieces, 'toshiba', COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD);
+
+    test('le cas terrain : un séjour dominant fait proposer de le séparer', () => {
+        // Séjour 50 m² + deux chambres de 12 m² : sur un groupe unique, les chambres seules ne
+        // sollicitent plus que ~11 % du compresseur. C'est le défaut décrit sur chantier.
+        const d = explorer([P('Salon', 2.67, 3.96), P('Ch 1', 0.59, 0.59), P('Ch 2', 0.59, 0.59)]);
+        const alt = meilleureAlternative(d[0], d);
+        assert.ok(alt, 'une alternative doit être proposée');
+        assert.ok(d[0].modulationMin < SEUIL_MODULATION_BASSE, 'la saisie a bien un problème de modulation');
+        assert.ok(alt.modulationMin === null || alt.modulationMin > d[0].modulationMin,
+            'l\'alternative doit améliorer la modulation');
+    });
+
+    test('une installation saine ne déclenche AUCUNE proposition', () => {
+        // Deux pièces équivalentes sur un groupe bien chargé : rien à corriger. Proposer d'ajouter
+        // une unité extérieure ici serait du bruit, et un mauvais conseil.
+        const d = explorer([P('A', 1.049, 1.584), P('B', 1.049, 1.584)]);
+        assert.ok(d[0].chargeMin >= SEUIL_SOUS_CHARGE, 'préalable : la saisie n\'est pas sous-chargée');
+        assert.ok(d[0].modulationMin >= SEUIL_MODULATION_BASSE, 'préalable : la modulation est correcte');
+        assert.equal(meilleureAlternative(d[0], d), null);
+    });
+
+    test('un gain de taux de charge ne compte que si la saisie est réellement sous-chargée', () => {
+        // Deux pièces de 20 m² (zone B, G 1,10) : le groupe est à 64 % de charge, et deux
+        // monosplits monteraient à 70 %. Sans ce garde-fou, on proposait donc une unité
+        // extérieure de plus pour gagner six points sur une installation qui n'a rien à
+        // corriger — un mauvais échange, et du bruit à l'écran.
+        const d = explorer([P('A', 1.049, 1.584), P('B', 1.049, 1.584)]);
+        assert.ok(d[0].chargeMin >= SEUIL_SOUS_CHARGE, 'préalable : la saisie n\'est pas sous-chargée');
+        assert.ok(d.slice(1).some(x => x.chargeMin > d[0].chargeMin),
+            'préalable : une alternative a bien un meilleur taux de charge');
+        assert.equal(meilleureAlternative(d[0], d), null, 'et elle ne doit pourtant pas être proposée');
+    });
+
+    test('l\'alternative retenue est la moins coûteuse en unités extérieures', () => {
+        const d = explorer([P('Salon', 2.67, 3.96), P('Ch 1', 0.59, 0.59), P('Ch 2', 0.59, 0.59)]);
+        const alt = meilleureAlternative(d[0], d);
+        const gagnantes = d.filter(x => x !== d[0] && (x.modulationMin === null || x.modulationMin > d[0].modulationMin + 0.005));
+        const minUnites = Math.min(...gagnantes.map(x => x.nbGroupes));
+        assert.equal(alt.nbGroupes, minUnites,
+            'à gain équivalent, on ne fait pas payer une unité extérieure de plus');
+    });
+
+    test('toutes les pièces se retrouvent dans l\'alternative proposée', () => {
+        const pieces = [P('Salon', 2.67, 3.96), P('Ch 1', 0.59, 0.59), P('Ch 2', 0.59, 0.59)];
+        const d = explorer(pieces);
+        const alt = meilleureAlternative(d[0], d);
+        const noms = alt.blocs.flatMap(b => b.pieces.map(p => p.nom)).sort();
+        assert.deepEqual(noms, pieces.map(p => p.nom).sort());
+    });
+
+    test('entrées dégradées : ni disposition ni liste ne fait planter', () => {
+        assert.equal(meilleureAlternative(null, []), null);
+        assert.equal(meilleureAlternative({ nbGroupes: 1, chargeMin: 0.6, modulationMin: 0.3, blocs: [] }, null), null);
     });
 });
