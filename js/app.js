@@ -2707,16 +2707,18 @@ function phraseCompromis(actuelle, autre) {
 
 // Carte d'une machine d'une disposition. Reprend le vocabulaire de renderCard sans sa
 // sélection : ce bloc montre une possibilité, il ne fait pas encore choisir.
+// Carte d'une machine d'une disposition. Reprend le vocabulaire de renderCard : la gamme en
+// titre, la référence d'ensemble en sous-titre. Pour un monosplit, la gamme n'est PAS choisie
+// ici — elle vient de gammesPreferees (voir evaluerBlocRepartition) : c'est le choix déjà fait
+// par l'installateur sur le multisplit, simplement reporté sur l'unité dédiée.
 function carteDisposition(bloc) {
     const estMulti = bloc.type === 'multi';
-    const titre = estMulti ? bloc.reference : (bloc.gamme || bloc.reference);
+    const titre = estMulti ? bloc.reference : bloc.gamme;
     const sousTitre = estMulti ? `Groupe extérieur · ${bloc.sorties} sorties` : bloc.reference;
     const besoinF = bloc.pieces.reduce((s, p) => s + p.req.froid, 0);
     const besoinC = bloc.pieces.reduce((s, p) => s + p.req.chaud, 0);
     const t = tauxCharge(besoinF, besoinC, bloc.froidKw, bloc.chaudKw);
 
-    // Quelle unité intérieure sur quelle sortie : la correspondance qui manquait, et qui est
-    // exactement ce qui part sur le bon de commande.
     const lignes = bloc.pieces.map(p => `
         <div class="flex items-baseline justify-between gap-3 text-2xs">
             <span class="text-ink-600 min-w-0 truncate">${escapeHtml(roomLabel(p))}</span>
@@ -2735,10 +2737,13 @@ function carteDisposition(bloc) {
             <div class="k-stat k-stat-chaud"><span class="k-stat-label">Charge chaud</span><span class="k-stat-value">${t.chargeC !== null ? Math.round(t.chargeC * 100) + ' %' : nb(bloc.chaudKw) + ' kW'}</span></div>
         </div>
         ${renderSousChargeWarning(t && t.sousCharge)}
-        ${renderPiedMesures({ reqFroid: besoinF, reqChaud: besoinC }, bloc.froidKw, bloc.chaudKw)}
+        <div class="mt-3 pt-3 k-divider flex flex-wrap items-baseline justify-between gap-3">
+            <span class="text-2xs text-ink-500 k-num">Besoin ${nb(besoinF)} kW F · ${nb(besoinC)} kW C</span>
+            <span class="text-2xs font-semibold text-ink-700 k-num">Nominal ${nb(bloc.froidKw)} kW F · ${nb(bloc.chaudKw)} kW C</span>
+        </div>
         <div class="flex flex-wrap gap-1.5 mt-3">${renderTvaBadge(bloc.tva, titre)}</div>
         <div class="mt-4 pt-4 k-divider">
-            <span class="k-eyebrow">${estMulti ? 'Unités intérieures à connecter' : 'Unité intérieure'}</span>
+            <span class="k-eyebrow">${estMulti ? 'Unités intérieures à connecter' : 'Pièce desservie'}</span>
             <div class="mt-2 flex flex-col gap-1">${lignes}</div>
         </div>
     </div>`;
@@ -2749,7 +2754,12 @@ function renderAutreDisposition(m) {
     if (pieces.length < 2) return '';
     const actuelle = dispositionCourante(m);
     if (!actuelle) return '';
-    const autre = meilleureAlternative(actuelle, explorerRepartitions(pieces, state.brand, COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD));
+    // La gamme déjà choisie pour chaque pièce du groupe (state.selection.group) : c'est elle
+    // qui doit se retrouver sur l'unité dédiée si l'alternative extrait cette pièce, pas un
+    // nouveau choix imposé par le tri TVA (voir evaluerBlocRepartition).
+    const gammesPreferees = {};
+    m.standardRooms.forEach(r => { if (state.selection.group[r.index]) gammesPreferees[r.index] = state.selection.group[r.index]; });
+    const autre = meilleureAlternative(actuelle, explorerRepartitions(pieces, state.brand, COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD, gammesPreferees));
     if (!autre) return '';
 
     return `
