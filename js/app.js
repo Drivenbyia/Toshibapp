@@ -12,7 +12,7 @@ import {
     findMultiGroup, findMultiGroupOptions, getRoomEligibleGammes, getTvaInfo, getRoomSelectedTvaInfo,
     getGroupTvaInfo, trierMonosParTva, parseNombreSaisi,
     findGroupeEquilibre, estGroupeDesequilibre, ratioPieceDominante, pieceDominantePourGroupe,
-    tauxChargeGroupe
+    tauxChargeGroupe, explorerRepartitions, evaluerBlocRepartition, meilleureAlternative
 } from './calcul.js';
 import {
     sauvegardeValide, construireSauvegarde, compterChantiers
@@ -2026,6 +2026,7 @@ function renderResults({ anime = false } = {}) {
             });
             html += wrapGrilleResultats(cardsGroupe);
             html += renderMultiRoomsGuide(m.standardRooms, bestGroup);
+            html += renderAutreDisposition(m);
             summaryParts.push(`1x Multi ${bestGroup.reference} (${m.standardRooms.length} UI)`);
             if (equilibre) equipments.push(`Équilibre du groupe : ${equilibre.resume} ${equilibre.detail}`);
 
@@ -2643,6 +2644,128 @@ function renderSousChargeWarning(sousCharge, { estEscalade = false } = {}) {
         ? `Contrepartie du rééquilibrage ci-dessus : à ce taux de charge, cycles courts et rendement réel dégradé. Le groupe juste dimensionné reste sélectionnable, avec le déséquilibre qu'il implique.`
         : `Surdimensionnée pour ce besoin : cycles courts, rendement réel dégradé.`;
     return `<p class="text-2xs text-amber-800 mt-2.5 leading-relaxed">${texte}</p>`;
+}
+
+// --- AUTRE DISPOSITION POSSIBLE ------------------------------------------------------------
+//
+// L'outil dimensionne le découpage qu'on lui donne ; il ne le remet jamais en cause. Or c'est
+// le découpage qui fait la qualité d'une installation : un séjour de 50 m² et deux chambres de
+// 12 m² sur un seul groupe donnent un groupe dimensionné par le séjour, et quand celui-ci est
+// éteint les chambres ne sollicitent plus qu'une fraction du compresseur.
+//
+// UNE SEULE alternative est montrée, et seulement si elle corrige un défaut réel de la saisie
+// (voir meilleureAlternative, calcul.js). En proposer trois, dont deux strictement pires,
+// occuperait l'écran sans rien apporter à décider.
+//
+// L'exploration reste dans la zone : ses pièces sont raccordables entre elles par construction,
+// puisque c'est ce constat de terrain qui a conduit l'installateur à les regrouper.
+function dispositionCourante(m) {
+    // Le découpage tel qu'il est actuellement servi : le groupe d'un côté, chaque pièce délestée
+    // en monosplit de l'autre. Évalué par la même fonction que les alternatives, pour que la
+    // comparaison porte sur des grandeurs calculées de la même façon.
+    const partition = [];
+    if (m.standardRooms.length > 0) partition.push(m.standardRooms);
+    m.dedicated.forEach(d => partition.push([d.room]));
+    const blocs = partition.map(b => evaluerBlocRepartition(b, state.brand, COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD));
+    if (blocs.some(b => b === null)) return null;
+    const modulations = blocs.map(b => b.modulationMin).filter(x => x !== null);
+    return {
+        blocs,
+        nbGroupes: blocs.length,
+        puissanceTotale: blocs.reduce((s, b) => s + b.froidKw, 0),
+        chargeMin: Math.min(...blocs.map(b => b.chargeMin)),
+        modulationMin: modulations.length ? Math.min(...modulations) : null
+    };
+}
+
+// Le compromis en une phrase de métier. Une pastille « Charge 30 % » oblige à reconstituer ce
+// qui est gagné et ce qui est perdu ; la phrase le dit, gain en tête.
+function phraseCompromis(actuelle, autre) {
+    const gains = [], pertes = [];
+    const dU = autre.nbGroupes - actuelle.nbGroupes;
+    const unites = (n) => `${n} unité${n > 1 ? 's' : ''} extérieure${n > 1 ? 's' : ''}`;
+    if (dU > 0) pertes.push(`${unites(dU)} de plus`);
+    else if (dU < 0) gains.push(`${unites(-dU)} de moins`);
+
+    if (actuelle.modulationMin !== null && autre.modulationMin === null) {
+        gains.push('chaque pièce a sa propre machine');
+    } else if (actuelle.modulationMin !== null && autre.modulationMin !== null) {
+        const d = autre.modulationMin - actuelle.modulationMin;
+        if (d > 0.005) gains.push(`les petites pièces tiennent ${Math.round(autre.modulationMin * 100)} % au lieu de ${Math.round(actuelle.modulationMin * 100)} %`);
+        else if (d < -0.005) pertes.push(`les petites pièces tombent à ${Math.round(autre.modulationMin * 100)} %`);
+    }
+    const dC = autre.chargeMin - actuelle.chargeMin;
+    if (dC > 0.005) gains.push(`un taux de charge à ${Math.round(autre.chargeMin * 100)} %`);
+    else if (dC < -0.005) pertes.push(`un taux de charge à ${Math.round(autre.chargeMin * 100)} %`);
+
+    if (gains.length === 0 && pertes.length === 0) return '';
+    const maj = (t) => t.charAt(0).toUpperCase() + t.slice(1);
+    if (gains.length === 0) return maj(`coûte ${pertes.join(' et ')}.`);
+    const debut = `<b class="font-semibold text-accent-700">${maj(gains.join(', '))}</b>`;
+    return pertes.length ? `${debut} — en échange de ${pertes.join(' et ')}.` : `${debut}.`;
+}
+
+// Carte d'une machine d'une disposition. Reprend le vocabulaire de renderCard sans sa
+// sélection : ce bloc montre une possibilité, il ne fait pas encore choisir.
+function carteDisposition(bloc) {
+    const estMulti = bloc.type === 'multi';
+    const titre = estMulti ? bloc.reference : (bloc.gamme || bloc.reference);
+    const sousTitre = estMulti ? `Groupe extérieur · ${bloc.sorties} sorties` : bloc.reference;
+    const besoinF = bloc.pieces.reduce((s, p) => s + p.req.froid, 0);
+    const besoinC = bloc.pieces.reduce((s, p) => s + p.req.chaud, 0);
+    const t = tauxCharge(besoinF, besoinC, bloc.froidKw, bloc.chaudKw);
+
+    // Quelle unité intérieure sur quelle sortie : la correspondance qui manquait, et qui est
+    // exactement ce qui part sur le bon de commande.
+    const lignes = bloc.pieces.map(p => `
+        <div class="flex items-baseline justify-between gap-3 text-2xs">
+            <span class="text-ink-600 min-w-0 truncate">${escapeHtml(roomLabel(p))}</span>
+            <span class="font-semibold text-ink-900 k-num whitespace-nowrap">taille ${escapeHtml(String(getUiSizeForKw(p.froidMatch, p.chaudMatch, state.brand) || '—'))}</span>
+        </div>`).join('');
+
+    return `
+    <div class="k-result">
+        <div class="min-w-0">
+            <span class="k-pill k-pill-neutral mb-2">${estMulti ? 'Multisplit' : 'Monosplit'}</span>
+            <h4 class="text-xl font-semibold text-ink-900 uppercase tracking-[0.015em] leading-tight break-words">${escapeHtml(titre)}</h4>
+            <p class="text-xs text-ink-500 mt-1 break-words k-num">${escapeHtml(sousTitre)}</p>
+        </div>
+        <div class="grid grid-cols-2 gap-2 mt-4">
+            <div class="k-stat k-stat-froid"><span class="k-stat-label">Charge froid</span><span class="k-stat-value">${Math.round(t.chargeF * 100)} %</span></div>
+            <div class="k-stat k-stat-chaud"><span class="k-stat-label">Charge chaud</span><span class="k-stat-value">${t.chargeC !== null ? Math.round(t.chargeC * 100) + ' %' : nb(bloc.chaudKw) + ' kW'}</span></div>
+        </div>
+        ${renderSousChargeWarning(t && t.sousCharge)}
+        ${renderPiedMesures({ reqFroid: besoinF, reqChaud: besoinC }, bloc.froidKw, bloc.chaudKw)}
+        <div class="flex flex-wrap gap-1.5 mt-3">${renderTvaBadge(bloc.tva, titre)}</div>
+        <div class="mt-4 pt-4 k-divider">
+            <span class="k-eyebrow">${estMulti ? 'Unités intérieures à connecter' : 'Unité intérieure'}</span>
+            <div class="mt-2 flex flex-col gap-1">${lignes}</div>
+        </div>
+    </div>`;
+}
+
+function renderAutreDisposition(m) {
+    const pieces = [...m.standardRooms, ...m.dedicated.map(d => d.room)];
+    if (pieces.length < 2) return '';
+    const actuelle = dispositionCourante(m);
+    if (!actuelle) return '';
+    const autre = meilleureAlternative(actuelle, explorerRepartitions(pieces, state.brand, COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD));
+    if (!autre) return '';
+
+    return `
+    <details data-k="repartitions" class="k-card mt-2 group/rep">
+        <summary class="k-disclosure">
+            <span>Autre disposition possible</span>
+            <span class="ml-auto text-ink-400 transition-transform group-open/rep:rotate-180">${icone('chevron')}</span>
+        </summary>
+        <p class="k-hint mt-2">Les mêmes pièces, servies autrement — elles restent dans cette zone, donc raccordables.</p>
+        <p class="text-xs text-ink-700 mt-2 leading-relaxed">${phraseCompromis(actuelle, autre)}</p>
+        <div class="k-band mt-4">
+            <h3 class="k-band-title">${autre.nbGroupes} unité${autre.nbGroupes > 1 ? 's' : ''} extérieure${autre.nbGroupes > 1 ? 's' : ''}</h3>
+            <span class="k-band-meta k-num">${nb(autre.puissanceTotale)} kW installés</span>
+        </div>
+        ${wrapGrilleResultats(autre.blocs.map(carteDisposition).join(''))}
+    </details>`;
 }
 
 // selectOpts = null (carte simple, non sélectionnable) ou { selected: bool, onclick: string }

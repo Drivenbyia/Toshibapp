@@ -10,13 +10,13 @@ import {
     pieceDominante, pieceDominantePourGroupe, partPieceDansGroupe,
     tauxChargeGroupe, getGroupTvaInfo, normaliserReferenceGroupe, trierMonosParTva,
     interpolerChargeToiture, interpolerGVitrage, findRoomMultiSolutions,
-    partitionner, evaluerBlocRepartition, explorerRepartitions
+    partitionner, evaluerBlocRepartition, explorerRepartitions, meilleureAlternative
 } from '../js/calcul.js';
 import {
     CONSIGNE_REFERENCE, COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD,
     SEUIL_DESEQUILIBRE_GROUPE, CATALOGS, UI_SIZE_TABLES, DEPARTMENTS, tBaseMatrix, tBaseEteMatrix,
     CHARGE_TOITURE_PALIERS, G_VITRAGE_PALIERS, PART_VENTILATION_G, ABATTEMENT_CANICULE_MAX,
-    APPORTS_INTERNES, OCCUPANT_W, COEF_RELANCE
+    APPORTS_INTERNES, OCCUPANT_W, COEF_RELANCE, SEUIL_MODULATION_BASSE, SEUIL_SOUS_CHARGE
 } from '../js/data.js';
 
 const ROOM_TYPE = { emplacement: 'plain_pied', orientation: 'mixte', vitrage: 'moyen', protection: 'stores_int', occupants: '', expositionMurs: 4 };
@@ -1213,5 +1213,67 @@ describe('Répartition des unités entre groupes extérieurs', () => {
             assert.ok(d.length <= 52, 'jamais plus que le nombre de partitions de 5 éléments');
             assert.ok(ms < 100, `exploration en ${ms.toFixed(1)} ms — doit rester imperceptible`);
         });
+    });
+});
+
+// meilleureAlternative : ce qui décide qu'une autre répartition mérite d'être proposée.
+// Le risque principal ici n'est pas de manquer une alternative, c'est d'en proposer une qui
+// n'apporte rien — la saisie de l'installateur est le plus souvent déjà première au classement.
+describe('meilleureAlternative — ne proposer que ce qui corrige un défaut', () => {
+    const P = (nom, froid, chaud) => ({ nom, req: { froid, chaud }, froidMatch: froid * 1.07, chaudMatch: chaud * 1.25 });
+    const explorer = (pieces) => explorerRepartitions(pieces, 'toshiba', COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD);
+
+    test('le cas terrain : un séjour dominant fait proposer de le séparer', () => {
+        // Séjour 50 m² + deux chambres de 12 m² : sur un groupe unique, les chambres seules ne
+        // sollicitent plus que ~11 % du compresseur. C'est le défaut décrit sur chantier.
+        const d = explorer([P('Salon', 2.67, 3.96), P('Ch 1', 0.59, 0.59), P('Ch 2', 0.59, 0.59)]);
+        const alt = meilleureAlternative(d[0], d);
+        assert.ok(alt, 'une alternative doit être proposée');
+        assert.ok(d[0].modulationMin < SEUIL_MODULATION_BASSE, 'la saisie a bien un problème de modulation');
+        assert.ok(alt.modulationMin === null || alt.modulationMin > d[0].modulationMin,
+            'l\'alternative doit améliorer la modulation');
+    });
+
+    test('une installation saine ne déclenche AUCUNE proposition', () => {
+        // Deux pièces équivalentes sur un groupe bien chargé : rien à corriger. Proposer d'ajouter
+        // une unité extérieure ici serait du bruit, et un mauvais conseil.
+        const d = explorer([P('A', 1.049, 1.584), P('B', 1.049, 1.584)]);
+        assert.ok(d[0].chargeMin >= SEUIL_SOUS_CHARGE, 'préalable : la saisie n\'est pas sous-chargée');
+        assert.ok(d[0].modulationMin >= SEUIL_MODULATION_BASSE, 'préalable : la modulation est correcte');
+        assert.equal(meilleureAlternative(d[0], d), null);
+    });
+
+    test('un gain de taux de charge ne compte que si la saisie est réellement sous-chargée', () => {
+        // Deux pièces de 20 m² (zone B, G 1,10) : le groupe est à 64 % de charge, et deux
+        // monosplits monteraient à 70 %. Sans ce garde-fou, on proposait donc une unité
+        // extérieure de plus pour gagner six points sur une installation qui n'a rien à
+        // corriger — un mauvais échange, et du bruit à l'écran.
+        const d = explorer([P('A', 1.049, 1.584), P('B', 1.049, 1.584)]);
+        assert.ok(d[0].chargeMin >= SEUIL_SOUS_CHARGE, 'préalable : la saisie n\'est pas sous-chargée');
+        assert.ok(d.slice(1).some(x => x.chargeMin > d[0].chargeMin),
+            'préalable : une alternative a bien un meilleur taux de charge');
+        assert.equal(meilleureAlternative(d[0], d), null, 'et elle ne doit pourtant pas être proposée');
+    });
+
+    test('l\'alternative retenue est la moins coûteuse en unités extérieures', () => {
+        const d = explorer([P('Salon', 2.67, 3.96), P('Ch 1', 0.59, 0.59), P('Ch 2', 0.59, 0.59)]);
+        const alt = meilleureAlternative(d[0], d);
+        const gagnantes = d.filter(x => x !== d[0] && (x.modulationMin === null || x.modulationMin > d[0].modulationMin + 0.005));
+        const minUnites = Math.min(...gagnantes.map(x => x.nbGroupes));
+        assert.equal(alt.nbGroupes, minUnites,
+            'à gain équivalent, on ne fait pas payer une unité extérieure de plus');
+    });
+
+    test('toutes les pièces se retrouvent dans l\'alternative proposée', () => {
+        const pieces = [P('Salon', 2.67, 3.96), P('Ch 1', 0.59, 0.59), P('Ch 2', 0.59, 0.59)];
+        const d = explorer(pieces);
+        const alt = meilleureAlternative(d[0], d);
+        const noms = alt.blocs.flatMap(b => b.pieces.map(p => p.nom)).sort();
+        assert.deepEqual(noms, pieces.map(p => p.nom).sort());
+    });
+
+    test('entrées dégradées : ni disposition ni liste ne fait planter', () => {
+        assert.equal(meilleureAlternative(null, []), null);
+        assert.equal(meilleureAlternative({ nbGroupes: 1, chargeMin: 0.6, modulationMin: 0.3, blocs: [] }, null), null);
     });
 });

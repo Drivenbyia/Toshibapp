@@ -8,7 +8,8 @@ import {
     G_VITRAGE_PALIERS, COEF_INERTIE_SOLAIRE, OCCUPANT_W, COEF_RELANCE, COEF_G_DEFAUT, PART_VENTILATION_G,
     CONSIGNE_REFERENCE, ABATTEMENT_CANICULE_SEUIL_BAS, ABATTEMENT_CANICULE_SEUIL_HAUT,
     ABATTEMENT_CANICULE_MAX, DECLASSEMENT_CHAUD_PALIERS,
-    TOLERANCE_EQUIVALENCE, SEUIL_DESEQUILIBRE_GROUPE, SEUIL_SOUS_CHARGE_ESCALADE
+    TOLERANCE_EQUIVALENCE, SEUIL_DESEQUILIBRE_GROUPE, SEUIL_SOUS_CHARGE_ESCALADE,
+    SEUIL_MODULATION_BASSE, SEUIL_SOUS_CHARGE
 } from './data.js';
 
 // Nombre d'occupants par défaut (≈ 1 pers. / 15 m²) tant que rien n'est saisi.
@@ -662,4 +663,56 @@ export function explorerRepartitions(pieces, brand, coefFoisonnementFroid, coefF
         (a.nbGroupes - b.nbGroupes)
         || (b.chargeMin - a.chargeMin)
         || (a.puissanceTotale - b.puissanceTotale));
+}
+
+// La seule alternative qui mérite d'être montrée, ou null.
+//
+// « La meilleure » ne peut pas vouloir dire « la suivante au classement » : la disposition
+// saisie par l'installateur est le plus souvent déjà première (moins d'unités extérieures,
+// meilleur taux de charge), et la suivante est alors strictement pire sur tous les axes — la
+// montrer ne ferait qu'occuper l'écran. Est retenue celle qui apporte un GAIN RÉEL sur au
+// moins un axe ; s'il n'y en a aucune, on ne montre rien, parce que la saisie domine et qu'il
+// n'y a pas de choix à proposer.
+//
+// Entre plusieurs alternatives gagnantes, on prend d'abord celle qui coûte le moins d'unités
+// extérieures supplémentaires — le critère retenu par l'installateur, celui qui porte le coût
+// de pose et la place en façade — puis le gain le plus net.
+export function meilleureAlternative(actuelle, dispositions) {
+    if (!actuelle || !Array.isArray(dispositions)) return null;
+
+    // Deux dispositions symétriques (« Ch 1 avec le séjour » / « Ch 2 avec le séjour », quand
+    // les chambres ont le même besoin) sont le même choix : la signature les confond.
+    const signature = (d) => d.blocs.map(b => `${b.reference}:${b.pieces.length}`).sort().join('|')
+        + `#${d.chargeMin.toFixed(4)}#${d.modulationMin === null ? 'x' : d.modulationMin.toFixed(4)}`;
+    const sigActuelle = signature(actuelle);
+
+    const gainDe = (d) => {
+        const gains = [];
+        if (d.nbGroupes < actuelle.nbGroupes) gains.push(actuelle.nbGroupes - d.nbGroupes);
+        // Le taux de charge ne compte comme gain que si la saisie est RÉELLEMENT sous-chargée.
+        // Sinon on proposerait une unité extérieure de plus pour gagner quelques points sur une
+        // installation déjà saine — un mauvais échange, et du bruit à l'écran.
+        if (actuelle.chargeMin < SEUIL_SOUS_CHARGE && d.chargeMin > actuelle.chargeMin + 0.005) {
+            gains.push(d.chargeMin - actuelle.chargeMin);
+        }
+        // La modulation ne compte comme gain que si la saisie a RÉELLEMENT un problème de
+        // modulation (voir SEUIL_MODULATION_BASSE). Sans cette condition, « une machine par
+        // pièce » — qui supprime la modulation partagée par construction — apparaîtrait comme
+        // un gain sur toute installation, y compris parfaitement saine : on proposerait alors
+        // d'ajouter une unité extérieure à des chantiers qui n'ont rien à corriger.
+        if (actuelle.modulationMin !== null && actuelle.modulationMin < SEUIL_MODULATION_BASSE
+            && (d.modulationMin === null || d.modulationMin > actuelle.modulationMin + 0.005)) {
+            gains.push(d.modulationMin === null ? 1 : d.modulationMin - actuelle.modulationMin);
+        }
+        return gains.length ? Math.max(...gains) : 0;
+    };
+
+    const candidates = dispositions
+        .filter(d => signature(d) !== sigActuelle)
+        .map(d => ({ d, gain: gainDe(d), surcout: d.nbGroupes - actuelle.nbGroupes }))
+        .filter(c => c.gain > 0);
+    if (candidates.length === 0) return null;
+
+    candidates.sort((a, b) => (a.surcout - b.surcout) || (b.gain - a.gain));
+    return candidates[0].d;
 }
