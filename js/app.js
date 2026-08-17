@@ -59,7 +59,13 @@ let state = {
     // une saisie neuve. Permet de proposer une mise à jour en place plutôt qu'un doublon
     // systématique. Remis à null par calculate() ; posé par reloadConfig() une fois le calcul
     // relancé, pour ne pas être écrasé par cette remise à zéro.
-    loadedConfigId: null
+    loadedConfigId: null,
+    // Client du chantier en cours. Le champ #save-client vit DANS la colonne des résultats, que
+    // renderResults reconstruit entièrement : sa valeur ne survit à un rendu que par
+    // capturerEtatUi/restaurerEtatUi, et pas du tout à un vidage (viderResultats). Or enchaîner
+    // une deuxième zone sur le même chantier vide précisément cette colonne — sans cet état, le
+    // nom du client serait à ressaisir à chaque zone, ce que nouvelleZone() existe pour éviter.
+    clientChantier: ''
 };
 
 // Résout la liste de marques effective. Trois couches, par priorité décroissante : les droits
@@ -340,6 +346,7 @@ const ICONES = {
     scinder:  '<path d="M3 6h5l4 6 4-6h5M3 18h5l4-6"/>',
     document: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
     moins:    '<path d="M5 12h14"/>',
+    plus:     '<path d="M12 5v14M5 12h14"/>',
     chevron:  '<path d="m6 9 6 6 6-6"/>'
 };
 
@@ -788,6 +795,7 @@ function reloadConfig(id) {
 
     const clientEl = document.getElementById('save-client');
     const zoneEl = document.getElementById('save-zone');
+    state.clientChantier = cfg.clientName || '';
     if (clientEl) clientEl.value = cfg.clientName;
     if (zoneEl) zoneEl.value = cfg.zone || '';
 }
@@ -976,11 +984,43 @@ function saveChantier() {
 
     clearDraft();
     state.loadedConfigId = null;
+    state.clientChantier = client;
     document.getElementById('save-zone').value = '';
     planifierSync();
-    msgBox.innerHTML = "Enregistré dans Mes chantiers.";
+    // Le message d'enregistrement porte l'action qui suit presque toujours : un logement
+    // desservi par plusieurs groupes extérieurs s'enregistre en autant de zones, et jusqu'ici
+    // la seule façon d'enchaîner était de recharger la page — donc de ressaisir le client,
+    // le département, l'altitude et l'isolation d'un bâtiment qui, lui, n'a pas changé.
+    msgBox.innerHTML = `Enregistré dans Mes chantiers.
+        <button type="button" onclick="nouvelleZone()" class="k-btn-ghost mt-2 mx-auto">
+            ${icone('plus', 'w-3.5 h-3.5')}Ajouter une autre zone à ce chantier
+        </button>`;
     msgBox.className = "mt-3 text-xs font-semibold text-center text-emerald-700 block";
     populateClientDatalist();
+}
+
+// Enchaîne une zone supplémentaire sur le MÊME chantier : le client et tout le bâtiment
+// (département, altitude, isolation, consigne, marque) sont conservés, seules les pièces
+// repartent à vide. C'est le découpage réel d'un chantier multi-groupes — un groupe extérieur
+// par étage ou par aile — où seule la liste des pièces change d'une zone à l'autre.
+//
+// Sans confirmation, contrairement à startNewCalcul() : il n'y a rien à perdre ici, la zone
+// qu'on quitte vient précisément d'être enregistrée.
+function nouvelleZone() {
+    clearDraft();
+    state.rooms = [defaultRoom(nouvelIdPiece())];
+    state.forcedDedicatedIds = new Set();
+    state.currentCalc = null;
+    state.loadedConfigId = null;
+    viderResultats();
+    renderRooms();
+
+    const zoneEl = document.getElementById('save-zone');
+    if (zoneEl) zoneEl.value = '';
+    // Le champ Zone vit dans la colonne des résultats, qui vient d'être vidée : c'est la
+    // saisie des pièces qu'il faut ramener sous les yeux, pas le formulaire d'enregistrement.
+    const ancre = document.getElementById('rooms-container') || document.getElementById('app-main');
+    if (ancre) ancre.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 // Met à jour en place la fiche chargée par reloadConfig(), plutôt que d'empiler un doublon.
@@ -1005,6 +1045,7 @@ function updateChantier() {
     }
 
     clearDraft();
+    state.clientChantier = client;
     planifierSync();
     msgBox.innerHTML = "Configuration mise à jour.";
     msgBox.className = "mt-3 text-xs font-semibold text-center text-emerald-700 block";
@@ -1981,7 +2022,7 @@ function renderResults({ anime = false } = {}) {
                 const selectOpts = m.groupOptions.length > 1 ? { selected: idx === selIdx, onclick: `selectGroup(${idx})` } : null;
                 const estEquilibre = m.groupEquilibre && g.reference === m.groupEquilibre.reference;
                 const badge = estEquilibre ? 'Équilibré' : (idx === 0 ? 'Recommandé' : '');
-                cardsGroupe += renderCard(badge, g.reference, 'Groupe extérieur', g.puissance_nominale_froid_kw, g.puissance_nominale_chaud_kw, true, sizesArr, selectOpts, tvaInfosGroupe[idx], { reqFroid: groupReqFroid, reqChaud: m.froidSeul ? null : groupReqChaud }, { tvaMasquee: tvaBlocGroupe.commun });
+                cardsGroupe += renderCard(badge, g.reference, 'Groupe extérieur', g.puissance_nominale_froid_kw, g.puissance_nominale_chaud_kw, true, sizesArr, selectOpts, tvaInfosGroupe[idx], { reqFroid: groupReqFroid, reqChaud: m.froidSeul ? null : groupReqChaud }, { tvaMasquee: tvaBlocGroupe.commun, estEscalade: estEquilibre });
             });
             html += wrapGrilleResultats(cardsGroupe);
             html += renderMultiRoomsGuide(m.standardRooms, bestGroup);
@@ -2087,7 +2128,7 @@ function renderResults({ anime = false } = {}) {
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                 <div>
                     <label for="save-client" class="k-label">Nom du client / projet</label>
-                    <input type="text" id="save-client" list="client-list" placeholder="Ex : Dupont" class="k-input">
+                    <input type="text" id="save-client" list="client-list" placeholder="Ex : Dupont" value="${escapeHtml(state.clientChantier)}" class="k-input">
                     <datalist id="client-list"></datalist>
                 </div>
                 <div>
@@ -2585,9 +2626,23 @@ function renderPiedMesures(chargeInfo, nominalFroid, nominalChaud) {
     </div>`;
 }
 
-function renderSousChargeWarning(sousCharge) {
+// Deux règles indépendantes peuvent se contredire sur une même carte : l'escalade
+// anti-déséquilibre regarde la RÉPARTITION entre pièces (voir estGroupeDesequilibre), le taux de
+// charge regarde le REMPLISSAGE global (voir tauxCharge). Monter d'un cran pour qu'une pièce
+// dominante cesse de monopoliser le groupe fait mécaniquement chuter le taux de charge — c'est
+// arithmétique, pas accidentel, et le moteur l'assume jusqu'à SEUIL_SOUS_CHARGE_ESCALADE.
+//
+// Le groupe retenu portait donc simultanément le badge « Équilibré » et un avertissement de
+// surdimensionnement, sans qu'aucun des deux ne mentionne l'autre : l'artisan lisait une
+// recommandation et sa contradiction, à charge pour lui de reconstituer le lien. Sur le groupe
+// issu de l'escalade, l'avertissement dit maintenant de quoi il est la conséquence. Le défaut
+// reste signalé — il est réel — mais comme une contrepartie assumée, pas comme un verdict.
+function renderSousChargeWarning(sousCharge, { estEscalade = false } = {}) {
     if (!sousCharge) return '';
-    return `<p class="text-2xs text-amber-800 mt-2.5 leading-relaxed">Surdimensionnée pour ce besoin : cycles courts, rendement réel dégradé.</p>`;
+    const texte = estEscalade
+        ? `Contrepartie du rééquilibrage ci-dessus : à ce taux de charge, cycles courts et rendement réel dégradé. Le groupe juste dimensionné reste sélectionnable, avec le déséquilibre qu'il implique.`
+        : `Surdimensionnée pour ce besoin : cycles courts, rendement réel dégradé.`;
+    return `<p class="text-2xs text-amber-800 mt-2.5 leading-relaxed">${texte}</p>`;
 }
 
 // selectOpts = null (carte simple, non sélectionnable) ou { selected: bool, onclick: string }
@@ -2609,7 +2664,7 @@ function renderSousChargeWarning(sousCharge) {
 //   - le filigrane décoratif en coin est retiré : il n'apportait rien et passait sous du texte ;
 //   - même largeur de tuile, mêmes couleurs froid/chaud qu'avant : la lecture reste la même
 //     geste, seul ce qu'elle mesure change.
-function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = false, sizes = [], selectOpts = null, tvaInfo = null, chargeInfo = null, { tvaMasquee = false } = {}) {
+function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = false, sizes = [], selectOpts = null, tvaInfo = null, chargeInfo = null, { tvaMasquee = false, estEscalade = false } = {}) {
     let footer = '';
     if (isMulti) {
         // Une taille par pièce, nommée : c'est cette correspondance-là qui part sur le bon
@@ -2697,7 +2752,7 @@ function renderCard(badgeText, mainTitle, subtitle, froid, chaud, isMulti = fals
                 <span class="k-stat-value">${tuileChaud.valeur}</span>
             </div>
         </div>
-        ${renderSousChargeWarning(t && t.sousCharge)}
+        ${renderSousChargeWarning(t && t.sousCharge, { estEscalade })}
 
         ${renderPiedMesures(chargeInfo, froid, chaud)}
         ${pastilles}
@@ -2772,7 +2827,7 @@ if ('serviceWorker' in navigator) {
 // délégation. Liste figée = fonctions effectivement référencées depuis des attributs HTML.
 Object.assign(window, {
     addRoom, calculate, duplicateRoom, exportFiche, oublierConfigChargee, persistDraft, removeRoom,
-    saveChantier, selectGroupGamme, setBrand, setMode, setUsage, shareResults, startNewCalcul,
+    saveChantier, selectGroupGamme, setBrand, setMode, setUsage, shareResults, startNewCalcul, nouvelleZone,
     toggleCustomCoef, toggleRoomCustomCoef, toggleDashboard, updateChantier, updateClimateInfo, updateRoom,
     selectDedicated, selectGroup, selectMono, marquerResultatsObsoletes, persistInstallateur,
     separerPieceEnDedie, reintegrerPieceAuGroupe
