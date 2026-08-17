@@ -61,11 +61,12 @@ Ce qu'un outil voisin ne pourrait pas copier tel quel :
 
 - **Le rendez-vous client est la scène principale.** L'écran des résultats est parfois montré
   au client pendant le rendez-vous et doit inspirer confiance.
-- **La fiche exportée (PDF / partage) est un document de travail de l'installateur**, qui
-  s'en sert pour monter son devis. Ce n'est pas un livrable remis au client. *(Le site
-  vitrine promet aujourd'hui l'inverse — « le client repart avec un document, pas une
-  estimation à l'oral » — et sa formulation est à corriger. Un livrable client reste une
-  évolution possible, non décidée.)*
+- **Deux documents distincts sont exportés, pour deux destinataires.** La *fiche de travail*
+  est le document de l'installateur, qui s'en sert pour monter son devis : détail poste par
+  poste, références commandables, taux de TVA, réserves de méthode. Le *rapport client* est
+  remis au client et justifie la puissance et le matériel retenus — mêmes données, projection
+  différente. La promesse du site vitrine (« le client repart avec un document, pas une
+  estimation à l'oral ») est donc désormais exacte.
 - Aucun réseau garanti sur la scène d'usage : cave, vide sanitaire, chantier neuf.
 - Deux sites distincts : `klimo.fr` pour la vitrine, `app.klimo.fr` pour l'application, servie
   **à la racine** — un découpage en sous-dossier changerait la portée du service worker et

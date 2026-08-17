@@ -14,7 +14,8 @@ import {
 import {
     CONSIGNE_REFERENCE, COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD,
     SEUIL_DESEQUILIBRE_GROUPE, CATALOGS, UI_SIZE_TABLES, DEPARTMENTS, tBaseMatrix, tBaseEteMatrix,
-    CHARGE_TOITURE_PALIERS, G_VITRAGE_PALIERS, PART_VENTILATION_G, ABATTEMENT_CANICULE_MAX
+    CHARGE_TOITURE_PALIERS, G_VITRAGE_PALIERS, PART_VENTILATION_G, ABATTEMENT_CANICULE_MAX,
+    APPORTS_INTERNES, OCCUPANT_W, COEF_RELANCE
 } from '../js/data.js';
 
 const ROOM_TYPE = { emplacement: 'plain_pied', orientation: 'mixte', vitrage: 'moyen', protection: 'stores_int', occupants: '', expositionMurs: 4 };
@@ -154,6 +155,77 @@ describe('getRequiredKw — poste solaire (orientation, vitrage, protection, emp
         const surchargePleine = sousToiture - protege;
         assert.ok(Math.abs(surchargePleine - demiSurcharge * 2) < 1e-6,
             `surcharge sous toiture (${surchargePleine}) attendue au double de la demi-surcharge plain-pied (${demiSurcharge})`);
+    });
+});
+
+// Le détail poste par poste est la matière de la fiche imprimée : c'est lui qui permet à un
+// document de justifier une puissance au lieu de se contenter de l'affirmer. Ces tests ne
+// vérifient donc pas des valeurs de référence de plus — ils vérifient que ce qui sera IMPRIMÉ
+// est exactement ce qui a servi à choisir la machine.
+describe('getRequiredKw — détail des postes', () => {
+    const CTX = { coefG: 0.8, tBaseHiver: -9, tBaseEte: 33, consigne: 26 };
+
+    test('la somme des postes froid vaut exactement le besoin froid', () => {
+        const { froid, detail } = getRequiredKw(30, 2.5, ROOM_TYPE, CTX);
+        const somme = Object.values(detail.froidPostes).reduce((a, b) => a + b, 0);
+        assert.equal(detail.froidTotalW, somme, 'froidTotalW doit être la somme littérale des postes');
+        assert.ok(Math.abs(somme / 1000 - froid) < 1e-12,
+            `somme des postes ${somme / 1000} kW ≠ besoin froid ${froid} kW`);
+    });
+
+    test('déperditions sèches × coefficient de relance = besoin chaud', () => {
+        const { chaud, detail } = getRequiredKw(30, 2.5, ROOM_TYPE, CTX);
+        assert.equal(detail.chaudDetail.coefRelance, COEF_RELANCE);
+        assert.ok(Math.abs(detail.chaudDetail.deperditionsSeches * COEF_RELANCE - chaud) < 1e-12);
+    });
+
+    test('poste toiture : nul en étage protégé, demi en plain-pied, plein sous toiture', () => {
+        const toiture = (emplacement) =>
+            getRequiredKw(30, 2.5, { ...ROOM_TYPE, emplacement }, CTX).detail.froidPostes.toiture;
+        assert.equal(toiture('etage_protege'), 0);
+        assert.ok(Math.abs(toiture('plain_pied') * 2 - toiture('sous_toiture')) < 1e-9);
+    });
+
+    test('postes internes et occupants suivent leurs constantes', () => {
+        const { detail } = getRequiredKw(30, 2.5, { ...ROOM_TYPE, occupants: 3 }, CTX);
+        assert.equal(detail.froidPostes.internes, APPORTS_INTERNES * 30);
+        assert.equal(detail.froidPostes.occupants, 3 * OCCUPANT_W);
+        assert.equal(detail.occupants.nb, 3);
+        assert.equal(detail.occupants.wParOccupant, OCCUPANT_W);
+    });
+
+    test('occupants = 0 explicite se lit 0 dans le détail (pas de repli sur l\'estimation)', () => {
+        const { detail } = getRequiredKw(30, 2.5, { ...ROOM_TYPE, occupants: 0 }, CTX);
+        assert.equal(detail.occupants.nb, 0);
+        assert.equal(detail.froidPostes.occupants, 0);
+    });
+
+    test('gPondere égale G quand les 4 murs donnent sur l\'extérieur', () => {
+        const { detail } = getRequiredKw(30, 2.5, { ...ROOM_TYPE, expositionMurs: 4 }, CTX);
+        assert.equal(detail.exposition.ratioExposition, 1);
+        assert.equal(detail.exposition.nbMursExt, 4);
+        assert.ok(Math.abs(detail.exposition.gPondere - 0.8) < 1e-12);
+    });
+
+    test('consigne au-dessus de la Tbase été : ΔT plancher à 0, poste enveloppe nul', () => {
+        const { detail } = getRequiredKw(30, 2.5, ROOM_TYPE, { ...CTX, consigne: 40 });
+        assert.equal(detail.deltaTEte, 0);
+        assert.equal(detail.froidPostes.enveloppe, 0);
+    });
+
+    test('les entrées reprises dans le détail sont celles reçues (volume = surface × hauteur)', () => {
+        const { detail } = getRequiredKw(30, 2.5, ROOM_TYPE, CTX);
+        assert.equal(detail.entrees.surface, 30);
+        assert.equal(detail.entrees.height, 2.5);
+        assert.equal(detail.entrees.volume, 75);
+        assert.equal(detail.entrees.coefG, 0.8);
+        assert.equal(detail.entrees.consigne, 26);
+    });
+
+    test('non-régression : exposer le détail ne déplace ni froid ni chaud (cas Lyon)', () => {
+        const req = getRequiredKw(30, 2.5, ROOM_TYPE, CTX);
+        assert.ok(Math.abs(req.froid - 1.68896) < 0.001, `froid attendu ~1.68896, obtenu ${req.froid}`);
+        assert.ok(Math.abs(req.chaud - 2.088) < 0.001, `chaud attendu ~2.088, obtenu ${req.chaud}`);
     });
 });
 

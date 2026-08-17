@@ -18,6 +18,10 @@ import {
     sauvegardeValide, construireSauvegarde, compterChantiers
 } from './sauvegarde.js';
 import {
+    construireFiche, assainirFiche, ficheDepuisBody, lignesTableauFiche,
+    gabaritTravail, gabaritClient, lignesPartage
+} from './fiche.js';
+import {
     MARQUES_ACTIVES, MARQUES_CONNUES, marqueAutorisee, marqueParDefaut, resoudreMarque, libelleMarque,
     selecteurMarqueVisible
 } from './marques.js';
@@ -359,6 +363,68 @@ function grouperParClient(configs) {
     return groupes;
 }
 
+// Hypothèses de calcul d'une fiche enregistrée, en pastilles. Ces valeurs étaient persistées
+// depuis l'origine (body.params) sans jamais être affichées : une fiche qu'on relit six mois
+// plus tard ne disait pas avec quel climat ni quelle isolation elle avait été calculée.
+function renderHypothesesPills(h) {
+    if (!h) return '';
+    // Number.isFinite(Number(null)) vaut true (Number(null) === 0) : une hypothèse absente doit
+    // être écartée avant conversion, sinon elle s'affiche en « 0 °C » — une mesure inventée.
+    const mesure = (x) => x !== null && x !== undefined && x !== '' && Number.isFinite(Number(x));
+    const pills = [
+        h.dept ? `${h.dept} ${h.deptNom || ''}`.trim() + (h.altitude ? ` · ${h.altitude}` : '') : null,
+        h.zone && mesure(h.tBaseHiver) && mesure(h.tBaseEte) ? `Zone ${h.zone} · ${nb(h.tBaseHiver, 0)} °C / ${nb(h.tBaseEte, 0)} °C` : null,
+        mesure(h.coefG) ? `G ${nb(h.coefG, 2)}` : null,
+        mesure(h.consigne) ? `Consigne ${nb(h.consigne, 0)} °C` : null
+    ].filter(Boolean);
+    if (pills.length === 0) return '';
+    return `<div class="flex flex-wrap items-center gap-1.5 mt-2">
+        ${pills.map(p => `<span class="k-pill k-pill-neutral">${escapeHtml(p)}</span>`).join('')}
+    </div>`;
+}
+
+// Le bilan par pièce, visible sans déplier. Rôles ARIA explicites : c'est une grille CSS et
+// non un <table> (voir .k-fiche-tab dans build/input.css pour ce que ça résout sur téléphone),
+// donc la sémantique de tableau doit être portée par le balisage.
+function renderTableauPieces(t) {
+    const cellule = (valeur, libelle, classe = '') =>
+        `<span class="k-fiche-num ${classe}" data-l="${libelle}" role="cell">${valeur}</span>`;
+
+    const lignes = t.pieces.map(p => `
+        <div class="k-fiche-row" role="row">
+            <span class="k-fiche-nom" role="cell">${escapeHtml(p.libelle)}</span>
+            ${cellule(nb(p.surface, 0), 'm²')}
+            ${cellule(nb(p.froid, 2), 'F', 'k-fiche-f')}
+            ${cellule(nb(p.chaud, 2), 'C', 'k-fiche-c')}
+            ${p.horsCatalogue
+                ? cellule('hors cat.', 'UI', 'k-fiche-hors')
+                : cellule(escapeHtml(String(p.taille)), 'UI')}
+        </div>`).join('');
+
+    // Ligne de total omise sur une pièce unique : elle répéterait la ligne au-dessus.
+    const total = t.pieces.length > 1 ? `
+        <div class="k-fiche-row k-fiche-total" role="row">
+            <span class="k-fiche-nom" role="cell">Total ${t.pieces.length} pièces</span>
+            ${cellule(nb(t.total.surface, 0), 'm²')}
+            ${cellule(nb(t.total.froid, 2), 'F', 'k-fiche-f')}
+            ${cellule(nb(t.total.chaud, 2), 'C', 'k-fiche-c')}
+            <span class="k-fiche-num" role="cell"></span>
+        </div>` : '';
+
+    return `
+    <div class="k-fiche-tab" role="table" aria-label="Bilan par pièce">
+        <div class="k-fiche-head" role="row">
+            <span role="columnheader">Pièce</span>
+            <span role="columnheader">Surface</span>
+            <span role="columnheader">Froid</span>
+            <span role="columnheader">Chaud</span>
+            <span role="columnheader">Unité</span>
+        </div>
+        ${lignes}${total}
+    </div>
+    ${t.recalculee ? `<p class="k-hint mt-1.5">Bilan reconstitué à partir des paramètres enregistrés.</p>` : ''}`;
+}
+
 function renderDashboard() {
     const list = document.getElementById('chantiers-list');
     const degrade = store.isDegraded();
@@ -436,17 +502,24 @@ function renderDashboard() {
             // rechargeable — le recalcul porterait sur un autre catalogue (cf. reloadConfig).
             const marqueRetiree = cfg.brand && !marqueAutorisee(cfg.brand, marquesActives());
 
+            // Bilan structuré de la fiche, en trois paliers (voir ficheDepuisBody, js/fiche.js) :
+            // enregistré tel quel, reconstitué depuis les paramètres, ou indisponible.
+            const { fiche, palier } = ficheDepuisBody(cfg);
+            const tableau = fiche ? lignesTableauFiche(fiche) : null;
+
+            // Le matériel reste replié : c'est la seule partie que `resultStr`, juste au-dessus,
+            // résume déjà fidèlement. Le bilan par pièce, lui, n'était visible nulle part.
             let detailsHtml = '';
-            if (eqs.length > 0 || rds.length > 0) {
+            if (eqs.length > 0 || (!tableau && rds.length > 0)) {
                 detailsHtml = `
                 <details class="mt-2.5 group">
                     <summary class="k-disclosure text-2xs">
-                        <span>Détail des unités et des pièces</span>
+                        <span>Détail des unités${tableau ? '' : ' et des pièces'}</span>
                         <span class="text-ink-400 transition-transform group-open:rotate-180">${icone('chevron', 'w-3.5 h-3.5')}</span>
                     </summary>
                     <div class="mt-2 rounded-xl border border-line bg-white p-3 text-2xs text-ink-700 flex flex-col gap-2.5 leading-relaxed">
                         ${eqs.length > 0 ? `<div><div class="k-eyebrow mb-1">Matériel proposé</div>${eqs.map(e => `<div class="text-ink-900">• ${escapeHtml(e)}</div>`).join('')}</div>` : ''}
-                        ${rds.length > 0 ? `<div><div class="k-eyebrow mb-1">Bilan par pièce</div>${rds.map(r => `<div>• ${escapeHtml(r)}</div>`).join('')}</div>` : ''}
+                        ${!tableau && rds.length > 0 ? `<div><div class="k-eyebrow mb-1">Bilan par pièce</div>${rds.map(r => `<div>• ${escapeHtml(r)}</div>`).join('')}</div>` : ''}
                     </div>
                 </details>`;
             }
@@ -458,10 +531,17 @@ function renderDashboard() {
                         <span class="font-semibold text-sm text-ink-900">${escapeHtml(cfg.zone)}</span>
                         <span class="k-pill k-pill-neutral">${escapeHtml(cfg.mode)}</span>
                         ${marqueRetiree ? `<span class="k-pill k-pill-warn" title="Marque plus proposée sur ce poste : fiche consultable, non rechargeable">${escapeHtml(libelleMarque(cfg.brand))} — archivé</span>` : ''}
+                        ${palier === 3 ? `<span class="k-pill k-pill-warn" title="Fiche enregistrée avant que le détail des calculs ne soit conservé">fiche ancienne</span>` : ''}
                     </div>
                     <p class="text-xs font-medium text-accent-700">${escapeHtml(cfg.resultStr)}</p>
+                    ${fiche ? renderHypothesesPills(fiche.hypotheses) : ''}
+                    ${tableau ? renderTableauPieces(tableau) : ''}
                     ${detailsHtml}
-                    <p class="text-2xs text-ink-400 mt-2 k-num">${escapeHtml(cfg.date)}</p>
+                    <div class="flex flex-wrap items-center gap-x-3 gap-y-1.5 mt-2.5">
+                        <span class="text-2xs text-ink-400 k-num">${escapeHtml(cfg.date)}</span>
+                        <button data-action="pdf-travail" data-id="${escapeHtml(cfg.id)}" class="k-btn-ghost text-2xs">Fiche de travail</button>
+                        ${palier === 3 ? '' : `<button data-action="pdf-client" data-id="${escapeHtml(cfg.id)}" class="k-btn-ghost text-2xs">Rapport client</button>`}
+                    </div>
                 </div>
                 <div class="flex items-center gap-0.5 flex-shrink-0">
                     ${marqueRetiree ? '' : `<button data-action="reload-config" data-id="${escapeHtml(cfg.id)}" title="Recharger cette configuration pour la modifier" aria-label="Recharger cette configuration" class="k-icon-btn hover:text-accent-700 hover:bg-accent-50"><svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg></button>`}
@@ -494,6 +574,8 @@ function initDashboardEvents() {
         if (btn.dataset.action === 'delete-chantier') deleteChantier(btn.dataset.client);
         else if (btn.dataset.action === 'delete-config') deleteConfig(btn.dataset.id);
         else if (btn.dataset.action === 'reload-config') reloadConfig(btn.dataset.id);
+        else if (btn.dataset.action === 'pdf-travail') exporterFicheEnregistree(btn.dataset.id, 'travail');
+        else if (btn.dataset.action === 'pdf-client') exporterFicheEnregistree(btn.dataset.id, 'client');
         else if (btn.dataset.action === 'restore-conflict') {
             store.restoreConflict(btn.dataset.id);
             renderDashboard();
@@ -798,8 +880,17 @@ function startNewCalcul() {
 // Capture l'état courant du calcul dans la forme que le magasin attend pour `body` — factorisé
 // car saveChantier() (toujours un ajout) et updateChantier() (mise à jour explicite) en ont
 // besoin à l'identique.
+// `v` versionne le CORPS de la fiche, distinct du `schema: 2` du magasin (qui versionne le
+// conteneur, voir store.js). Il ne monte que si un champ existant change de sens ou disparaît —
+// en ajouter un ne le bouge pas. Aucune lecture ne doit être conditionnée à `v === 2` seul : la
+// synchronisation fait circuler des corps entre versions différentes de l'application, et un
+// corps écrit par une version plus récente doit continuer à afficher ce qu'il peut.
+const VERSION_CORPS = 2;
+
 function captureCorpsChantier() {
     return {
+        v: VERSION_CORPS,
+        fiche: assainirFiche(ficheCourante()),
         mode: state.mode,
         brand: state.brand,
         usage: state.usage,
@@ -940,6 +1031,69 @@ function getRequiredKw(surface, height, room) {
     const consigneEl = document.getElementById('consigneInt');
     const consigne = consigneEl ? parseFloat(consigneEl.value) : CONSIGNE_REFERENCE;
     return getRequiredKwCore(surface, height, room, { coefG: getRoomCoefG(room), tBaseHiver, tBaseEte, consigne });
+}
+
+// Version du moteur estampillée sur chaque fiche produite. Un document archivé doit dire par
+// quelle version de l'outil il a été calculé : sans cette trace, une fiche imprimée il y a un
+// an et rouverte aujourd'hui est indiscernable d'une fiche produite par les règles actuelles.
+const VERSION_MOTEUR = 'V18';
+
+// Hypothèses de calcul dans la forme que la fiche attend : les mêmes valeurs que
+// captureBuildingParams() (qui les capture pour être RÉAPPLIQUÉES au formulaire), mais
+// résolues pour un lecteur — le nom du département plutôt que son code, le libellé du niveau
+// d'isolation plutôt que son coefficient nu.
+function hypothesesFiche(corrections, facteurCanicule, facteurDeclassementChaud) {
+    const deptCode = document.getElementById('deptSelect').value;
+    const altitude = document.getElementById('altitude').value;
+    const { zone, tBaseHiver, tBaseEte } = getClimateContext();
+    const isolationSelect = document.getElementById('isolationCoef');
+    return {
+        dept: deptCode,
+        deptNom: (DEPARTMENTS[deptCode] && DEPARTMENTS[deptCode].name) || deptCode,
+        altitude, zone, tBaseHiver, tBaseEte,
+        consigne: parseFloat(document.getElementById('consigneInt').value),
+        isolationLabel: isolationSelect.value === 'custom'
+            ? `saisie personnalisée (G ${nb(getCoefG(), 2)})`
+            : isolationSelect.options[isolationSelect.selectedIndex].textContent,
+        coefG: getCoefG(),
+        facteurCanicule,
+        facteurDeclassementChaud,
+        corrections: corrections || []
+    };
+}
+
+// Identité portée par le document lui-même (par opposition aux hypothèses de calcul).
+// Lue depuis le formulaire : ne vaut donc que pour le parcours vivant — une fiche enregistrée
+// tient la sienne de son enregistrement (voir ficheDepuisBody, js/fiche.js).
+function identiteFiche() {
+    const val = (id) => (document.getElementById(id) || {}).value?.trim() || '';
+    return {
+        client: val('save-client'),
+        zone: val('save-zone'),
+        installateur: val('save-installateur') || getInstallateur(),
+        dateStr: new Date().toLocaleString('fr-FR', {
+            day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+        }),
+        brand: state.brand,
+        brandLabel: BRAND_LABELS[state.brand] || state.brand,
+        modeLabel: state.mode === 'mono' ? 'Monosplit' : 'Multisplit',
+        usage: state.usage
+    };
+}
+
+// La fiche du calcul EN COURS, prête à imprimer : le socle produit par calculate() (hypothèses,
+// bilan, pièces) complété par le matériel réellement sélectionné, que seul renderResults()
+// connaît. Renvoie null tant qu'aucun résultat n'a été rendu.
+function ficheCourante() {
+    const calc = state.currentCalc;
+    if (!calc || !calc.fiche || !state.lastResultData) return null;
+    return {
+        ...calc.fiche,
+        materiel: state.lastResultData.materiel || null,
+        identite: identiteFiche(),
+        genereLe: new Date().toISOString(),
+        moteur: VERSION_MOTEUR
+    };
 }
 
 function toggleCustomCoef() {
@@ -1427,6 +1581,13 @@ function calculate() {
             besoinsHtml: renderBesoinsCard([req]),
             hypothesesHtml: hypothesesHtml,
             roomDetails: [`Pièce 1 : ${nb(req.froid)} kW F / ${nb(req.chaud)} kW C → Taille ${size || 'HORS LIMITE'}`],
+            fiche: construireFiche({
+                hypotheses: hypothesesFiche(hypotheses, facteurCanicule, froidSeul ? 1 : facteurDeclassementChaud),
+                pieces: [{
+                    room: state.rooms[0], coefG: getRoomCoefG(state.rooms[0]), coefGSurcharge: null, role: 'mono',
+                    rd: { index: 1, nom: state.rooms[0].nom || '', req, froidMatch, chaudMatch, size }
+                }]
+            }),
             mono: { options: trierMonosParTva(findBestMonos(froidMatch, chaudMatch, state.brand), state.brand), froidSeul }
         };
     } else {
@@ -1437,7 +1598,7 @@ function calculate() {
             let size = getUiSizeForKw(froidMatch, chaudMatch, state.brand);
             // Tracée dans la fiche (roomDetails, ci-dessous) uniquement quand la pièce surcharge
             // le niveau d'isolation du bâtiment (voir getRoomCoefG) : sinon la mention serait
-            // redondante avec l'hypothèse globale déjà affichée (buildHypothesesLines).
+            // redondante avec l'hypothèse globale déjà affichée (hypothesesFiche).
             const gSurcharge = r.isolationCoef ? getRoomCoefG(r) : null;
             return { id: r.id, index: i + 1, nom: r.nom || '', req: req, froidMatch: froidMatch, chaudMatch: chaudMatch, size: size, maxKw: Math.max(froidMatch, chaudMatch), gSurcharge };
         });
@@ -1514,6 +1675,19 @@ function calculate() {
             besoinsHtml: renderBesoinsCard(roomsData.map(r => r.req), true, roomsData),
             hypothesesHtml: hypothesesHtml,
             roomDetails: roomDetails,
+            fiche: construireFiche({
+                hypotheses: hypothesesFiche(hypotheses, facteurCanicule, froidSeul ? 1 : facteurDeclassementChaud),
+                // Le rôle d'une pièce est calculé ICI, en chaîne : le lire plus tard depuis
+                // state.forcedDedicatedIds ferait entrer un Set dans la fiche, et JSON.stringify
+                // le rendrait `{}` SANS lever — une perte parfaitement silencieuse.
+                pieces: roomsData.map((rd, i) => ({
+                    room: state.rooms[i],
+                    coefG: getRoomCoefG(state.rooms[i]),
+                    coefGSurcharge: rd.gSurcharge,
+                    role: standardRooms.some(r => r.id === rd.id) ? 'groupe' : 'dedie',
+                    rd
+                }))
+            }),
             multi: { dedicated: dedicated, groupOptions: groupOptions, standardRooms: standardRooms, hybridNote: hybridNote, froidSeul, groupEquilibre: groupEquilibre }
         };
     }
@@ -1651,6 +1825,12 @@ function renderResults({ anime = false } = {}) {
 
     let summaryParts = [];
     let equipments = [];
+    // Version STRUCTURÉE du matériel retenu, construite dans la même passe que `equipments`
+    // et jamais ailleurs : c'est ici, et ici seulement, que le code sait quelle option est
+    // sélectionnée (selIdx, state.selection.group, escalade, délestage). La reconstruire
+    // depuis la fiche donnerait deux réponses possibles à la seule question que cet outil
+    // doit trancher — quelle machine a été retenue.
+    let materiel = { type: calc.mode === 'mono' ? 'mono' : 'multi', groupe: null, unites: [], monos: [], alertes: [] };
 
     if (calc.mode === 'mono') {
         const options = calc.mono.options;
@@ -1671,6 +1851,13 @@ function renderResults({ anime = false } = {}) {
             const chosenTva = getTvaInfo(chosen.gamme, chosen.reference_ensemble, 'mono', state.brand);
             summaryParts.push(`1x Mono ${chosen.gamme}`);
             equipments.push(`Modèle sélectionné : ${chosen.gamme} (${chosen.reference_ensemble})${options.length > 1 ? ` — ${options.length - 1} autre${options.length > 2 ? 's' : ''} option${options.length > 2 ? 's' : ''} disponible${options.length > 2 ? 's' : ''}` : ''}${tvaSuffixText(chosenTva)}`);
+            materiel.monos.push({
+                piece: 1, nom: state.rooms[0].nom || '',
+                gamme: chosen.gamme, reference: chosen.reference_ensemble,
+                froidKw: chosen.puissance_froid_kw, chaudKw: chosen.puissance_chaud_kw,
+                besoin: { froid: calc.req.froid, chaud: calc.mono.froidSeul ? 0 : calc.req.chaud },
+                tva: chosenTva
+            });
         }
     } else {
         const m = calc.multi;
@@ -1703,9 +1890,17 @@ function renderResults({ anime = false } = {}) {
                 const chosenTva = getTvaInfo(chosen.gamme, chosen.reference_ensemble, 'mono', state.brand);
                 summaryParts.push(`1x Mono ${chosen.gamme}`);
                 equipments.push(`${dedItem.label} — Modèle sélectionné : ${chosen.gamme} (${chosen.reference_ensemble})${tvaSuffixText(chosenTva)}`);
+                materiel.monos.push({
+                    piece: room.index, nom: room.nom || '',
+                    gamme: chosen.gamme, reference: chosen.reference_ensemble,
+                    froidKw: chosen.puissance_froid_kw, chaudKw: chosen.puissance_chaud_kw,
+                    besoin: { froid: room.req.froid, chaud: m.froidSeul ? 0 : room.req.chaud },
+                    tva: chosenTva
+                });
             } else {
                 html += note('warn', 'alerte', `<span class="k-note-title">Pièce ${room.index}</span> — puissance requise (${nb(room.maxKw)} kW) hors catalogue.`);
                 equipments.push(`Pièce ${room.index} : Aucune machine assez puissante`);
+                materiel.alertes.push(`Pièce ${room.index}${room.nom ? ` (${room.nom})` : ''} : puissance requise (${nb(room.maxKw)} kW) hors catalogue — aucune machine assez puissante.`);
             }
         });
 
@@ -1750,13 +1945,37 @@ function renderResults({ anime = false } = {}) {
                 return `Pièce ${r.index} (taille ${r.size}) : ${selGamme || '—'}${tvaSuffixText(info)}`;
             }).join(' / ');
             equipments.push(`Groupe Extérieur ${bestGroup.reference} — Unités sélectionnées : ${uiChoices}`);
+
+            materiel.groupe = {
+                reference: bestGroup.reference,
+                froidKw: bestGroup.puissance_nominale_froid_kw,
+                chaudKw: bestGroup.puissance_nominale_chaud_kw,
+                sorties: m.standardRooms.length,
+                besoin: { froid: groupReqFroid, chaud: m.froidSeul ? 0 : groupReqChaud },
+                // Les coefficients qui ont RENDU ce groupe éligible (voir findGroupesValides) :
+                // sans eux, la fiche opposerait un besoin cumulé à une puissance nominale plus
+                // petite, et donnerait à lire comme un sous-dimensionnement ce qui est un choix
+                // de conception assumé — les pièces n'appellent pas leur pointe au même instant.
+                foisonnement: { froid: COEF_FOISONNEMENT_FROID, chaud: COEF_FOISONNEMENT_CHAUD },
+                tva: tvaInfosGroupe[selIdx]
+            };
+            materiel.unites = m.standardRooms.map(r => {
+                const selGamme = state.selection.group[r.index];
+                return {
+                    piece: r.index, nom: r.nom || '', taille: r.size, gamme: selGamme || null,
+                    tva: selGamme ? getRoomSelectedTvaInfo(r, selGamme, bestGroup.gammes_compatibles, state.brand, bestGroup.reference) : null
+                };
+            });
+            if (equilibre) materiel.alertes.push(`${equilibre.resume} ${equilibre.detail}`);
         }
+        if (m.hybridNote) materiel.type = 'hybride';
     }
 
     state.lastResultData = {
         summaryText: summaryParts.join(' | '),
         equipments: equipments,
-        roomDetails: calc.roomDetails
+        roomDetails: calc.roomDetails,
+        materiel: materiel
     };
 
     // Impasse : aucune option n'a abouti nulle part (mono hors catalogue, ou en multi aucune
@@ -1785,15 +2004,20 @@ function renderResults({ anime = false } = {}) {
                 <input type="text" id="save-installateur" oninput="persistInstallateur(this.value)" value="${escapeHtml(getInstallateur())}" placeholder="Ex : Dupont Climatisation — 06 12 34 56 78" class="k-input">
             </div>
             <div class="flex flex-col sm:flex-row gap-3">
-                <button onclick="exportPdf()" class="k-btn-outline flex-1">
+                <button onclick="exportFiche('travail')" class="k-btn-outline flex-1">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2-10V5a2 2 0 012-2h2a2 2 0 012 2v2M7 17v2a2 2 0 002 2h6a2 2 0 002-2v-2"></path></svg>
-                    Imprimer / Exporter PDF
+                    Fiche de travail
                 </button>
-                <button onclick="shareResults()" class="k-btn-outline flex-1">
+                <button onclick="exportFiche('client')" class="k-btn-outline flex-1">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                    Rapport client
+                </button>
+                <button onclick="shareResults()" class="k-btn-ghost">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M8.7 10.7a3 3 0 100 2.6m0-2.6l6.6-3.4m-6.6 6l6.6 3.4M18 8a3 3 0 100-6 3 3 0 000 6zm0 14a3 3 0 100-6 3 3 0 000 6z"></path></svg>
                     Partager
                 </button>
             </div>
+            <p class="k-hint mt-2.5">La fiche de travail porte le détail des calculs, pour monter le devis. Le rapport client justifie la puissance et le matériel retenus.</p>
         </div>
         <div class="k-card fade-in">
             <h3 class="k-section-title mb-4">Enregistrer au chantier</h3>
@@ -1831,99 +2055,84 @@ function renderResults({ anime = false } = {}) {
     populateClientDatalist();
 }
 
-// Export / partage de la fiche de dimensionnement. Aucune dépendance ajoutée : l'export
-// PDF s'appuie sur l'impression native du navigateur (une feuille de style @media print
-// isole une vue propre dans #print-area), et le partage utilise la Web Share API quand
-// disponible, avec un repli mailto: sinon.
-// Hypothèses de calcul lisibles (département, altitude, isolation, consigne) — les mêmes
-// valeurs que capture captureBuildingParams() pour la reprise d'un chantier, mais mises en
-// forme pour un lecteur humain plutôt que pour être réappliquées au formulaire.
-function buildHypothesesLines() {
-    const deptCode = document.getElementById('deptSelect').value;
-    const deptNom = DEPARTMENTS[deptCode]?.name || deptCode;
-    const altitude = document.getElementById('altitude').value;
-    const { zone, tBaseHiver, tBaseEte } = getClimateContext();
-    const isolationSelect = document.getElementById('isolationCoef');
-    const isolationLabel = isolationSelect.value === 'custom'
-        ? `saisie personnalisée (G=${getCoefG()})`
-        : isolationSelect.options[isolationSelect.selectedIndex].textContent;
-    const consigne = document.getElementById('consigneInt').value;
-    return [
-        `Localisation : ${deptCode} - ${deptNom}, altitude ${altitude} (zone climatique ${zone})`,
-        `Températures de base : ${tBaseHiver}°C hiver, ${tBaseEte}°C été`,
-        `Isolation : ${isolationLabel}`,
-        `Consigne intérieure été : ${consigne}°C`
-    ];
-}
+// --- Export / partage --------------------------------------------------------------------
+//
+// Aucune dépendance ajoutée : l'export s'appuie sur l'impression native du navigateur (une
+// feuille @media print isole #print-area, voir index.html), et le partage sur la Web Share
+// API avec repli mailto:.
+//
+// Ces fonctions ne sont plus qu'un PONT : rassembler la fiche, demander son gabarit à
+// js/fiche.js, injecter, imprimer. Toute la mise en forme vit dans un module pur, ce qui la
+// rend testable — et ce qui permet d'imprimer une fiche ENREGISTRÉE, chemin qui ne peut lire
+// aucun champ du formulaire puisque le formulaire porte la saisie en cours.
 
-function buildResultSummaryLines() {
-    const calc = state.currentCalc;
-    if (!calc || !state.lastResultData) return null;
-    const client = (document.getElementById('save-client') || {}).value?.trim() || '';
-    const zone = (document.getElementById('save-zone') || {}).value?.trim() || '';
-    const installateur = (document.getElementById('save-installateur') || {}).value?.trim() || getInstallateur();
-    const dateStr = new Date().toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-    const bilan = calc.bilan
-        ? `Bilan thermique cumulé : ${nb(calc.bilan.froid, 2)} kW froid / ${nb(calc.bilan.chaud, 2)} kW chaud`
-        : null;
-    return {
-        client, zone, installateur, dateStr, bilan,
-        brandLabel: BRAND_LABELS[state.brand] || state.brand,
-        modeLabel: calc.mode === 'mono' ? 'Monosplit' : 'Multisplit',
-        roomDetails: calc.roomDetails || [],
-        equipments: state.lastResultData.equipments || [],
-        hypotheses: buildHypothesesLines()
-    };
-}
-
-function exportPdf() {
-    const s = buildResultSummaryLines();
-    if (!s) return;
-    const printArea = document.getElementById('print-area');
-    printArea.innerHTML = `
-        <h1>Klimo — Fiche de dimensionnement</h1>
-        ${s.installateur ? `<p><strong>Installateur :</strong> ${escapeHtml(s.installateur)}</p>` : ''}
-        ${s.client ? `<p><strong>Client :</strong> ${escapeHtml(s.client)}</p>` : ''}
-        ${s.zone ? `<p><strong>Zone :</strong> ${escapeHtml(s.zone)}</p>` : ''}
-        <p><strong>Date :</strong> ${escapeHtml(s.dateStr)} — <strong>Marque :</strong> ${s.brandLabel} — <strong>Mode :</strong> ${s.modeLabel}</p>
-        <h2>Détail par pièce</h2>
-        <ul>${s.roomDetails.map(r => `<li>${escapeHtml(r)}</li>`).join('')}</ul>
-        ${s.bilan ? `<p><strong>${escapeHtml(s.bilan)}</strong></p>` : ''}
-        <h2>Équipements recommandés</h2>
-        <ul>${s.equipments.map(e => `<li>${escapeHtml(e)}</li>`).join('')}</ul>
-        <h2>Méthode et hypothèses</h2>
-        <ul>${s.hypotheses.map(h => `<li>${escapeHtml(h)}</li>`).join('')}</ul>
-        <p class="print-disclaimer">Dimensionnement indicatif généré par Klimo à partir des hypothèses ci-dessus, à valider par un professionnel avant installation.</p>
-    `;
+// Injecte un gabarit dans la zone d'impression et déclenche l'impression.
+// La classe est posée sur #print-area lui-même : c'est elle qui choisit le gabarit côté CSS
+// (.pf--travail masque la prose, .pf--client masque les tableaux techniques).
+function imprimerFiche(fiche, variante) {
+    if (!fiche) return;
+    const zone = document.getElementById('print-area');
+    zone.className = `pf pf--${variante}`;
+    zone.innerHTML = variante === 'client' ? gabaritClient(fiche) : gabaritTravail(fiche);
     window.print();
 }
 
+function exportFiche(variante) {
+    imprimerFiche(ficheCourante(), variante);
+}
+
+// Export depuis une fiche ENREGISTRÉE, sans passer par un rechargement. Recharger relancerait
+// un calcul complet, qui peut proposer un autre matériel si le catalogue a bougé depuis ;
+// imprimer depuis la fiche stockée imprime ce qui a été DÉCIDÉ — la bonne sémantique pour un
+// document. Fonctionne donc aussi sur une fiche enregistrée sous une marque retirée, qui reste
+// consultable sans être rechargeable (voir reloadConfig).
+function exporterFicheEnregistree(id, variante) {
+    const cfg = store.getConfig(id);
+    if (!cfg) return;
+    const { fiche, palier } = ficheDepuisBody(cfg);
+    // Palier 3 : aucune donnée structurée exploitable. Le rapport client n'est pas proposé dans
+    // ce cas (le bouton n'est pas rendu), et la fiche de travail retombe sur le contenu texte
+    // enregistré plutôt que sur rien.
+    if (!fiche) {
+        if (variante === 'client') return;
+        imprimerFiche(ficheTexteDegradee(cfg), 'travail');
+        return;
+    }
+    if (palier === 3) return;
+    imprimerFiche(fiche, variante);
+}
+
+// Dernier recours : une fiche ancienne dont il ne reste que les chaînes déjà formatées.
+// On imprime ce qu'on a, en le disant, plutôt que de refuser d'imprimer.
+function ficheTexteDegradee(cfg) {
+    return {
+        origine: 'calcul',
+        moteur: null,
+        hypotheses: { corrections: [] },
+        bilan: { froid: null, chaud: null },
+        pieces: [],
+        materiel: null,
+        equipementsEnregistres: [...(cfg.roomDetails || []), ...(cfg.equipments || [])],
+        identite: {
+            client: cfg.clientName || '', zone: cfg.zone || '', dateStr: cfg.date || '',
+            installateur: getInstallateur(),
+            brandLabel: BRAND_LABELS[cfg.brand] || cfg.brand || '',
+            modeLabel: cfg.mode === 'mono' ? 'Monosplit' : 'Multisplit'
+        }
+    };
+}
+
 function shareResults() {
-    const s = buildResultSummaryLines();
-    if (!s) return;
-    const lines = [
-        'Klimo — Fiche de dimensionnement',
-        s.installateur ? `Installateur : ${s.installateur}` : null,
-        s.client ? `Client : ${s.client}` : null,
-        s.zone ? `Zone : ${s.zone}` : null,
-        `Marque : ${s.brandLabel} — Mode : ${s.modeLabel}`,
-        '',
-        'Détail par pièce :',
-        ...s.roomDetails.map(r => `- ${r}`),
-        s.bilan ? '' : null,
-        s.bilan || null,
-        '',
-        'Équipements recommandés :',
-        ...s.equipments.map(e => `- ${e}`)
-    ].filter(l => l !== null);
-    const text = lines.join('\n');
+    const lignes = lignesPartage(ficheCourante());
+    if (lignes.length === 0) return;
+    const text = lignes.join('\n');
+    const client = (document.getElementById('save-client') || {}).value?.trim() || '';
 
     if (navigator.share) {
         navigator.share({ title: 'Klimo — Dimensionnement', text }).catch(() => {});
     } else {
-        const subject = encodeURIComponent(`Klimo — Dimensionnement${s.client ? ' — ' + s.client : ''}`);
-        const body = encodeURIComponent(text);
-        window.location.href = `mailto:?subject=${subject}&body=${body}`;
+        const subject = encodeURIComponent(`Klimo — Dimensionnement${client ? ' — ' + client : ''}`);
+        window.location.href = `mailto:?subject=${subject}&body=${encodeURIComponent(text)}`;
     }
 }
 
@@ -2474,7 +2683,7 @@ if ('serviceWorker' in navigator) {
 // explicite pour continuer à fonctionner sans réécrire toute la gestion d'événements en
 // délégation. Liste figée = fonctions effectivement référencées depuis des attributs HTML.
 Object.assign(window, {
-    addRoom, calculate, duplicateRoom, exportPdf, oublierConfigChargee, persistDraft, removeRoom,
+    addRoom, calculate, duplicateRoom, exportFiche, oublierConfigChargee, persistDraft, removeRoom,
     saveChantier, selectGroupGamme, setBrand, setMode, setUsage, shareResults, startNewCalcul,
     toggleCustomCoef, toggleRoomCustomCoef, toggleDashboard, updateChantier, updateClimateInfo, updateRoom,
     selectDedicated, selectGroup, selectMono, marquerResultatsObsoletes, persistInstallateur,

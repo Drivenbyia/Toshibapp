@@ -271,10 +271,14 @@ export function createStore(kv) {
         const sortie = {};
         listConfigs().forEach((c) => {
             if (!sortie[c.clientName]) sortie[c.clientName] = { configurations: [] };
+            // Cette liste est énumérée à la main, donc tout champ ajouté au corps doit y être
+            // ajouté ici AUSSI : un champ oublié ne casse rien à l'écriture, il disparaît
+            // silencieusement au premier aller-retour « Sauvegarder » → « Restaurer ».
             sortie[c.clientName].configurations.push({
                 zone: c.zone, mode: c.mode, brand: c.brand, usage: c.usage,
                 resultStr: c.resultStr, equipments: c.equipments, roomDetails: c.roomDetails,
-                params: c.params, rooms: c.rooms, selection: c.selection, date: c.date
+                params: c.params, rooms: c.rooms, selection: c.selection,
+                v: c.v, fiche: c.fiche, date: c.date
             });
         });
         return sortie;
@@ -294,8 +298,8 @@ export function createStore(kv) {
             const departPreexistant = (actuel[clientName] && actuel[clientName].configurations.length) || 0;
             const nouvelles = d.configurations.slice(departPreexistant);
             for (const cfg of nouvelles) {
-                const { zone, mode, brand, usage, resultStr, equipments, roomDetails, params, rooms, selection } = cfg;
-                saveConfig({ clientName, zone, body: { mode, brand, usage, resultStr, equipments, roomDetails, params, rooms, selection } });
+                const { zone, mode, brand, usage, resultStr, equipments, roomDetails, params, rooms, selection, v, fiche } = cfg;
+                saveConfig({ clientName, zone, body: { v, fiche, mode, brand, usage, resultStr, equipments, roomDetails, params, rooms, selection } });
             }
         }
         return { ajoutes, ignores };

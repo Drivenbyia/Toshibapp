@@ -471,6 +471,95 @@
         @apply saturate-[0.35];
     }
 
+    /* --- Bilan par pièce d'une fiche enregistrée ------------------------------
+       Le tableau du tableau de bord : pièce, surface, besoin froid, besoin chaud,
+       taille d'unité. Il est VISIBLE SANS DÉPLIER — une fiche enregistrée dont on
+       ne voit que « 1x Multi RAS-3M26 » n'apprend rien sur le chantier qu'elle
+       décrit, alors que toutes ces valeurs y sont déjà enregistrées.
+
+       Une grille et non un `<table>`. Sur un téléphone à 375 px, la carte laisse
+       ~305 px pour cinq colonnes, soit 61 px chacune : un `<table>` n'y survit
+       qu'en tronquant le nom de pièce, c'est-à-dire la seule colonne qui identifie
+       la ligne. La grille laisse le nom occuper toute la largeur sur une première
+       ligne en dessous de 640 px, puis rentrer en première colonne au-delà — un
+       seul DOM, deux formes. D'où les rôles ARIA côté balisage : la sémantique de
+       tableau doit être rendue explicitement, puisque les éléments ne la portent
+       plus.
+
+       Variante notée pour plus tard : une `@container` sur .k-card ferait réagir
+       la forme à la largeur de la CARTE plutôt qu'à celle de la fenêtre — utile le
+       jour où le tableau de bord passe en deux colonnes comme le simulateur.
+       Tailwind 3 sans le plugin container-queries ne sait pas l'exprimer en
+       utilitaires, mais ce bloc en CSS clair le pourrait. */
+    .k-fiche-tab {
+        @apply mt-2.5 text-2xs;
+    }
+
+    .k-fiche-head,
+    .k-fiche-row {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 0.125rem 0.5rem;
+        align-items: baseline;
+    }
+
+    .k-fiche-row {
+        @apply border-b border-line py-1.5;
+    }
+    .k-fiche-row:last-child { @apply border-b-0; }
+
+    .k-fiche-nom {
+        grid-column: 1 / -1;
+        @apply font-semibold text-ink-900 truncate;
+    }
+
+    .k-fiche-num {
+        font-variant-numeric: tabular-nums;
+        @apply text-ink-700;
+    }
+    .k-fiche-f { @apply text-froid-700; }
+    .k-fiche-c { @apply text-chaud-700; }
+    .k-fiche-hors { @apply text-amber-800 font-semibold; }
+    .k-fiche-total { @apply border-b-0 border-t border-line pt-2 mt-0.5; }
+    .k-fiche-total .k-fiche-num,
+    .k-fiche-total .k-fiche-nom { @apply font-semibold text-ink-900; }
+
+    /* Le libellé de mesure devant la valeur : c'est ce qui rend la forme téléphone
+       auto-descriptive sans dupliquer le balisage ni tenter d'empiler un en-tête de
+       cinq colonnes dans 305 px. Le contenu généré n'étant pas annoncé de façon
+       fiable par les lecteurs d'écran, la ligne d'en-tête reste dans le DOM :
+       masquée visuellement seulement, jamais retirée. */
+    .k-fiche-num::before {
+        content: attr(data-l) "\00a0";
+        @apply text-ink-400 font-medium;
+    }
+
+    .k-fiche-head {
+        position: absolute;
+        width: 1px; height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+    }
+
+    @media (min-width: 640px) {
+        .k-fiche-head {
+            position: static;
+            width: auto; height: auto;
+            overflow: visible;
+            clip-path: none;
+            @apply text-ink-400 font-semibold uppercase tracking-wide pb-1;
+        }
+        .k-fiche-head,
+        .k-fiche-row {
+            grid-template-columns: minmax(0, 1fr) 3.5rem 4.5rem 4.5rem 3rem;
+        }
+        .k-fiche-head > *:not(:first-child),
+        .k-fiche-row > .k-fiche-num { text-align: right; }
+        .k-fiche-nom { grid-column: auto; }
+        .k-fiche-num::before { content: none; }
+    }
+
     /* --- Divers -------------------------------------------------------------- */
 
     .k-divider {

@@ -258,6 +258,35 @@ describe('export / import legacy — la restauration ne détruit jamais', () => 
         assert.equal(store.listConfigs().length, 1);
     });
 
+    // Les deux listes de champs d'exportLegacyBlob/importLegacyBlob sont énumérées à la main :
+    // un champ oublié n'échoue nulle part, il disparaît au premier aller-retour. Ce test est le
+    // seul garde-fou de cette liste.
+    test('un aller-retour sauvegarde/restauration préserve la fiche et sa version', () => {
+        const store = createStore(fauxKv());
+        store.init();
+        const fiche = {
+            origine: 'calcul', moteur: 'V18',
+            hypotheses: { dept: '69', coefG: 0.8, corrections: [] },
+            bilan: { froid: 2.19, chaud: 2.09 },
+            pieces: [{ index: 1, nom: 'Salon', surface: 30, req: { froid: 2.19, chaud: 2.09 }, taille: '13', role: 'mono' }],
+            materiel: { type: 'mono', groupe: null, unites: [], monos: [], alertes: [] }
+        };
+        store.saveConfig({ clientName: 'Dupont', zone: 'Salon', body: { ...corpsMinimal(), v: 2, fiche } });
+
+        const blob = store.exportLegacyBlob();
+        assert.deepEqual(blob.Dupont.configurations[0].fiche, fiche, 'la fiche doit survivre à l\'export');
+        assert.equal(blob.Dupont.configurations[0].v, 2);
+
+        // Réimport dans un magasin neuf : c'est le trajet réel d'une restauration sur une
+        // nouvelle tablette, pas la déduplication d'un réimport sur place.
+        const neuf = createStore(fauxKv());
+        neuf.init();
+        neuf.importLegacyBlob(blob);
+        const restauree = neuf.listConfigs()[0];
+        assert.deepEqual(restauree.fiche, fiche, 'la fiche doit survivre à la restauration');
+        assert.equal(restauree.v, 2);
+    });
+
     test('importLegacyBlob ajoute uniquement les zones réellement nouvelles', () => {
         const store = createStore(fauxKv());
         store.init();
