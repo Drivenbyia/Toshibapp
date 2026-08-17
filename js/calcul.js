@@ -553,3 +553,113 @@ export function getRoomSelectedTvaInfo(room, gammeName, allowedGammes, brand, gr
     const sol = sols.find(s => s.gamme === gammeName);
     return sol ? getTvaInfo(gammeName, sol.reference_ensemble, 'multiUi', brand, groupeReference) : null;
 }
+
+// --- RÉPARTITION DES UNITÉS INTÉRIEURES ENTRE GROUPES EXTÉRIEURS -------------------------
+//
+// L'outil dimensionne le découpage qu'on lui donne ; il ne le remet jamais en cause. Or c'est
+// le découpage qui fait la qualité d'une installation : un séjour de 50 m² et deux chambres de
+// 12 m² sur un seul groupe donnent un groupe dimensionné par le séjour, et quand celui-ci est
+// éteint les deux chambres ne sollicitent plus qu'une fraction du compresseur.
+//
+// PORTÉE — l'exploration reste À L'INTÉRIEUR d'une zone, jamais une pièce n'en change.
+// Une zone n'est pas un découpage arbitraire : l'installateur la crée parce qu'il a constaté
+// sur place ce qui est raccordable ensemble. Cette géométrie est donc DÉJÀ saisie, et la
+// redemander (étage, façade) alourdirait le parcours pour redemander ce qu'il vient de dire.
+// Toute sous-répartition d'une zone est réalisable par construction — au pire deux groupes au
+// même emplacement — alors que déplacer une pièce d'une zone à l'autre contredirait le terrain.
+//
+// Le problème est une partition d'ensemble, NP-difficile en général. Ici il ne l'est pas : une
+// zone est plafonnée à 5 pièces, soit 52 partitions au maximum. On énumère donc TOUT, sans
+// heuristique ni approximation. Voir docs/repartition-intelligente.md.
+
+// Toutes les façons de répartir un ensemble en blocs non vides (nombres de Bell : 5 pour
+// 3 éléments, 52 pour 5). Récursif : chaque élément rejoint un bloc existant, ou en ouvre un.
+export function partitionner(items) {
+    if (items.length === 0) return [[]];
+    const [tete, ...reste] = items;
+    const sorties = [];
+    for (const p of partitionner(reste)) {
+        for (let i = 0; i < p.length; i++) {
+            sorties.push(p.map((bloc, j) => (j === i ? [tete, ...bloc] : bloc)));
+        }
+        sorties.push([[tete], ...p]);
+    }
+    return sorties;
+}
+
+// Évalue un bloc de pièces servies par UNE unité extérieure : monosplit si la pièce est seule,
+// groupe multisplit sinon. Renvoie null si le catalogue ne sait pas servir ce bloc — une pièce
+// dont le besoin dépasse la plus grosse UI multisplit ne peut ainsi apparaître que seule.
+export function evaluerBlocRepartition(bloc, brand, coefFoisonnementFroid, coefFoisonnementChaud) {
+    if (!bloc || bloc.length === 0) return null;
+
+    if (bloc.length === 1) {
+        const p = bloc[0];
+        const monos = trierMonosParTva(findBestMonos(p.froidMatch, p.chaudMatch, brand), brand);
+        if (monos.length === 0) return null;
+        const m = monos[0];
+        const besoinFroid = p.req ? p.req.froid : p.froidMatch;
+        const besoinChaud = p.req ? p.req.chaud : p.chaudMatch;
+        const chargeF = besoinFroid / m.puissance_froid_kw;
+        const chargeC = besoinChaud ? besoinChaud / m.puissance_chaud_kw : null;
+        return {
+            type: 'mono', pieces: bloc, reference: m.reference_ensemble, gamme: m.gamme,
+            froidKw: m.puissance_froid_kw, chaudKw: m.puissance_chaud_kw,
+            chargeMin: chargeC !== null ? Math.min(chargeF, chargeC) : chargeF,
+            // Une machine dédiée n'a personne à moduler pour : sa plus petite demande est la
+            // sienne. `null` plutôt que 1, pour ne pas la faire passer pour un cas favorable.
+            modulationMin: null,
+            tva: getTvaInfo(m.gamme, m.reference_ensemble, 'mono', brand)
+        };
+    }
+
+    if (bloc.some(p => !getUiSizeForKw(p.froidMatch, p.chaudMatch, brand))) return null;
+    const valides = findGroupesValides(bloc, brand, coefFoisonnementFroid, coefFoisonnementChaud);
+    if (valides.length === 0) return null;
+    const g = valides[0];
+    const besoinFroid = bloc.reduce((s, p) => s + (p.req ? p.req.froid : p.froidMatch), 0);
+    const besoinChaud = bloc.reduce((s, p) => s + (p.req ? p.req.chaud : p.chaudMatch), 0);
+    const tc = tauxChargeGroupe(g, besoinFroid, besoinChaud);
+    // Modulation minimale : ce que le compresseur doit fournir quand SEULE la plus petite pièce
+    // appelle. C'est le défaut que l'installateur décrit — les petites chambres sur un groupe
+    // dimensionné par le séjour — et il ne se lit sur aucun taux de charge cumulé.
+    const plusPetite = Math.min(...bloc.map(p => (p.req ? p.req.froid : p.froidMatch)));
+    return {
+        type: 'multi', pieces: bloc, reference: g.reference, gamme: null,
+        froidKw: g.puissance_nominale_froid_kw, chaudKw: g.puissance_nominale_chaud_kw,
+        sorties: g.max_unites_interieures,
+        chargeMin: tc.min,
+        modulationMin: plusPetite / g.puissance_nominale_froid_kw,
+        tva: getGroupTvaInfo(g.reference, brand)
+    };
+}
+
+// Toutes les dispositions possibles des pièces d'une zone, classées.
+//
+// Classement : d'abord le MOINS d'unités extérieures, puis le meilleur taux de charge. Le
+// nombre d'unités domine parce que c'est lui qui porte le coût réel côté client — pose, place
+// en façade, passages de liaisons — là où les écarts de rendement se rattrapent à l'usage.
+//
+// Aucun score composite : chaque disposition expose ses grandeurs séparément (unités, puissance
+// installée, charge, modulation, TVA) pour que le compromis reste lisible. Un score unique
+// masquerait exactement l'arbitrage que cette fonction existe pour montrer.
+export function explorerRepartitions(pieces, brand, coefFoisonnementFroid, coefFoisonnementChaud) {
+    if (!Array.isArray(pieces) || pieces.length < 2) return [];
+    const dispositions = [];
+    for (const partition of partitionner(pieces)) {
+        const blocs = partition.map(b => evaluerBlocRepartition(b, brand, coefFoisonnementFroid, coefFoisonnementChaud));
+        if (blocs.some(b => b === null)) continue;
+        const modulations = blocs.map(b => b.modulationMin).filter(m => m !== null);
+        dispositions.push({
+            blocs,
+            nbGroupes: blocs.length,
+            puissanceTotale: blocs.reduce((s, b) => s + b.froidKw, 0),
+            chargeMin: Math.min(...blocs.map(b => b.chargeMin)),
+            modulationMin: modulations.length ? Math.min(...modulations) : null
+        });
+    }
+    return dispositions.sort((a, b) =>
+        (a.nbGroupes - b.nbGroupes)
+        || (b.chargeMin - a.chargeMin)
+        || (a.puissanceTotale - b.puissanceTotale));
+}

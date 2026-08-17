@@ -9,7 +9,8 @@ import {
     findGroupesValides, findGroupeEquilibre, estGroupeDesequilibre, ratioPieceDominante,
     pieceDominante, pieceDominantePourGroupe, partPieceDansGroupe,
     tauxChargeGroupe, getGroupTvaInfo, normaliserReferenceGroupe, trierMonosParTva,
-    interpolerChargeToiture, interpolerGVitrage, findRoomMultiSolutions
+    interpolerChargeToiture, interpolerGVitrage, findRoomMultiSolutions,
+    partitionner, evaluerBlocRepartition, explorerRepartitions
 } from '../js/calcul.js';
 import {
     CONSIGNE_REFERENCE, COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD,
@@ -1074,5 +1075,143 @@ describe('Référentiel climatique — cohérence interne', () => {
             const t = tBaseMatrix['0 à 200m'][DEPARTMENTS[dom].zone];
             assert.ok(t > 15, `département ${dom} : base hiver ${t}°C, incompatible avec un climat tropical`);
         }
+    });
+});
+
+// Répartition des unités intérieures entre groupes extérieurs (voir docs/repartition-intelligente.md).
+// Ce que ces tests protègent : que l'exploration soit réellement EXHAUSTIVE (aucune disposition
+// servable ne doit être perdue), et qu'elle ne franchisse jamais la frontière d'une zone —
+// laquelle porte la géométrie constatée sur le terrain par l'installateur.
+describe('Répartition des unités entre groupes extérieurs', () => {
+    const P = (nom, froid, chaud) => ({ nom, req: { froid, chaud }, froidMatch: froid * 1.07, chaudMatch: chaud * 1.25 });
+    // Le cas réel : un séjour de 50 m² et deux chambres de 12 m², zone B.
+    const CAS_REEL = [P('Salon', 2.67, 3.96), P('Ch 1', 0.59, 0.59), P('Ch 2', 0.59, 0.59)];
+    const explorer = (pieces) => explorerRepartitions(pieces, 'toshiba', COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD);
+
+    describe('partitionner — l\'énumération doit être complète', () => {
+        test('produit exactement les nombres de Bell', () => {
+            // 1, 2, 5, 15, 52 : si l'énumération en perd une, c'est une disposition valable que
+            // l'installateur ne verra jamais — le défaut le plus grave possible ici.
+            const attendus = { 1: 1, 2: 2, 3: 5, 4: 15, 5: 52 };
+            for (const [n, bell] of Object.entries(attendus)) {
+                const items = Array.from({ length: Number(n) }, (_, i) => i);
+                assert.equal(partitionner(items).length, bell, `${n} pièces doivent donner ${bell} partitions`);
+            }
+        });
+
+        test('chaque partition couvre toutes les pièces, une seule fois', () => {
+            const items = ['a', 'b', 'c', 'd'];
+            for (const p of partitionner(items)) {
+                const plat = p.flat();
+                assert.equal(plat.length, items.length, 'aucune pièce perdue ni dupliquée');
+                assert.deepEqual([...plat].sort(), [...items].sort());
+                assert.ok(p.every(bloc => bloc.length > 0), 'aucun bloc vide');
+            }
+        });
+
+        test('un ensemble vide donne une partition vide, pas une erreur', () => {
+            assert.deepEqual(partitionner([]), [[]]);
+        });
+    });
+
+    describe('evaluerBlocRepartition', () => {
+        test('une pièce seule est servie par un monosplit, sans modulation à signaler', () => {
+            const b = evaluerBlocRepartition([P('Ch', 0.59, 0.59)], 'toshiba', COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD);
+            assert.equal(b.type, 'mono');
+            assert.ok(b.reference.includes('/'), 'un monosplit porte une référence de couple UE/UI');
+            assert.equal(b.modulationMin, null, 'une machine dédiée n\'a personne à moduler pour');
+        });
+
+        test('plusieurs pièces sont servies par un groupe, avec sa modulation minimale', () => {
+            const b = evaluerBlocRepartition(CAS_REEL, 'toshiba', COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD);
+            assert.equal(b.type, 'multi');
+            assert.equal(b.reference, 'RAS-3M18G3AVG-E');
+            // La plus petite pièce (0,59 kW) face aux 5,2 kW du groupe : c'est exactement le
+            // défaut décrit par l'installateur — les chambres seules sur un groupe de séjour.
+            assert.ok(Math.abs(b.modulationMin - 0.59 / 5.2) < 1e-9, `modulation attendue ${(0.59 / 5.2).toFixed(3)}, obtenue ${b.modulationMin}`);
+        });
+
+        test('un bloc que le catalogue ne peut pas servir est écarté, pas approximé', () => {
+            // Deux pièces énormes : aucune UI multisplit ne les couvre.
+            const trop = [P('A', 9, 10), P('B', 9, 10)];
+            assert.equal(evaluerBlocRepartition(trop, 'toshiba', COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD), null);
+            assert.equal(evaluerBlocRepartition([], 'toshiba', COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD), null);
+        });
+    });
+
+    describe('explorerRepartitions', () => {
+        test('le cas réel : les cinq dispositions sont trouvées, groupe unique en tête', () => {
+            const d = explorer(CAS_REEL);
+            assert.equal(d.length, 5, 'les 5 partitions de 3 pièces sont toutes servables ici');
+            assert.equal(d[0].nbGroupes, 1);
+            assert.equal(d[0].blocs[0].reference, 'RAS-3M18G3AVG-E');
+            assert.equal(d[d.length - 1].nbGroupes, 3, 'trois monosplits ferment la marche');
+        });
+
+        test('classement : le moins d\'unités extérieures d\'abord, puis la meilleure charge', () => {
+            const d = explorer(CAS_REEL);
+            for (let i = 1; i < d.length; i++) {
+                assert.ok(d[i - 1].nbGroupes <= d[i].nbGroupes, 'le nombre d\'unités ne doit jamais décroître');
+                if (d[i - 1].nbGroupes === d[i].nbGroupes) {
+                    assert.ok(d[i - 1].chargeMin >= d[i].chargeMin - 1e-9,
+                        'à nombre d\'unités égal, la meilleure charge passe devant');
+                }
+            }
+        });
+
+        test('chaque disposition expose ses grandeurs séparément, sans score composite', () => {
+            for (const d of explorer(CAS_REEL)) {
+                assert.equal(typeof d.nbGroupes, 'number');
+                assert.equal(typeof d.puissanceTotale, 'number');
+                assert.equal(typeof d.chargeMin, 'number');
+                assert.ok(d.modulationMin === null || typeof d.modulationMin === 'number');
+                assert.equal(d.score, undefined, 'aucun score unique : il masquerait le compromis');
+                // Toute pièce doit se retrouver dans exactement un bloc.
+                const noms = d.blocs.flatMap(b => b.pieces.map(p => p.nom));
+                assert.deepEqual(noms.sort(), CAS_REEL.map(p => p.nom).sort());
+            }
+        });
+
+        test('le compromis est réel : le groupe unique gagne en charge, le découpage en modulation', () => {
+            const d = explorer(CAS_REEL);
+            const unique = d.find(x => x.nbGroupes === 1);
+            const meilleureModulation = d.filter(x => x.modulationMin !== null)
+                .reduce((m, x) => (x.modulationMin > m.modulationMin ? x : m));
+            assert.ok(unique.chargeMin > meilleureModulation.chargeMin,
+                'le groupe unique doit dominer sur le taux de charge');
+            assert.ok(meilleureModulation.modulationMin > unique.modulationMin,
+                'et une disposition découpée doit dominer sur la modulation');
+            assert.ok(meilleureModulation.nbGroupes > unique.nbGroupes,
+                'ce gain se paie en unités extérieures — c\'est l\'arbitrage à montrer');
+        });
+
+        test('une pièce hors catalogue multisplit n\'apparaît que seule, jamais dans un groupe', () => {
+            const pieces = [P('Enorme', 7.5, 9.0), P('Ch 1', 0.59, 0.59)];
+            const d = explorer(pieces);
+            for (const disposition of d) {
+                for (const bloc of disposition.blocs) {
+                    if (bloc.pieces.some(p => p.nom === 'Enorme')) {
+                        assert.equal(bloc.pieces.length, 1, 'une pièce hors catalogue doit être isolée');
+                        assert.equal(bloc.type, 'mono');
+                    }
+                }
+            }
+        });
+
+        test('moins de deux pièces : rien à répartir', () => {
+            assert.deepEqual(explorer([P('Seule', 1, 1)]), []);
+            assert.deepEqual(explorer([]), []);
+            assert.deepEqual(explorer(null), []);
+        });
+
+        test('cinq pièces (le plafond d\'une zone) restent exhaustivement explorables', () => {
+            const cinq = [P('S', 2.0, 2.5), P('A', 0.6, 0.6), P('B', 0.6, 0.6), P('C', 0.7, 0.7), P('D', 0.7, 0.7)];
+            const t0 = process.hrtime.bigint();
+            const d = explorer(cinq);
+            const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+            assert.ok(d.length > 0, 'au moins une disposition servable');
+            assert.ok(d.length <= 52, 'jamais plus que le nombre de partitions de 5 éléments');
+            assert.ok(ms < 100, `exploration en ${ms.toFixed(1)} ms — doit rester imperceptible`);
+        });
     });
 });
