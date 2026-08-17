@@ -383,8 +383,36 @@ export function ratioPieceDominante(group, roomsObj) {
 // Groupe déséquilibré : une seule pièce mobilise une part telle de la puissance du groupe que les
 // autres pièces peuvent manquer de capacité en cas de forte demande simultanée. Sans objet sur une
 // pièce unique (il n'y a alors personne à pénaliser).
+//
+// Le seuil de part dominante ne se justifie QUE lorsque le groupe s'appuie sur le foisonnement.
+// Les coefficients COEF_FOISONNEMENT_* autorisent un besoin cumulé supérieur à la puissance
+// nominale, en pariant que les pièces n'appellent pas leur pointe au même instant — pari d'autant
+// plus fragile qu'une pièce écrase les autres, d'où ce garde-fou.
+//
+// Mais quand la somme des besoins tient DÉJÀ dans la puissance nominale, il n'y a plus de pari à
+// protéger : le groupe sert les trois pièces à leur pointe simultanée, et aucune ne peut en priver
+// une autre. « Reste-t-il de quoi servir les autres quand la pièce dominante est à sa pointe ? »
+// se réduit exactement à « le total tient-il dans le nominal ? » — donc au test ci-dessous.
+//
+// Sans cette condition, la règle écartait des groupes parfaitement capables : un salon à 5,00 kW
+// chaud avec deux chambres à 0,75 kW fait 6,50 kW, que le RAS-3M18 (6,8 kW) couvre intégralement,
+// et il était pourtant refusé parce que le salon pesait 74 % du nominal. L'escalade se payait
+// alors sur l'autre grandeur — le groupe supérieur tombait à 44 % de charge en froid, donc cycles
+// courts et surcoût, pour corriger un déséquilibre qui n'existait pas. Sur un balayage de 436
+// escalades (9 zones × 5 isolations × 7 tailles de séjour × 5 tailles de chambre), la moitié
+// étaient dans ce cas.
+//
+// Rappel de ce que la contrainte constructeur impose réellement : le nombre de sorties, porté par
+// la référence elle-même (2M/3M/4M/5M chez Toshiba) et déjà filtré par findGroupesValides. Aucun
+// taux de raccordement ne vient s'y ajouter — ce seuil ne tenait donc lieu de rien d'autre.
 export function estGroupeDesequilibre(group, roomsObj, seuil = SEUIL_DESEQUILIBRE_GROUPE) {
-    return roomsObj.length > 1 && ratioPieceDominante(group, roomsObj) > seuil;
+    if (!roomsObj || roomsObj.length <= 1) return false;
+    const totalFroid = roomsObj.reduce((s, r) => s + (r.froidMatch || 0), 0);
+    const totalChaud = roomsObj.reduce((s, r) => s + (r.chaudMatch || 0), 0);
+    const couvreToutEnSimultane = totalFroid <= group.puissance_nominale_froid_kw
+                               && totalChaud <= group.puissance_nominale_chaud_kw;
+    if (couvreToutEnSimultane) return false;
+    return ratioPieceDominante(group, roomsObj) > seuil;
 }
 
 // Taux de charge d'un groupe = besoin réel cumulé / puissance nominale catalogue. Un besoin chaud

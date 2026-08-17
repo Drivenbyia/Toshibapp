@@ -557,16 +557,42 @@ describe('Part d\'un groupe absorbée par une pièce (froid et chaud confrontés
 
     // La régression exacte, en mode « Froid seul » — le mode où le bug était systématique.
     test('mode froid seul : une pièce à 65% de la capacité froid est bien détectée comme déséquilibrante', () => {
+        // Les besoins dépassent volontairement la puissance nominale (5,6 > 5,2) : c'est la
+        // condition pour que la question du déséquilibre se pose, puisque le groupe s'appuie
+        // alors sur le foisonnement (voir estGroupeDesequilibre). La version précédente de ce
+        // test totalisait 5,1 kW, donc sous le nominal — le groupe servait déjà les trois pièces
+        // à leur pointe simultanée et aucune ne pouvait en priver une autre. Il testait donc le
+        // seuil sur une configuration où il n'a pas lieu de s'appliquer ; les besoins sont
+        // relevés pour que la régression d'origine (le ratio calculé à 50 % au lieu de 65 %)
+        // reste couverte sur un cas où elle compte vraiment.
         const pieces = [
             { index: 1, froidMatch: 3.4, chaudMatch: 0 },
-            { index: 2, froidMatch: 0.9, chaudMatch: 0 },
-            { index: 3, froidMatch: 0.8, chaudMatch: 0 }
+            { index: 2, froidMatch: 1.2, chaudMatch: 0 },
+            { index: 3, froidMatch: 1.0, chaudMatch: 0 }
         ];
         const ratio = ratioPieceDominante(GROUPE, pieces);
         assert.ok(Math.abs(ratio - 3.4 / 5.2) < 1e-9, `ratio attendu ${(3.4 / 5.2).toFixed(3)}, obtenu ${ratio}`);
         assert.ok(ratio > SEUIL_DESEQUILIBRE_GROUPE, 'ce ratio dépasse le seuil et doit donc alerter');
         assert.equal(estGroupeDesequilibre(GROUPE, pieces), true,
             'avec l\'ancien calcul, cette configuration passait à 50% et n\'alertait jamais');
+    });
+
+    // Le garde-fou qui manquait : le seuil de part dominante ne vaut que si le groupe parie sur
+    // le foisonnement. Quand il couvre déjà la somme des pointes, aucune pièce ne peut en priver
+    // une autre, et la part dominante — si élevée soit-elle — ne décrit plus un risque.
+    test('un groupe qui couvre la somme des pointes n\'est jamais déséquilibré, même à 65%', () => {
+        const pieces = [
+            { index: 1, froidMatch: 3.4, chaudMatch: 0 },
+            { index: 2, froidMatch: 0.9, chaudMatch: 0 },
+            { index: 3, froidMatch: 0.8, chaudMatch: 0 }
+        ];
+        const total = 3.4 + 0.9 + 0.8;
+        assert.ok(total <= GROUPE.puissance_nominale_froid_kw,
+            `${total} kW doivent tenir dans les ${GROUPE.puissance_nominale_froid_kw} kW du groupe`);
+        assert.ok(ratioPieceDominante(GROUPE, pieces) > SEUIL_DESEQUILIBRE_GROUPE,
+            'la pièce dominante dépasse pourtant bien le seuil');
+        assert.equal(estGroupeDesequilibre(GROUPE, pieces), false,
+            'quand la pièce dominante est à sa pointe, il reste de quoi servir les autres');
     });
 
     // Le nom affiché et le pourcentage affiché doivent désigner la même pièce.
@@ -648,10 +674,26 @@ describe('Équilibre du groupe multisplit (demande simultanée)', () => {
     });
 
     test('aucun groupe rééquilibrant dans le catalogue : findGroupeEquilibre retourne null', () => {
-        // Une petite pièce + une grosse pièce proche du haut du catalogue : même le plus gros groupe
-        // laisse la grosse pièce au-dessus du seuil.
+        // Une petite pièce + une grosse pièce, dans un cas où AUCUN groupe ne couvre la somme des
+        // pointes : le foisonnement reste donc indispensable, le seuil de part dominante
+        // s'applique, et aucun groupe du catalogue ne ramène la grosse pièce sous les 60 %.
+        // 10,5 / 12,5 kW dépassent le plus gros groupe du catalogue (10 / 12), qui reste néanmoins
+        // valide grâce au foisonnement — donc le seuil s'applique, et la grosse pièce y pèse 70 %.
+        const rooms = [{ froidMatch: 3.5, chaudMatch: 4.5 }, { froidMatch: 7.0, chaudMatch: 8.0 }];
+        assert.equal(findGroupeEquilibre(rooms, 'toshiba', COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD, { froid: 10.5, chaud: 12.5 }), null);
+    });
+
+    // Le pendant du test précédent, à la frontière exacte : la plus grosse UI du catalogue
+    // (taille 24 = 7,0 kW F / 8,0 kW C) avec une petite pièce totalise 7,8 / 9,0 kW, que le
+    // RAS-4M27 (8 / 9 kW) couvre tout juste. La grosse pièce y pèse 89 %, très au-dessus du
+    // seuil, mais elle ne peut priver personne : il reste exactement de quoi servir la petite.
+    // Le groupe est donc proposé, là où l'ancienne règle renvoyait au monosplit dédié.
+    test('à la frontière du catalogue, un groupe qui couvre tout est proposé malgré une part de 89%', () => {
         const rooms = [{ froidMatch: 0.8, chaudMatch: 1.0 }, { froidMatch: 7.0, chaudMatch: 8.0 }];
-        assert.equal(findGroupeEquilibre(rooms, 'toshiba', COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD, { froid: 7.8, chaud: 9.0 }), null);
+        const up = findGroupeEquilibre(rooms, 'toshiba', COEF_FOISONNEMENT_FROID, COEF_FOISONNEMENT_CHAUD, { froid: 7.8, chaud: 9.0 });
+        assert.equal(up.reference, 'RAS-4M27G3AVG-E');
+        assert.equal(7.8 <= up.puissance_nominale_froid_kw && 9.0 <= up.puissance_nominale_chaud_kw, true,
+            'le groupe retenu couvre bien les deux pièces à leur pointe simultanée');
     });
 
     test('tauxChargeGroupe ignore le chaud en mode "froid seul" (besoin chaud nul)', () => {
